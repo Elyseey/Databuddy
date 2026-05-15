@@ -117,6 +117,89 @@ function formatTickDate(
 	}
 }
 
+function getMetricLabel(dataKey: unknown) {
+	if (typeof dataKey !== "string" && typeof dataKey !== "number") {
+		return "";
+	}
+
+	return METRICS.find((metric) => metric.key === dataKey)?.label ?? String(dataKey);
+}
+
+interface LatencyTooltipEntry {
+	color?: string;
+	dataKey?: unknown;
+	value?: unknown;
+}
+
+function LatencyTooltipContent({
+	active,
+	payload,
+	label,
+	granularity,
+}: {
+	active?: boolean;
+	granularity: "hourly" | "daily";
+	label?: unknown;
+	payload?: readonly LatencyTooltipEntry[];
+}) {
+	if (!active || !payload?.length) {
+		return null;
+	}
+
+	return (
+		<div className="min-w-42 overflow-hidden rounded-xl border border-border/70 bg-popover/95 text-popover-foreground shadow-[0_16px_40px_-32px_rgba(0,0,0,0.45)] backdrop-blur-xl">
+			<div className="border-border/60 border-b bg-muted/40 px-3 py-2.5">
+				<div className="font-semibold text-xs leading-[1.2]">
+					Response Time
+				</div>
+				<div className="mt-1 text-muted-foreground text-[11px] tabular-nums leading-[1.2]">
+					{formatTickDate(String(label ?? ""), granularity)}
+				</div>
+			</div>
+			<div className="space-y-1.5 px-3 py-2.5">
+				{payload.map((entry) => (
+					<div
+						className="flex items-center gap-2 text-xs"
+						key={String(entry.dataKey)}
+					>
+						<span
+							className="inline-block size-1.5 rounded-full"
+							style={{ backgroundColor: entry.color }}
+						/>
+						<span className="text-muted-foreground">
+							{getMetricLabel(entry.dataKey)}
+						</span>
+						<span className="ml-auto font-mono tabular-nums">
+							{typeof entry.value === "number" ? formatMs(entry.value) : "—"}
+						</span>
+					</div>
+				))}
+			</div>
+		</div>
+	);
+}
+
+function renderLatencyTooltip({
+	active,
+	payload,
+	label,
+	granularity,
+}: {
+	active?: boolean;
+	granularity: "hourly" | "daily";
+	label?: unknown;
+	payload?: readonly LatencyTooltipEntry[];
+}) {
+	return (
+		<LatencyTooltipContent
+			active={active}
+			granularity={granularity}
+			label={label}
+			payload={payload}
+		/>
+	);
+}
+
 export function LatencyChart({
 	data,
 	isLoading = false,
@@ -300,36 +383,14 @@ function LatencyAreaChart({ data }: { data: ChartDataPoint[] }) {
 						/>
 
 						<Tooltip
-							content={({ active, payload, label }) => {
-								if (!active || !payload?.length) return null;
-								return (
-									<div className="rounded border border-border bg-popover p-2.5 shadow-lg">
-										<p className="mb-1.5 border-b border-border pb-1.5 text-muted-foreground text-xs">
-											{formatTickDate(String(label ?? ""), granularity)}
-										</p>
-										{payload.map((entry) => (
-											<div
-												className="flex items-center gap-2 text-xs"
-												key={String(entry.dataKey)}
-											>
-												<span
-													className="inline-block size-1.5 rounded-full"
-													style={{ backgroundColor: entry.color }}
-												/>
-												<span className="text-muted-foreground">
-													{METRICS.find((m) => m.key === entry.dataKey)
-														?.label ?? String(entry.dataKey ?? "")}
-												</span>
-												<span className="ml-auto font-mono tabular-nums">
-													{typeof entry.value === "number"
-														? formatMs(entry.value)
-														: "—"}
-												</span>
-											</div>
-										))}
-									</div>
-								);
-							}}
+							content={({ active, payload, label }) =>
+								renderLatencyTooltip({
+									active,
+									granularity,
+									label,
+									payload,
+								})
+							}
 							cursor={{
 								stroke: "var(--border)",
 								strokeWidth: 1,

@@ -112,6 +112,9 @@ export default async function StatusPage({ params }: StatusPageProps) {
 	const { statusPage: page } = data;
 	const theme = resolveTheme(page.theme);
 	const forcedTheme = theme === "system" ? undefined : theme;
+	const activeIncidentCount = data.incidents.filter(
+		(incident) => incident.status !== "resolved"
+	).length;
 
 	const latestTimestamp = data.monitors.reduce<string | null>(
 		(latest, monitor) => {
@@ -157,12 +160,13 @@ export default async function StatusPage({ params }: StatusPageProps) {
 			<div className="flex h-dvh flex-col overflow-hidden bg-background">
 				<StatusNavbar
 					logoUrl={page.logoUrl}
+					name={page.name}
 					supportUrl={page.supportUrl}
 					websiteUrl={page.websiteUrl}
 				/>
 
 				<main className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
-					<div className="mx-auto max-w-2xl px-4 py-8 sm:px-6">
+					<div className="mx-auto max-w-[822px] px-4 py-8 sm:px-6">
 						<script
 							dangerouslySetInnerHTML={{ __html: serializeJsonLd(jsonLd) }}
 							type="application/ld+json"
@@ -178,11 +182,9 @@ export default async function StatusPage({ params }: StatusPageProps) {
 
 						<Status>
 							<Status.Header
+								activeIncidentCount={activeIncidentCount}
 								description={page.description ?? undefined}
-								logoUrl={page.logoUrl}
-								name={page.name}
 								status={data.overallStatus}
-								websiteUrl={page.websiteUrl}
 							/>
 
 							<Status.IncidentList incidents={data.incidents} />
@@ -191,7 +193,6 @@ export default async function StatusPage({ params }: StatusPageProps) {
 								{data.monitors.map((monitor) => (
 									<Status.MonitorCard
 										anchorId={slugify(monitor.name)}
-										currentStatus={monitor.currentStatus}
 										dailyData={monitor.dailyData}
 										days={DAYS}
 										domain={monitor.domain ?? undefined}
@@ -213,7 +214,7 @@ export default async function StatusPage({ params }: StatusPageProps) {
 
 				{page.hideBranding ? null : (
 					<footer className="shrink-0 border-border/50 border-t bg-background">
-						<div className="mx-auto flex max-w-2xl items-center justify-center px-4 py-4 sm:px-6">
+						<div className="mx-auto flex max-w-[822px] items-center justify-center px-4 py-4 sm:px-6">
 							<p className="text-[11px] text-muted-foreground/50 tracking-wide">
 								Powered by{" "}
 								<a
