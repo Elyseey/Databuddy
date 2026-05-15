@@ -37,8 +37,8 @@ interface VitalsByDimensionConfig {
 	extraWhere: string;
 	groupBy: string;
 	metrics?: string;
-	selectName: string;
 	needsSessionDimensions?: boolean;
+	selectName: string;
 }
 
 function vitalsByDimension(config: VitalsByDimensionConfig): CustomSqlFn {

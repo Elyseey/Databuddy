@@ -132,8 +132,8 @@ export type CustomSqlFn = (
 ) => string | { sql: string; params: Record<string, unknown> };
 
 export interface PercentageOf {
-	of: string;
 	as?: string;
+	of: string;
 }
 
 export interface SimpleQueryConfig {

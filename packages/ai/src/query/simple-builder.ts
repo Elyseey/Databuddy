@@ -25,6 +25,9 @@ import type {
 import { FilterOperators } from "./types";
 import { applyPlugins } from "./utils";
 
+const FIELD_ALIAS_PATTERN = /\s+as\s+([A-Za-z_][A-Za-z0-9_]*)\s*$/i;
+const SIMPLE_FIELD_PATTERN = /^[A-Za-z_][A-Za-z0-9_.]*$/;
+
 // Filters that are always allowed regardless of per-builder allowedFilters
 const GLOBAL_ALLOWED_FILTERS = [
 	"path",
@@ -664,13 +667,13 @@ export class SimpleQueryBuilder {
 			return field.alias;
 		}
 
-		const aliasMatch = field.match(/\s+as\s+([A-Za-z_][A-Za-z0-9_]*)\s*$/i);
+		const aliasMatch = field.match(FIELD_ALIAS_PATTERN);
 		if (aliasMatch?.[1]) {
 			return aliasMatch[1];
 		}
 
 		const trimmed = field.trim();
-		if (/^[A-Za-z_][A-Za-z0-9_.]*$/.test(trimmed)) {
+		if (SIMPLE_FIELD_PATTERN.test(trimmed)) {
 			return trimmed.split(".").at(-1) ?? trimmed;
 		}
 
