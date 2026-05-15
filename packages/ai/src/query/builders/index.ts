@@ -104,4 +104,13 @@ export const QueryBuilders = Object.fromEntries(
 	])
 ) as typeof BASE_QUERY_BUILDERS;
 
+export function canReadQueryTypesPublicly(
+	queryTypes: readonly string[]
+): boolean {
+	return (
+		queryTypes.length > 0 &&
+		queryTypes.every((type) => QueryBuilders[type]?.publicAccess === true)
+	);
+}
+
 export type QueryType = keyof typeof QueryBuilders;

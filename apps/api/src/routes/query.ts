@@ -20,7 +20,10 @@ import {
 } from "@databuddy/shared/types/features";
 import type { CustomQueryRequest } from "@databuddy/ai/query/custom-query-types";
 import { compileQuery, executeBatch } from "@databuddy/ai/query";
-import { QueryBuilders } from "@databuddy/ai/query/builders";
+import {
+	canReadQueryTypesPublicly,
+	QueryBuilders,
+} from "@databuddy/ai/query/builders";
 import { executeCustomQuery } from "@databuddy/ai/query/custom-query-builder";
 import {
 	isNormalizedQueryDate,
@@ -30,7 +33,6 @@ import type { Filter, QueryRequest } from "@databuddy/ai/query/types";
 import { Elysia, t } from "elysia";
 import { getAccessibleWebsites } from "../lib/accessible-websites";
 import { resolveDatePreset } from "../lib/date-presets";
-import { isPublicQueryAccess } from "../lib/public-query-access";
 import { mergeWideEvent } from "../lib/tracing";
 import { getCachedWebsiteDomain, getWebsiteDomain } from "../lib/website-utils";
 import {
@@ -479,7 +481,7 @@ async function verifyWebsiteAccess(
 		return false;
 	}
 
-	if (website.isPublic && isPublicQueryAccess(queryTypes)) {
+	if (website.isPublic && canReadQueryTypesPublicly(queryTypes)) {
 		mergeWideEvent({ access_result: "public_query" });
 		return true;
 	}
