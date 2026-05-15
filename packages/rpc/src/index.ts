@@ -35,6 +35,12 @@ export {
 	workspaceInputSchema,
 } from "./procedures/with-workspace";
 export { type AppRouter, appRouter } from "./root";
+export {
+	queueInsightGenerationRun,
+	type QueueInsightGenerationRunInput,
+	type QueueInsightGenerationRunResult,
+} from "./routers/insight-generation";
+export { getNextInsightRunAt } from "./services/insight-schedule";
 export type { SlackIntegrationOutput } from "./routers/integrations";
 export type { WebsiteOutput } from "./routers/websites";
 export {

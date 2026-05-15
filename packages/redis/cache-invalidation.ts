@@ -104,6 +104,7 @@ const USER_PREFERENCES_CACHE_PREFIX = cacheNamespaces.userPreferences;
 const STATUS_PAGE_CACHE_PREFIX = cacheNamespaces.statusPage;
 const SLACK_INTEGRATION_CACHE_PREFIX = cacheNamespaces.slackIntegrationByTeam;
 const SLACK_CHANNEL_BINDING_CACHE_PREFIX = cacheNamespaces.slackChannelBinding;
+const LEGACY_INSIGHTS_API_CACHE_PREFIX = "ai-insights";
 
 export interface CacheInvalidationResult {
 	attempted: number;
@@ -537,6 +538,9 @@ export function invalidateInsightsCachesForOrganization(
 ): Promise<CacheInvalidationResult> {
 	const organizationTag = cacheTags.organization(organizationId);
 	return settleInvalidations([
+		invalidateCacheablePattern(
+			`${LEGACY_INSIGHTS_API_CACHE_PREFIX}:${organizationId}:*`
+		),
 		invalidateCacheableTag(cacheNamespaces.insightsNarrative, organizationTag, {
 			fallbackPattern: `cacheable:${cacheNamespaces.insightsNarrative}:*${organizationId}*`,
 		}),

@@ -23,6 +23,7 @@
     "./insights/normalize": "./src/ai/insights/normalize.ts",
     "./insights/types": "./src/ai/insights/types.ts",
     "./insights/validate": "./src/ai/insights/validate.ts",
+    "./lib/ai-logger": "./src/lib/ai-logger.ts",
     "./lib/supermemory": "./src/lib/supermemory.ts",
     "./lib/request-logger": "./src/lib/request-logger.ts",
     "./mcp/http": "./src/mcp/http.ts",

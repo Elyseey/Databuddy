@@ -54,6 +54,7 @@
     "email:dev": "dotenv -- sh -c 'cd packages/email && bun run dev'",
     "sdk:build": "turbo run build --filter @databuddy/sdk --filter @databuddy/cache",
     "dev:dashboard": "dotenv -- turbo run dev --filter @databuddy/dashboard --filter @databuddy/api",
+    "dev:insights": "dotenv -- turbo run dev --filter @databuddy/insights",
     "dev:slack": "dotenv -- turbo dev --filter @databuddy/slack",
     "slack:manifest:validate": "bun run --cwd apps/slack manifest:validate",
     "slack:manifest:update": "bun run --cwd apps/slack manifest:update",

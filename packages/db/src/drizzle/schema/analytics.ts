@@ -1,3 +1,4 @@
+import { isNotNull } from "drizzle-orm";
 import {
 	boolean,
 	doublePrecision,
@@ -205,6 +206,7 @@ export const analyticsInsights = pgTable(
 		type: text().notNull(),
 		priority: integer().notNull(),
 		changePercent: doublePrecision("change_percent"),
+		dedupeKey: text("dedupe_key"),
 		subjectKey: text("subject_key").notNull().default(""),
 		sources: jsonb().$type<AnalyticsInsightSource[]>().notNull().default([]),
 		confidence: doublePrecision().notNull().default(0),
@@ -234,6 +236,9 @@ export const analyticsInsights = pgTable(
 			table.subjectKey,
 			table.createdAt.desc()
 		),
+		uniqueIndex("analytics_insights_org_dedupe_key_uidx")
+			.on(table.organizationId, table.dedupeKey)
+			.where(isNotNull(table.dedupeKey)),
 		foreignKey({
 			columns: [table.organizationId],
 			foreignColumns: [organization.id],
