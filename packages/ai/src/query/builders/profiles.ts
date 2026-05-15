@@ -207,55 +207,55 @@ export const ProfilesBuilders: Record<string, SimpleQueryConfig> = {
     ),
     visitor_custom_events AS (
       SELECT
-        ce.anonymous_id as visitor_id,
+        anonymous_id as visitor_id,
         COUNT(*) as custom_event_count,
-        uniq(ce.event_name) as unique_event_names
-      FROM ${Analytics.custom_events} ce
-      INNER JOIN visitor_profiles vp ON ce.anonymous_id = vp.visitor_id
-      WHERE (ce.owner_id = {websiteId:String} OR ce.website_id = {websiteId:String})
-        AND ce.timestamp >= toDateTime({startDate:String})
-        AND ce.timestamp <= toDateTime({endDate:String})
-      GROUP BY ce.anonymous_id
+        uniq(event_name) as unique_event_names
+      FROM ${Analytics.custom_events}
+      WHERE (owner_id = {websiteId:String} OR website_id = {websiteId:String})
+        AND timestamp >= toDateTime({startDate:String})
+        AND timestamp <= toDateTime({endDate:String})
+        AND anonymous_id IN (SELECT visitor_id FROM visitor_profiles)
+      GROUP BY anonymous_id
     ),
     visitor_sessions AS (
       SELECT
-        vp.visitor_id,
-        e.session_id,
-        MIN(e.time) as session_start,
-        MAX(e.time) as session_end,
-        LEAST(dateDiff('second', MIN(e.time), MAX(e.time)), 28800) as duration,
+        anonymous_id as visitor_id,
+        session_id,
+        MIN(time) as session_start,
+        MAX(time) as session_end,
+        LEAST(dateDiff('second', MIN(time), MAX(time)), 28800) as duration,
         COUNT(*) as page_views,
-        uniqIf(e.path, e.event_name = 'screen_view') as unique_pages,
-        any(e.user_agent) as user_agent,
-        any(e.country) as country,
-        any(e.region) as region,
-        any(e.device_type) as device_type,
-        any(e.browser_name) as browser_name,
-        any(e.os_name) as os_name,
-        any(e.referrer) as referrer,
+        uniqIf(path, event_name = 'screen_view') as unique_pages,
+        any(user_agent) as user_agent,
+        any(country) as country,
+        any(region) as region,
+        any(device_type) as device_type,
+        any(browser_name) as browser_name,
+        any(os_name) as os_name,
+        any(referrer) as referrer,
         groupArray(
           tuple(
-            e.id,
-            e.time,
-            e.event_name,
-            e.path,
+            id,
+            time,
+            event_name,
+            path,
             CASE
-              WHEN e.event_name NOT IN ('screen_view', 'page_exit', 'web_vitals', 'link_out')
-                AND e.properties IS NOT NULL
-                AND e.properties != '{}'
-              THEN CAST(e.properties AS String)
+              WHEN event_name NOT IN ('screen_view', 'page_exit', 'web_vitals', 'link_out')
+                AND properties IS NOT NULL
+                AND properties != '{}'
+              THEN CAST(properties AS String)
               ELSE NULL
             END
           )
         ) as events
-      FROM ${Analytics.events} e
-      INNER JOIN visitor_profiles vp ON e.anonymous_id = vp.visitor_id
-      WHERE e.client_id = {websiteId:String}
-        AND e.time >= toDateTime({startDate:String})
-        AND e.time <= toDateTime({endDate:String})
+      FROM ${Analytics.events}
+      WHERE client_id = {websiteId:String}
+        AND time >= toDateTime({startDate:String})
+        AND time <= toDateTime({endDate:String})
+        AND anonymous_id IN (SELECT visitor_id FROM visitor_profiles)
 	${combinedWhereClause}
-      GROUP BY vp.visitor_id, e.session_id
-      ORDER BY vp.visitor_id, session_start DESC
+      GROUP BY anonymous_id, session_id
+      ORDER BY anonymous_id, session_start DESC
     )
     SELECT
       vp.visitor_id AS visitor_id,
