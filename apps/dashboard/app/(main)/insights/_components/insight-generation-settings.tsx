@@ -1,11 +1,29 @@
 "use client";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useMemo, useState } from "react";
+import {
+	cloneElement,
+	type ReactElement,
+	type ReactNode,
+	useEffect,
+	useMemo,
+	useState,
+} from "react";
 import { toast } from "sonner";
 import { insightQueries } from "@/lib/insight-api";
 import { orpc } from "@/lib/orpc";
-import { FloppyDiskIcon, GearIcon, MediaPlayIcon } from "@databuddy/ui/icons";
+import { cn } from "@/lib/utils";
+import {
+	BrainIcon,
+	CalendarDotsIcon,
+	FloppyDiskIcon,
+	GearIcon,
+	GlobeSimpleIcon,
+	MediaPlayIcon,
+	TargetIcon,
+	TimerIcon,
+	WandSparkleIcon,
+} from "@databuddy/ui/icons";
 import {
 	Badge,
 	Button,
@@ -67,11 +85,46 @@ const DEFAULT_FORM: ConfigFormState = {
 	timezone: "UTC",
 };
 
-const TOOL_OPTIONS: { label: string; value: ToolName }[] = [
-	{ label: "Web", value: "web_metrics" },
-	{ label: "Product", value: "product_metrics" },
-	{ label: "Ops", value: "ops_context" },
-	{ label: "Business", value: "business_context" },
+const FREQUENCY_OPTIONS: { label: string; value: Frequency }[] = [
+	{ label: "Hourly", value: "hourly" },
+	{ label: "Daily", value: "daily" },
+	{ label: "Weekly", value: "weekly" },
+	{ label: "Custom", value: "custom" },
+];
+
+const DEPTH_OPTIONS: { label: string; value: Depth }[] = [
+	{ label: "Light", value: "light" },
+	{ label: "Standard", value: "standard" },
+	{ label: "Deep", value: "deep" },
+];
+
+const MODEL_OPTIONS: { label: string; value: ModelTier }[] = [
+	{ label: "Fast", value: "fast" },
+	{ label: "Balanced", value: "balanced" },
+	{ label: "Deep", value: "deep" },
+];
+
+const TOOL_OPTIONS: {
+	description: string;
+	label: string;
+	value: ToolName;
+}[] = [
+	{
+		description: "Traffic, pages, referrers",
+		label: "Web",
+		value: "web_metrics",
+	},
+	{
+		description: "Events, funnels, goals",
+		label: "Product",
+		value: "product_metrics",
+	},
+	{ description: "Errors, vitals, uptime", label: "Ops", value: "ops_context" },
+	{
+		description: "Revenue and context",
+		label: "Business",
+		value: "business_context",
+	},
 ];
 
 export function InsightGenerationSettings({
@@ -165,54 +218,67 @@ export function InsightGenerationSettings({
 
 	return (
 		<Card aria-label="Insight generation settings">
-			<Card.Header className="flex-row items-start justify-between gap-3">
-				<div className="min-w-0 space-y-1">
-					<div className="flex items-center gap-2">
-						<GearIcon
-							aria-hidden
-							className="size-4 text-primary"
-							weight="duotone"
-						/>
-						<Card.Title>Controls</Card.Title>
-						{configQuery.data?.source && (
-							<Badge className="capitalize" size="sm" variant="muted">
-								{configQuery.data.source}
-							</Badge>
-						)}
+			<Card.Header className="gap-3">
+				<div className="flex items-start justify-between gap-3">
+					<div className="min-w-0 space-y-1">
+						<div className="flex items-center gap-2">
+							<GearIcon
+								aria-hidden
+								className="size-4 text-primary"
+								weight="duotone"
+							/>
+							<Card.Title>Analysis plan</Card.Title>
+						</div>
+						<Card.Description>{selectedScopeLabel}</Card.Description>
 					</div>
-					<Card.Description>{selectedScopeLabel}</Card.Description>
+					{configQuery.data?.source && (
+						<Badge className="capitalize" size="sm" variant="muted">
+							{configQuery.data.source}
+						</Badge>
+					)}
 				</div>
-				<div className="w-44 shrink-0">
-					<Select
-						disabled={!organizationId || isBusy}
-						onValueChange={(value) => setScope(String(value))}
-						value={scope}
-					>
-						<Select.Trigger>
-							<Select.Value />
-						</Select.Trigger>
-						<Select.Content>
-							<Select.Item value="organization">Organization</Select.Item>
-							{websites.map((website) => (
-								<Select.Item key={website.id} value={website.id}>
-									{website.name || website.domain}
-								</Select.Item>
-							))}
-						</Select.Content>
-					</Select>
-				</div>
+				<Select
+					disabled={!organizationId || isBusy}
+					onValueChange={(value) => setScope(String(value))}
+					value={scope}
+				>
+					<Select.Trigger>
+						<Select.Value />
+					</Select.Trigger>
+					<Select.Content>
+						<Select.Item value="organization">Organization</Select.Item>
+						{websites.map((website) => (
+							<Select.Item key={website.id} value={website.id}>
+								{website.name || website.domain}
+							</Select.Item>
+						))}
+					</Select.Content>
+				</Select>
 			</Card.Header>
 
-			<Card.Content className="space-y-4">
+			<Card.Content className="space-y-5">
 				{configQuery.isLoading ? (
-					<div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-						{Array.from({ length: 8 }).map((_, index) => (
-							<Skeleton className="h-14 rounded" key={index} />
-						))}
+					<div className="space-y-3">
+						<Skeleton className="h-10 rounded" />
+						<Skeleton className="h-24 rounded" />
+						<Skeleton className="h-28 rounded" />
 					</div>
 				) : (
 					<>
-						<div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+						<div className="flex items-center justify-between gap-3 rounded-md border border-border/60 bg-muted/30 p-3">
+							<div className="min-w-0">
+								<div className="flex items-center gap-2 font-medium text-sm">
+									<WandSparkleIcon
+										aria-hidden
+										className="size-4 text-primary"
+										weight="duotone"
+									/>
+									Generation
+								</div>
+								<p className="mt-1 text-muted-foreground text-xs">
+									{form.frequency} · {form.depth} · {form.modelTier}
+								</p>
+							</div>
 							<Switch
 								checked={form.enabled}
 								disabled={isBusy}
@@ -224,152 +290,36 @@ export function InsightGenerationSettings({
 									}))
 								}
 							/>
-
-							<Field>
-								<Field.Label>Frequency</Field.Label>
-								<Select
-									disabled={isBusy}
-									onValueChange={(value) =>
-										setForm((current) => ({
-											...current,
-											frequency: value as Frequency,
-										}))
-									}
-									value={form.frequency}
-								>
-									<Select.Trigger>
-										<Select.Value />
-									</Select.Trigger>
-									<Select.Content>
-										<Select.Item value="hourly">Hourly</Select.Item>
-										<Select.Item value="daily">Daily</Select.Item>
-										<Select.Item value="weekly">Weekly</Select.Item>
-										<Select.Item value="custom">Custom</Select.Item>
-									</Select.Content>
-								</Select>
-							</Field>
-
-							<Field>
-								<Field.Label>Depth</Field.Label>
-								<Select
-									disabled={isBusy}
-									onValueChange={(value) =>
-										setForm((current) => ({
-											...current,
-											depth: value as Depth,
-										}))
-									}
-									value={form.depth}
-								>
-									<Select.Trigger>
-										<Select.Value />
-									</Select.Trigger>
-									<Select.Content>
-										<Select.Item value="light">Light</Select.Item>
-										<Select.Item value="standard">Standard</Select.Item>
-										<Select.Item value="deep">Deep</Select.Item>
-									</Select.Content>
-								</Select>
-							</Field>
-
-							<Field>
-								<Field.Label>Model</Field.Label>
-								<Select
-									disabled={isBusy}
-									onValueChange={(value) =>
-										setForm((current) => ({
-											...current,
-											modelTier: value as ModelTier,
-										}))
-									}
-									value={form.modelTier}
-								>
-									<Select.Trigger>
-										<Select.Value />
-									</Select.Trigger>
-									<Select.Content>
-										<Select.Item value="fast">Fast</Select.Item>
-										<Select.Item value="balanced">Balanced</Select.Item>
-										<Select.Item value="deep">Deep</Select.Item>
-									</Select.Content>
-								</Select>
-							</Field>
 						</div>
 
-						<div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-							<NumberField
+						<ControlGroup icon={<CalendarDotsIcon />} title="Cadence">
+							<OptionRow
 								disabled={isBusy}
-								label="Lookback"
-								max={90}
-								min={1}
-								onChange={(value) =>
-									setForm((current) => ({ ...current, lookbackDays: value }))
-								}
-								suffix="days"
-								value={form.lookbackDays}
-							/>
-							<NumberField
-								disabled={isBusy}
-								label="Cards"
-								max={10}
-								min={1}
 								onChange={(value) =>
 									setForm((current) => ({
 										...current,
-										maxInsightsPerWebsite: value,
+										frequency: value as Frequency,
 									}))
 								}
-								suffix="per site"
-								value={form.maxInsightsPerWebsite}
+								options={FREQUENCY_OPTIONS}
+								value={form.frequency}
 							/>
-							<NumberField
-								disabled={isBusy}
-								label="Steps"
-								max={64}
-								min={1}
-								onChange={(value) =>
-									setForm((current) => ({ ...current, maxSteps: value }))
-								}
-								value={form.maxSteps}
-							/>
-							<NumberField
-								disabled={isBusy}
-								label="Tool calls"
-								max={64}
-								min={1}
-								onChange={(value) =>
-									setForm((current) => ({ ...current, maxToolCalls: value }))
-								}
-								value={form.maxToolCalls}
-							/>
-						</div>
-
-						<div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-							<NumberField
-								disabled={isBusy}
-								label="Cooldown"
-								max={168}
-								min={1}
-								onChange={(value) =>
-									setForm((current) => ({ ...current, cooldownHours: value }))
-								}
-								suffix="hours"
-								value={form.cooldownHours}
-							/>
-							<Field className="lg:col-span-2">
-								<Field.Label>Cron</Field.Label>
-								<Input
-									disabled={isBusy || form.frequency !== "custom"}
-									onChange={(event) =>
-										setForm((current) => ({
-											...current,
-											cron: event.target.value,
-										}))
-									}
-									placeholder="0 9 * * 1"
-									value={form.cron}
-								/>
-							</Field>
+							{form.frequency === "custom" && (
+								<Field>
+									<Field.Label>Cron</Field.Label>
+									<Input
+										disabled={isBusy}
+										onChange={(event) =>
+											setForm((current) => ({
+												...current,
+												cron: event.target.value,
+											}))
+										}
+										placeholder="0 9 * * 1"
+										value={form.cron}
+									/>
+								</Field>
+							)}
 							<Field>
 								<Field.Label>Timezone</Field.Label>
 								<Input
@@ -383,61 +333,230 @@ export function InsightGenerationSettings({
 									value={form.timezone}
 								/>
 							</Field>
-						</div>
+						</ControlGroup>
 
-						<div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-							{TOOL_OPTIONS.map((tool) => (
-								<Checkbox
-									checked={form.allowedTools.includes(tool.value)}
-									disabled={isBusy || tool.value === "web_metrics"}
-									key={tool.value}
-									label={tool.label}
-									onCheckedChange={(checked) =>
+						<ControlGroup icon={<BrainIcon />} title="Reasoning">
+							<OptionRow
+								disabled={isBusy}
+								onChange={(value) =>
+									setForm((current) => ({
+										...current,
+										depth: value as Depth,
+									}))
+								}
+								options={DEPTH_OPTIONS}
+								value={form.depth}
+							/>
+							<OptionRow
+								disabled={isBusy}
+								onChange={(value) =>
+									setForm((current) => ({
+										...current,
+										modelTier: value as ModelTier,
+									}))
+								}
+								options={MODEL_OPTIONS}
+								value={form.modelTier}
+							/>
+						</ControlGroup>
+
+						<ControlGroup icon={<TargetIcon />} title="Budget">
+							<div className="grid grid-cols-2 gap-2">
+								<NumberField
+									disabled={isBusy}
+									label="Lookback"
+									max={90}
+									min={1}
+									onChange={(value) =>
 										setForm((current) => ({
 											...current,
-											allowedTools: toggleTool(
-												current.allowedTools,
-												tool.value,
-												Boolean(checked)
-											),
+											lookbackDays: value,
 										}))
 									}
+									suffix="days"
+									value={form.lookbackDays}
 								/>
-							))}
-						</div>
+								<NumberField
+									disabled={isBusy}
+									label="Cards"
+									max={10}
+									min={1}
+									onChange={(value) =>
+										setForm((current) => ({
+											...current,
+											maxInsightsPerWebsite: value,
+										}))
+									}
+									suffix="site"
+									value={form.maxInsightsPerWebsite}
+								/>
+								<NumberField
+									disabled={isBusy}
+									label="Steps"
+									max={64}
+									min={1}
+									onChange={(value) =>
+										setForm((current) => ({ ...current, maxSteps: value }))
+									}
+									value={form.maxSteps}
+								/>
+								<NumberField
+									disabled={isBusy}
+									label="Tools"
+									max={64}
+									min={1}
+									onChange={(value) =>
+										setForm((current) => ({
+											...current,
+											maxToolCalls: value,
+										}))
+									}
+									value={form.maxToolCalls}
+								/>
+							</div>
+							<NumberField
+								disabled={isBusy}
+								label="Cooldown"
+								max={168}
+								min={1}
+								onChange={(value) =>
+									setForm((current) => ({ ...current, cooldownHours: value }))
+								}
+								suffix="hours"
+								value={form.cooldownHours}
+							/>
+						</ControlGroup>
+
+						<ControlGroup icon={<GlobeSimpleIcon />} title="Signals">
+							<div className="grid gap-2">
+								{TOOL_OPTIONS.map((tool) => (
+									<div
+										className="rounded-md border border-border/60 bg-background/50 p-2.5"
+										key={tool.value}
+									>
+										<Checkbox
+											checked={form.allowedTools.includes(tool.value)}
+											disabled={isBusy || tool.value === "web_metrics"}
+											label={tool.label}
+											onCheckedChange={(checked) =>
+												setForm((current) => ({
+													...current,
+													allowedTools: toggleTool(
+														current.allowedTools,
+														tool.value,
+														Boolean(checked)
+													),
+												}))
+											}
+										/>
+										<p className="mt-1 pl-6 text-[11px] text-muted-foreground">
+											{tool.description}
+										</p>
+									</div>
+								))}
+							</div>
+						</ControlGroup>
 					</>
 				)}
 			</Card.Content>
 
-			<Card.Footer>
-				<Button
-					disabled={!organizationId || isBusy}
-					onClick={() => saveMutation.mutate(patch())}
-					size="sm"
-					type="button"
-					variant="secondary"
-				>
-					<FloppyDiskIcon className="size-4" />
-					Save
-				</Button>
-				<Button
-					disabled={!organizationId || isBusy}
-					onClick={() =>
-						triggerMutation.mutate({
-							...formToPatch(form),
-							force: true,
-							organizationId,
-							websiteIds: websiteId ? [websiteId] : undefined,
-						})
-					}
-					size="sm"
-					type="button"
-				>
-					<MediaPlayIcon className="size-4" />
-					Run now
-				</Button>
+			<Card.Footer className="justify-between">
+				<div className="flex items-center gap-1.5 text-muted-foreground text-xs">
+					<TimerIcon aria-hidden className="size-3.5" weight="duotone" />
+					{form.lookbackDays}d lookback
+				</div>
+				<div className="flex items-center gap-2">
+					<Button
+						disabled={!organizationId || isBusy}
+						onClick={() => saveMutation.mutate(patch())}
+						size="sm"
+						type="button"
+						variant="secondary"
+					>
+						<FloppyDiskIcon className="size-4" />
+						Save
+					</Button>
+					<Button
+						disabled={!organizationId || isBusy}
+						onClick={() =>
+							triggerMutation.mutate({
+								...formToPatch(form),
+								force: true,
+								organizationId,
+								websiteIds: websiteId ? [websiteId] : undefined,
+							})
+						}
+						size="sm"
+						type="button"
+					>
+						<MediaPlayIcon className="size-4" />
+						Run
+					</Button>
+				</div>
 			</Card.Footer>
 		</Card>
+	);
+}
+
+function ControlGroup({
+	children,
+	icon,
+	title,
+}: {
+	children: ReactNode;
+	icon: ReactElement<{
+		"aria-hidden"?: boolean;
+		className?: string;
+		weight?: string;
+	}>;
+	title: string;
+}) {
+	return (
+		<section className="space-y-2">
+			<div className="flex items-center gap-2 font-medium text-foreground text-xs">
+				{cloneElement(icon, {
+					"aria-hidden": true,
+					className: cn("size-3.5 text-muted-foreground", icon.props.className),
+					weight: icon.props.weight ?? "duotone",
+				})}
+				{title}
+			</div>
+			<div className="space-y-2">{children}</div>
+		</section>
+	);
+}
+
+function OptionRow<T extends string>({
+	disabled,
+	onChange,
+	options,
+	value,
+}: {
+	disabled: boolean;
+	onChange: (value: T) => void;
+	options: { label: string; value: T }[];
+	value: T;
+}) {
+	return (
+		<div className="grid grid-cols-2 gap-1.5 sm:grid-cols-4 lg:grid-cols-2 xl:grid-cols-4">
+			{options.map((option) => (
+				<Button
+					aria-pressed={value === option.value}
+					className={cn(
+						"h-8 justify-center px-2 text-xs",
+						value === option.value && "bg-primary text-primary-foreground"
+					)}
+					disabled={disabled}
+					key={option.value}
+					onClick={() => onChange(option.value)}
+					size="sm"
+					type="button"
+					variant={value === option.value ? "primary" : "secondary"}
+				>
+					{option.label}
+				</Button>
+			))}
+		</div>
 	);
 }
 

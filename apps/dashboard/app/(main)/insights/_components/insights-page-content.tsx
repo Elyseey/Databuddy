@@ -134,19 +134,21 @@ export function InsightsPageContent() {
 				{hasNoWebsites ? (
 					<EmptyOrgState />
 				) : (
-					<div className="mx-auto flex w-full max-w-6xl flex-col gap-4 p-4 sm:p-5">
-						<div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_360px]">
-							<InsightGenerationSettings
-								organizationId={orgId}
-								websites={websites}
-							/>
+					<div className="mx-auto grid w-full max-w-7xl gap-4 p-4 sm:p-5 lg:grid-cols-[minmax(0,1fr)_380px]">
+						<div className="min-w-0 space-y-4">
+							<CockpitNarrative />
+							<CockpitSignals />
+						</div>
+						<aside className="min-w-0 space-y-4 lg:sticky lg:top-4 lg:self-start">
 							<InsightGenerationStatus
 								generation={generation}
 								organizationId={orgId}
 							/>
-						</div>
-						<CockpitNarrative />
-						<CockpitSignals />
+							<InsightGenerationSettings
+								organizationId={orgId}
+								websites={websites}
+							/>
+						</aside>
 					</div>
 				)}
 			</div>

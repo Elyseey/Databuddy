@@ -1,13 +1,15 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
-import { useMemo } from "react";
+import { cloneElement, type ReactElement, useMemo } from "react";
 import type { InsightsAiResponse } from "@/lib/insight-api";
 import { orpc } from "@/lib/orpc";
 import {
 	ArrowClockwiseIcon,
 	CheckCircleIcon,
+	ClockCounterClockwiseIcon,
 	ClockIcon,
+	DatabaseIcon,
 	WarningCircleIcon,
 } from "@databuddy/ui/icons";
 import {
@@ -30,6 +32,7 @@ type RunStatus =
 interface InsightRunSummary {
 	completedItems: number;
 	createdAt: string | Date;
+	errorMessage: string | null;
 	failedItems: number;
 	finishedAt: string | Date | null;
 	id: string;
@@ -66,10 +69,11 @@ export function InsightGenerationStatus({
 		refetchOnWindowFocus: false,
 	});
 
-	const latestRun = useMemo(
-		() => (runsQuery.data?.runs?.[0] as InsightRunSummary | undefined) ?? null,
+	const runs = useMemo(
+		() => (runsQuery.data?.runs as InsightRunSummary[] | undefined) ?? [],
 		[runsQuery.data?.runs]
 	);
+	const latestRun = runs[0] ?? null;
 	const activeQueuedRun:
 		| { queuedItems?: number; runId: string; status: "queued" }
 		| undefined =
@@ -84,62 +88,77 @@ export function InsightGenerationStatus({
 	const status = latestRun?.status ?? activeQueuedRun?.status ?? "skipped";
 	const progress =
 		latestRun && latestRun.totalItems > 0
-			? ((latestRun.completedItems +
-					latestRun.failedItems +
-					latestRun.skippedItems) /
-					latestRun.totalItems) *
-				100
+			? (settledItems(latestRun) / latestRun.totalItems) * 100
 			: activeQueuedRun?.queuedItems
 				? 2
 				: 0;
 
 	return (
 		<Card aria-label="Insight generation status">
-			<Card.Header className="flex-row items-center justify-between gap-3">
-				<div className="flex min-w-0 items-center gap-2">
-					<ClockIcon
-						aria-hidden
-						className="size-4 shrink-0 text-primary"
-						weight="duotone"
-					/>
-					<div className="min-w-0">
-						<Card.Title>Generation</Card.Title>
-						<Card.Description>{statusLabel(status)}</Card.Description>
+			<Card.Header className="flex-row items-start justify-between gap-3">
+				<div className="min-w-0 space-y-1">
+					<div className="flex items-center gap-2">
+						<ClockCounterClockwiseIcon
+							aria-hidden
+							className="size-4 text-primary"
+							weight="duotone"
+						/>
+						<Card.Title>Run activity</Card.Title>
 					</div>
+					<Card.Description>{statusLabel(status)}</Card.Description>
 				</div>
 				<StatusBadge status={status} />
 			</Card.Header>
 
-			<Card.Content className="space-y-3">
+			<Card.Content className="space-y-4">
 				{runsQuery.isLoading ? (
-					<div className="space-y-2">
+					<div className="space-y-3">
 						<Skeleton className="h-3 w-3/5 rounded" />
 						<Skeleton className="h-2 w-full rounded" />
+						<Skeleton className="h-20 rounded" />
 					</div>
 				) : latestRun ? (
 					<>
-						<Progress
-							size="sm"
-							tone={progressTone(latestRun.status)}
-							value={progress}
-						/>
-						<div className="grid gap-2 text-muted-foreground text-xs sm:grid-cols-4">
-							<Stat
-								label="Items"
-								value={`${settledItems(latestRun)}/${latestRun.totalItems}`}
+						<div className="space-y-3">
+							<Progress
+								size="sm"
+								tone={progressTone(latestRun.status)}
+								value={progress}
 							/>
-							<Stat
-								label="Succeeded"
-								value={String(latestRun.completedItems)}
-							/>
-							<Stat label="Failed" value={String(latestRun.failedItems)} />
-							<Stat
-								label="Updated"
-								value={formatRelative(
-									latestRun.finishedAt ?? latestRun.updatedAt
-								)}
-							/>
+							<div className="grid grid-cols-3 gap-2">
+								<Stat
+									label="Items"
+									value={`${settledItems(latestRun)}/${latestRun.totalItems}`}
+								/>
+								<Stat label="Passed" value={String(latestRun.completedItems)} />
+								<Stat label="Failed" value={String(latestRun.failedItems)} />
+							</div>
+							<div className="flex flex-wrap items-center gap-2 text-muted-foreground text-xs">
+								<MetaChip
+									icon={<ClockIcon />}
+									label={reasonLabel(latestRun.reason)}
+								/>
+								<MetaChip
+									icon={<DatabaseIcon />}
+									label={formatRelative(
+										latestRun.finishedAt ?? latestRun.updatedAt
+									)}
+								/>
+							</div>
+							{latestRun.errorMessage && (
+								<p className="rounded-md bg-destructive/10 px-3 py-2 text-destructive text-xs">
+									{latestRun.errorMessage}
+								</p>
+							)}
 						</div>
+
+						{runs.length > 1 && (
+							<div className="divide-y divide-border/60 rounded-md border border-border/60">
+								{runs.slice(1).map((run) => (
+									<RunRow key={run.id} run={run} />
+								))}
+							</div>
+						)}
 					</>
 				) : activeQueuedRun ? (
 					<>
@@ -151,10 +170,36 @@ export function InsightGenerationStatus({
 						</p>
 					</>
 				) : (
-					<p className="text-muted-foreground text-xs">No runs yet.</p>
+					<div className="rounded-md border border-border/70 border-dashed px-3 py-6 text-center">
+						<p className="font-medium text-sm">No runs yet</p>
+						<p className="mt-1 text-muted-foreground text-xs">
+							Manual and scheduled runs will appear here.
+						</p>
+					</div>
 				)}
 			</Card.Content>
 		</Card>
+	);
+}
+
+function RunRow({ run }: { run: InsightRunSummary }) {
+	return (
+		<div className="flex items-center justify-between gap-3 px-3 py-2.5 text-xs">
+			<div className="min-w-0">
+				<div className="flex items-center gap-2">
+					<StatusDot color={statusDotColor(run.status)} />
+					<p className="truncate font-medium text-foreground">
+						{statusLabel(run.status)}
+					</p>
+				</div>
+				<p className="mt-0.5 text-muted-foreground">
+					{settledItems(run)}/{run.totalItems} · {reasonLabel(run.reason)}
+				</p>
+			</div>
+			<p className="shrink-0 text-muted-foreground tabular-nums">
+				{formatRelative(run.finishedAt ?? run.updatedAt)}
+			</p>
+		</div>
 	);
 }
 
@@ -200,12 +245,35 @@ function StatusBadge({ status }: { status: RunStatus | "skipped" }) {
 
 function Stat({ label, value }: { label: string; value: string }) {
 	return (
-		<div className="flex min-w-0 items-center justify-between gap-2 sm:block">
-			<p>{label}</p>
-			<p className="truncate font-medium text-foreground tabular-nums">
+		<div className="rounded-md border border-border/60 bg-muted/30 px-2.5 py-2">
+			<p className="text-[11px] text-muted-foreground">{label}</p>
+			<p className="mt-0.5 truncate font-semibold text-foreground text-sm tabular-nums">
 				{value}
 			</p>
 		</div>
+	);
+}
+
+function MetaChip({
+	icon,
+	label,
+}: {
+	icon: ReactElement<{
+		"aria-hidden"?: boolean;
+		className?: string;
+		weight?: string;
+	}>;
+	label: string;
+}) {
+	return (
+		<span className="inline-flex h-7 items-center gap-1.5 rounded-md bg-secondary px-2.5">
+			{cloneElement(icon, {
+				"aria-hidden": true,
+				className: "size-3.5",
+				weight: icon.props.weight ?? "duotone",
+			})}
+			{label}
+		</span>
 	);
 }
 
@@ -228,6 +296,21 @@ function progressTone(
 	return "primary";
 }
 
+function statusDotColor(
+	status: RunStatus
+): "success" | "warning" | "destructive" | "muted" {
+	if (status === "succeeded") {
+		return "success";
+	}
+	if (status === "partially_succeeded") {
+		return "warning";
+	}
+	if (status === "failed") {
+		return "destructive";
+	}
+	return "muted";
+}
+
 function statusLabel(status: RunStatus | "skipped"): string {
 	if (status === "queued") {
 		return "Queued";
@@ -245,6 +328,16 @@ function statusLabel(status: RunStatus | "skipped"): string {
 		return "Failed";
 	}
 	return "Idle";
+}
+
+function reasonLabel(reason: InsightRunSummary["reason"]): string {
+	if (reason === "scheduled") {
+		return "Scheduled";
+	}
+	if (reason === "cooldown_refresh") {
+		return "Cooldown";
+	}
+	return "Manual";
 }
 
 function formatRelative(value: string | Date | null): string {
