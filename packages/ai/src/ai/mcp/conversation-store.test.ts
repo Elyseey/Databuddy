@@ -124,8 +124,6 @@ vi.mock("@databuddy/redis", () => ({
 		attempted: 0,
 		failed: 0,
 	})),
-	insightsDispatchJobId: (triggeredAt: string) =>
-		`insights-dispatch-${triggeredAt}`,
 	insightsRollupJobId: (runId: string) => `insights-rollup-${runId}`,
 	insightsWebsiteJobId: (runId: string, websiteId: string) =>
 		`insights-website-${runId}-${websiteId}`,
