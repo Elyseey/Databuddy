@@ -89,12 +89,11 @@ function vitalsByDimension(config: VitalsByDimensionConfig): CustomSqlFn {
 
 const VITALS_PAGE_METRICS = `
 	wv.metric_name as metric_name,
-	quantilesTDigest(0.50, 0.75, 0.90, 0.95, 0.99)(wv.metric_value) as _q,
-	_q[1] as p50,
-	_q[2] as p75,
-	_q[3] as p90,
-	_q[4] as p95,
-	_q[5] as p99,
+	quantileTDigest(0.50)(wv.metric_value) as p50,
+	quantileTDigest(0.75)(wv.metric_value) as p75,
+	quantileTDigest(0.90)(wv.metric_value) as p90,
+	quantileTDigest(0.95)(wv.metric_value) as p95,
+	quantileTDigest(0.99)(wv.metric_value) as p99,
 	count() as samples
 `;
 
@@ -133,22 +132,21 @@ export const VitalsBuilders: Record<string, SimpleQueryConfig> = {
 			const { websiteId, startDate, endDate } = ctx;
 			return {
 				sql: `
-				SELECT
-					metric_name,
-					quantilesTDigest(0.50, 0.75, 0.90, 0.95, 0.99)(metric_value) as _q,
-					_q[1] as p50,
-					_q[2] as p75,
-					_q[3] as p90,
-					_q[4] as p95,
-					_q[5] as p99,
-					avg(metric_value) as avg_value,
-					count() as samples
-				FROM ${Analytics.web_vitals_spans}
-				WHERE
-					client_id = {websiteId:String}
-					AND timestamp >= toDateTime({startDate:String})
-					AND timestamp <= toDateTime(concat({endDate:String}, ' 23:59:59'))
-				GROUP BY metric_name
+				SELECT metric_name, _q[1] as p50, _q[2] as p75, _q[3] as p90,
+					_q[4] as p95, _q[5] as p99, avg_value, samples
+				FROM (
+					SELECT
+						metric_name,
+						quantilesTDigest(0.50, 0.75, 0.90, 0.95, 0.99)(metric_value) as _q,
+						avg(metric_value) as avg_value,
+						count() as samples
+					FROM ${Analytics.web_vitals_spans}
+					WHERE
+						client_id = {websiteId:String}
+						AND timestamp >= toDateTime({startDate:String})
+						AND timestamp <= toDateTime(concat({endDate:String}, ' 23:59:59'))
+					GROUP BY metric_name
+				)
 				ORDER BY metric_name
 			`,
 				params: { websiteId, startDate, endDate },
@@ -182,22 +180,21 @@ export const VitalsBuilders: Record<string, SimpleQueryConfig> = {
 			const { websiteId, startDate, endDate } = ctx;
 			return {
 				sql: `
-				SELECT
-					toDate(timestamp) as date,
-					metric_name,
-					quantilesTDigest(0.50, 0.75, 0.90, 0.95, 0.99)(metric_value) as _q,
-					_q[1] as p50,
-					_q[2] as p75,
-					_q[3] as p90,
-					_q[4] as p95,
-					_q[5] as p99,
-					count() as samples
-				FROM ${Analytics.web_vitals_spans}
-				WHERE 
-					client_id = {websiteId:String}
-					AND timestamp >= toDateTime({startDate:String})
-					AND timestamp <= toDateTime(concat({endDate:String}, ' 23:59:59'))
-				GROUP BY date, metric_name
+				SELECT date, metric_name, _q[1] as p50, _q[2] as p75, _q[3] as p90,
+					_q[4] as p95, _q[5] as p99, samples
+				FROM (
+					SELECT
+						toDate(timestamp) as date,
+						metric_name,
+						quantilesTDigest(0.50, 0.75, 0.90, 0.95, 0.99)(metric_value) as _q,
+						count() as samples
+					FROM ${Analytics.web_vitals_spans}
+					WHERE
+						client_id = {websiteId:String}
+						AND timestamp >= toDateTime({startDate:String})
+						AND timestamp <= toDateTime(concat({endDate:String}, ' 23:59:59'))
+					GROUP BY date, metric_name
+				)
 				ORDER BY date ASC, metric_name
 			`,
 				params: { websiteId, startDate, endDate },

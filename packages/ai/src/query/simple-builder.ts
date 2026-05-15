@@ -630,7 +630,51 @@ export class SimpleQueryBuilder {
 			return innerSql;
 		}
 		const alias = pct.as ?? "percentage";
-		return `SELECT *, ROUND(${pct.of} / sum(${pct.of}) OVER () * 100, 2) AS ${alias} FROM (${innerSql})`;
+		const projection = this.getPercentageProjection(alias);
+		return `SELECT ${projection}, ROUND(${pct.of} / sum(${pct.of}) OVER () * 100, 2) AS ${alias} FROM (${innerSql})`;
+	}
+
+	private getPercentageProjection(percentageAlias: string): string {
+		const outputFields = this.config.meta?.output_fields
+			?.map((field) => field.name)
+			.filter((name) => name !== percentageAlias);
+
+		if (outputFields?.length) {
+			return outputFields.join(", ");
+		}
+
+		const aliases: string[] = [];
+		const timeBucketAlias = this.getTimeBucketAlias();
+		if (timeBucketAlias) {
+			aliases.push(timeBucketAlias);
+		}
+
+		for (const field of this.config.fields ?? []) {
+			const alias = this.getFieldAlias(field);
+			if (alias && alias !== percentageAlias) {
+				aliases.push(alias);
+			}
+		}
+
+		return aliases.length ? aliases.join(", ") : "*";
+	}
+
+	private getFieldAlias(field: ConfigField): string | null {
+		if (typeof field !== "string") {
+			return field.alias;
+		}
+
+		const aliasMatch = field.match(/\s+as\s+([A-Za-z_][A-Za-z0-9_]*)\s*$/i);
+		if (aliasMatch?.[1]) {
+			return aliasMatch[1];
+		}
+
+		const trimmed = field.trim();
+		if (/^[A-Za-z_][A-Za-z0-9_.]*$/.test(trimmed)) {
+			return trimmed.split(".").at(-1) ?? trimmed;
+		}
+
+		return null;
 	}
 
 	private compileFields(fields?: ConfigField[]): string {

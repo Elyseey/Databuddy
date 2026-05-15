@@ -59,16 +59,16 @@ describe("insightSchema impactSummary length bound", () => {
 });
 
 describe("insightsOutputSchema container", () => {
-	test("accepts up to 3 insights", () => {
+	test("accepts configured deep runs with up to 10 insights", () => {
 		const result = insightsOutputSchema.safeParse({
-			insights: [baseInsight, baseInsight, baseInsight],
+			insights: Array.from({ length: 10 }, () => baseInsight),
 		});
 		expect(result.success).toBe(true);
 	});
 
-	test("rejects 4 insights", () => {
+	test("rejects 11 insights", () => {
 		const result = insightsOutputSchema.safeParse({
-			insights: [baseInsight, baseInsight, baseInsight, baseInsight],
+			insights: Array.from({ length: 11 }, () => baseInsight),
 		});
 		expect(result.success).toBe(false);
 	});

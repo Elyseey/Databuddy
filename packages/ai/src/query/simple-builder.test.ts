@@ -630,6 +630,7 @@ describe("SimpleQueryBuilder.compile", () => {
 				type: "summary_metrics",
 				from: "2026-04-27 12:00:00Z",
 				to: "2026-04-27 13:28:59Z",
+				filters: [{ field: "referrer", op: "eq", value: "google.com" }],
 			})
 		);
 
@@ -651,6 +652,7 @@ describe("SimpleQueryBuilder.compile", () => {
 			},
 			{
 				from: "2026-04-27 12:00:00Z",
+				filters: [{ field: "utm_source", op: "eq", value: "newsletter" }],
 				to: "2026-04-27 13:28:59Z",
 			}
 		);
@@ -670,7 +672,10 @@ describe("SimpleQueryBuilder.compile", () => {
 
 		const builder = new SimpleQueryBuilder(
 			config,
-			makeRequest({ type: "traffic_sources" }),
+			makeRequest({
+				type: "traffic_sources",
+				filters: [{ field: "referrer", op: "eq", value: "google.com" }],
+			}),
 			"example.com"
 		);
 
@@ -684,7 +689,7 @@ describe("SimpleQueryBuilder.compile", () => {
 		expect(sql).toContain("domain(referrer) LIKE 'x.com%'");
 		expect(sql).toContain("https://linkedin.com");
 		expect(sql).toContain("as name");
-		expect(sql).toContain("as percentage");
+		expect(sql).toMatch(/\bas percentage\b/i);
 		expect(sql).not.toContain("referrer != ''");
 	});
 
