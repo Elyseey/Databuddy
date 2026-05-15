@@ -20,6 +20,43 @@ import {
 } from "@databuddy/shared/types/features";
 import type { CustomQueryRequest } from "@databuddy/ai/query/custom-query-types";
 import { compileQuery, executeBatch } from "@databuddy/ai/query";
+
+const PER_WEBSITE_QUERY_CONCURRENCY = Math.max(
+	1,
+	Number(process.env.PER_WEBSITE_QUERY_CONCURRENCY ?? 8)
+);
+
+interface KeyedSemaphore {
+	active: number;
+	queue: Array<() => void>;
+}
+
+const websiteSemaphores = new Map<string, KeyedSemaphore>();
+
+async function runPerWebsite<T>(key: string, fn: () => Promise<T>): Promise<T> {
+	let sem = websiteSemaphores.get(key);
+	if (!sem) {
+		sem = { active: 0, queue: [] };
+		websiteSemaphores.set(key, sem);
+	}
+	if (sem.active >= PER_WEBSITE_QUERY_CONCURRENCY) {
+		await new Promise<void>((resolve) => {
+			(sem as KeyedSemaphore).queue.push(resolve);
+		});
+	}
+	sem.active++;
+	try {
+		return await fn();
+	} finally {
+		sem.active--;
+		const next = sem.queue.shift();
+		if (next) {
+			next();
+		} else if (sem.active === 0 && sem.queue.length === 0) {
+			websiteSemaphores.delete(key);
+		}
+	}
+}
 import {
 	canReadQueryTypesPublicly,
 	QueryBuilders,
@@ -950,9 +987,11 @@ async function executeDynamicQuery(
 	}
 
 	if (validParameters.length > 0) {
-		const results = await executeBatch(
-			validParameters.map((v) => v.request),
-			{ websiteDomain: domain, timezone }
+		const results = await runPerWebsite(projectId, () =>
+			executeBatch(
+				validParameters.map((v) => v.request),
+				{ websiteDomain: domain, timezone }
+			)
 		);
 
 		for (let i = 0; i < validParameters.length; i++) {
