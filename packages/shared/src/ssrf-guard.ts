@@ -180,11 +180,7 @@ export async function safeFetch(
 			throw error;
 		}
 
-		if (
-			!followRedirects ||
-			response.status < 300 ||
-			response.status >= 400
-		) {
+		if (!followRedirects || response.status < 300 || response.status >= 400) {
 			return response;
 		}
 
