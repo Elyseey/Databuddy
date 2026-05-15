@@ -355,8 +355,10 @@ export const SessionsBuilders: Record<string, SimpleQueryConfig> = {
           ELSE NULL
         END as properties
       FROM ${Analytics.events} e
-      INNER JOIN session_list sl ON e.session_id = sl.session_id
       WHERE e.client_id = {websiteId:String}
+        AND e.time >= toDateTime({startDate:String})
+        AND e.time <= toDateTime({endDate:String})
+        AND e.session_id IN (SELECT session_id FROM session_list)
 
       UNION ALL
 
@@ -373,8 +375,10 @@ export const SessionsBuilders: Record<string, SimpleQueryConfig> = {
           ELSE NULL
         END as properties
       FROM ${Analytics.custom_events} ce
-      INNER JOIN session_list sl ON ce.session_id = sl.session_id
       WHERE ce.website_id = {websiteId:String}
+        AND ce.timestamp >= toDateTime({startDate:String})
+        AND ce.timestamp <= toDateTime({endDate:String})
+        AND ce.session_id IN (SELECT session_id FROM session_list)
     ),
     session_events AS (
       SELECT
