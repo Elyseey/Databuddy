@@ -145,7 +145,7 @@ async function pingWebsite(
 			const res = await safeFetch(current, {
 				method: "GET",
 				headers: HEADERS,
-				maxRedirects: 0,
+				followRedirects: false,
 				timeoutMs: timeout,
 			});
 
