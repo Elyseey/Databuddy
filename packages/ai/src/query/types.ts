@@ -131,6 +131,11 @@ export type CustomSqlFn = (
 	ctx: CustomSqlContext
 ) => string | { sql: string; params: Record<string, unknown> };
 
+export interface PercentageOf {
+	of: string;
+	as?: string;
+}
+
 export interface SimpleQueryConfig {
 	allowedFilters?: string[];
 	appendEndOfDayToTo?: boolean;
@@ -145,6 +150,7 @@ export interface SimpleQueryConfig {
 	meta?: QueryBuilderMeta;
 	noCache?: boolean;
 	orderBy?: string;
+	percentageOf?: PercentageOf;
 	plugins?: QueryPlugins;
 	publicAccess?: boolean;
 	requiredFilters?: string[];

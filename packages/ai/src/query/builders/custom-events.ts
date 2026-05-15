@@ -55,12 +55,12 @@ export const CustomEventsBuilders: Record<string, SimpleQueryConfig> = {
 					SELECT
 						event_name as name,
 						COUNT(*) as total_events,
-						COUNT(DISTINCT anonymous_id) as unique_users,
-						COUNT(DISTINCT session_id) as unique_sessions,
+						uniq(anonymous_id) as unique_users,
+						uniq(session_id) as unique_sessions,
 						MAX(timestamp) as last_occurrence,
 						MIN(timestamp) as first_occurrence,
 						countIf(properties != '{}' AND isValidJSON(properties)) as events_with_properties,
-						ROUND((COUNT(DISTINCT anonymous_id) / SUM(COUNT(DISTINCT anonymous_id)) OVER()) * 100, 2) as percentage
+						ROUND((uniq(anonymous_id) / SUM(uniq(anonymous_id)) OVER()) * 100, 2) as percentage
 					FROM ${Analytics.custom_events}
 					WHERE
 						${projectWhereClause(filterParams)}
@@ -176,8 +176,8 @@ export const CustomEventsBuilders: Record<string, SimpleQueryConfig> = {
 					SELECT
 						path as name,
 						COUNT(*) as total_events,
-						COUNT(DISTINCT event_name) as unique_event_types,
-						COUNT(DISTINCT anonymous_id) as unique_users
+						uniq(event_name) as unique_event_types,
+						uniq(anonymous_id) as unique_users
 					FROM ${Analytics.custom_events}
 					WHERE
 						${projectWhereClause(filterParams)}
@@ -221,10 +221,10 @@ export const CustomEventsBuilders: Record<string, SimpleQueryConfig> = {
 					SELECT
 						toDate(timestamp) as date,
 						COUNT(*) as total_events,
-						COUNT(DISTINCT event_name) as unique_event_types,
-						COUNT(DISTINCT anonymous_id) as unique_users,
-						COUNT(DISTINCT session_id) as unique_sessions,
-						COUNT(DISTINCT path) as unique_pages
+						uniq(event_name) as unique_event_types,
+						uniq(anonymous_id) as unique_users,
+						uniq(session_id) as unique_sessions,
+						uniq(path) as unique_pages
 					FROM ${Analytics.custom_events}
 					WHERE
 						${projectWhereClause(filterParams)}
@@ -306,10 +306,10 @@ export const CustomEventsBuilders: Record<string, SimpleQueryConfig> = {
 				sql: `
 					SELECT
 						COUNT(*) as total_events,
-						COUNT(DISTINCT event_name) as unique_event_types,
-						COUNT(DISTINCT anonymous_id) as unique_users,
-						COUNT(DISTINCT session_id) as unique_sessions,
-						COUNT(DISTINCT path) as unique_pages
+						uniq(event_name) as unique_event_types,
+						uniq(anonymous_id) as unique_users,
+						uniq(session_id) as unique_sessions,
+						uniq(path) as unique_pages
 					FROM ${Analytics.custom_events}
 					WHERE
 						${projectWhereClause(filterParams)}
@@ -516,7 +516,7 @@ export const CustomEventsBuilders: Record<string, SimpleQueryConfig> = {
 						SELECT 
 							event_name,
 							property_key,
-							COUNT(DISTINCT clean_value) as cardinality,
+							uniq(clean_value) as cardinality,
 							COUNT(*) as total_count,
 							AVG(length(clean_value)) as avg_length,
 							MAX(length(clean_value)) as max_length,
@@ -725,7 +725,7 @@ export const CustomEventsBuilders: Record<string, SimpleQueryConfig> = {
 							event_name,
 							property_key,
 							SUM(count) as total,
-							COUNT(DISTINCT property_value) as cardinality
+							uniq(property_value) as cardinality
 						FROM value_counts
 						GROUP BY event_name, property_key
 						HAVING cardinality <= 20
@@ -778,8 +778,8 @@ export const CustomEventsBuilders: Record<string, SimpleQueryConfig> = {
 						SELECT
 							event_name,
 							COUNT(*) as total_events,
-							COUNT(DISTINCT anonymous_id) as unique_users,
-							COUNT(DISTINCT session_id) as unique_sessions
+							uniq(anonymous_id) as unique_users,
+							uniq(session_id) as unique_sessions
 						FROM ${Analytics.custom_events}
 						WHERE
 							${projectWhereClause(filterParams)}
@@ -832,7 +832,7 @@ export const CustomEventsBuilders: Record<string, SimpleQueryConfig> = {
 						SELECT 
 							event_name,
 							property_key,
-							COUNT(DISTINCT property_value) as unique_values,
+							uniq(property_value) as unique_values,
 							groupArray(tuple(property_value, count)) as top_values
 						FROM ranked
 						WHERE rn <= 5

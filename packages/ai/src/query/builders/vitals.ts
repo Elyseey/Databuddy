@@ -23,12 +23,12 @@ const VITALS_SESSION_DIMENSIONS_CTE = `
 `;
 
 const VITALS_P50_METRICS = `
-	COUNT(DISTINCT wv.anonymous_id) as visitors,
-	quantileIf(0.50)(wv.metric_value, wv.metric_name = 'LCP' AND wv.metric_value > 0) as p50_lcp,
-	quantileIf(0.50)(wv.metric_value, wv.metric_name = 'FCP' AND wv.metric_value > 0) as p50_fcp,
-	quantileIf(0.50)(wv.metric_value, wv.metric_name = 'CLS') as p50_cls,
-	quantileIf(0.50)(wv.metric_value, wv.metric_name = 'INP' AND wv.metric_value > 0) as p50_inp,
-	quantileIf(0.50)(wv.metric_value, wv.metric_name = 'TTFB' AND wv.metric_value > 0) as p50_ttfb,
+	uniq(wv.anonymous_id) as visitors,
+	quantileTDigestIf(0.50)(wv.metric_value, wv.metric_name = 'LCP' AND wv.metric_value > 0) as p50_lcp,
+	quantileTDigestIf(0.50)(wv.metric_value, wv.metric_name = 'FCP' AND wv.metric_value > 0) as p50_fcp,
+	quantileTDigestIf(0.50)(wv.metric_value, wv.metric_name = 'CLS') as p50_cls,
+	quantileTDigestIf(0.50)(wv.metric_value, wv.metric_name = 'INP' AND wv.metric_value > 0) as p50_inp,
+	quantileTDigestIf(0.50)(wv.metric_value, wv.metric_name = 'TTFB' AND wv.metric_value > 0) as p50_ttfb,
 	COUNT(*) as samples
 `;
 
@@ -38,10 +38,12 @@ interface VitalsByDimensionConfig {
 	groupBy: string;
 	metrics?: string;
 	selectName: string;
+	needsSessionDimensions?: boolean;
 }
 
 function vitalsByDimension(config: VitalsByDimensionConfig): CustomSqlFn {
 	const metrics = config.metrics ?? VITALS_P50_METRICS;
+	const needsSd = config.needsSessionDimensions ?? true;
 	return ({
 		websiteId,
 		startDate,
@@ -52,14 +54,18 @@ function vitalsByDimension(config: VitalsByDimensionConfig): CustomSqlFn {
 	}) => {
 		const effectiveLimit = limit ?? config.defaultLimit;
 		const filterClause = appendFilterClause(filterConditions);
+		const withCte = needsSd ? `WITH ${VITALS_SESSION_DIMENSIONS_CTE}` : "";
+		const joinSd = needsSd
+			? "INNER JOIN session_dimensions sd ON wv.session_id = sd.session_id AND wv.client_id = sd.client_id"
+			: "";
 		return {
 			sql: `
-				WITH ${VITALS_SESSION_DIMENSIONS_CTE}
+				${withCte}
 				SELECT
 					${config.selectName},
 					${metrics}
 				FROM ${Analytics.web_vitals_spans} wv
-				INNER JOIN session_dimensions sd ON wv.session_id = sd.session_id AND wv.client_id = sd.client_id
+				${joinSd}
 				WHERE
 					wv.client_id = {websiteId:String}
 					AND wv.timestamp >= toDateTime({startDate:String})
@@ -83,11 +89,12 @@ function vitalsByDimension(config: VitalsByDimensionConfig): CustomSqlFn {
 
 const VITALS_PAGE_METRICS = `
 	wv.metric_name as metric_name,
-	quantileTDigest(0.50)(wv.metric_value) as p50,
-	quantileTDigest(0.75)(wv.metric_value) as p75,
-	quantileTDigest(0.90)(wv.metric_value) as p90,
-	quantileTDigest(0.95)(wv.metric_value) as p95,
-	quantileTDigest(0.99)(wv.metric_value) as p99,
+	quantilesTDigest(0.50, 0.75, 0.90, 0.95, 0.99)(wv.metric_value) as _q,
+	_q[1] as p50,
+	_q[2] as p75,
+	_q[3] as p90,
+	_q[4] as p95,
+	_q[5] as p99,
 	count() as samples
 `;
 
@@ -126,17 +133,18 @@ export const VitalsBuilders: Record<string, SimpleQueryConfig> = {
 			const { websiteId, startDate, endDate } = ctx;
 			return {
 				sql: `
-				SELECT 
+				SELECT
 					metric_name,
-					quantileTDigest(0.50)(metric_value) as p50,
-					quantileTDigest(0.75)(metric_value) as p75,
-					quantileTDigest(0.90)(metric_value) as p90,
-					quantileTDigest(0.95)(metric_value) as p95,
-					quantileTDigest(0.99)(metric_value) as p99,
+					quantilesTDigest(0.50, 0.75, 0.90, 0.95, 0.99)(metric_value) as _q,
+					_q[1] as p50,
+					_q[2] as p75,
+					_q[3] as p90,
+					_q[4] as p95,
+					_q[5] as p99,
 					avg(metric_value) as avg_value,
 					count() as samples
 				FROM ${Analytics.web_vitals_spans}
-				WHERE 
+				WHERE
 					client_id = {websiteId:String}
 					AND timestamp >= toDateTime({startDate:String})
 					AND timestamp <= toDateTime(concat({endDate:String}, ' 23:59:59'))
@@ -174,14 +182,15 @@ export const VitalsBuilders: Record<string, SimpleQueryConfig> = {
 			const { websiteId, startDate, endDate } = ctx;
 			return {
 				sql: `
-				SELECT 
+				SELECT
 					toDate(timestamp) as date,
 					metric_name,
-					quantileTDigest(0.50)(metric_value) as p50,
-					quantileTDigest(0.75)(metric_value) as p75,
-					quantileTDigest(0.90)(metric_value) as p90,
-					quantileTDigest(0.95)(metric_value) as p95,
-					quantileTDigest(0.99)(metric_value) as p99,
+					quantilesTDigest(0.50, 0.75, 0.90, 0.95, 0.99)(metric_value) as _q,
+					_q[1] as p50,
+					_q[2] as p75,
+					_q[3] as p90,
+					_q[4] as p95,
+					_q[5] as p99,
 					count() as samples
 				FROM ${Analytics.web_vitals_spans}
 				WHERE 
@@ -229,6 +238,7 @@ export const VitalsBuilders: Record<string, SimpleQueryConfig> = {
 			groupBy: "page, metric_name",
 			extraWhere: "wv.path != ''",
 			defaultLimit: 50,
+			needsSessionDimensions: false,
 		}),
 		timeField: "timestamp",
 		customizable: true,

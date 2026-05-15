@@ -98,7 +98,6 @@ export const CLICKHOUSE_OPTIONS: NodeClickHouseClientConfigOptions = {
 };
 
 const READ_DEFAULT_SETTINGS: Record<string, string | number> = {
-	max_threads: 4,
 	max_memory_usage: 4_000_000_000,
 	max_execution_time: 15,
 	max_result_rows: 100_000,
@@ -216,7 +215,7 @@ async function chQueryWithMeta<T>(
 	const json = await traced("ch.query", async () => {
 		const settings: Record<string, string | number> = {
 			...READ_DEFAULT_SETTINGS,
-			...(options?.readonly && { readonly: "1" }),
+			...(options?.readonly && { readonly: "2" }),
 			...options?.clickhouse_settings,
 		};
 		assertCacheCompatibleSettings(settings);

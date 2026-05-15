@@ -8,6 +8,7 @@ import {
 	compileConfigField,
 	Expressions,
 	normalizeGranularity,
+	SESSION_ATTRIBUTION_FIELDS,
 	sessionAttribution,
 	time,
 } from "./expressions";
@@ -519,7 +520,14 @@ export class SimpleQueryBuilder {
 				whereClauseParams.__orgLevel = "true";
 			}
 
-			const helpers = this.config.plugins?.sessionAttribution
+			const needsAttribution =
+				!!this.config.plugins?.sessionAttribution &&
+				!!this.request.filters?.some((f) =>
+					SESSION_ATTRIBUTION_FIELDS.includes(
+						f.field as (typeof SESSION_ATTRIBUTION_FIELDS)[number]
+					)
+				);
+			const helpers = needsAttribution
 				? {
 						sessionAttributionCTE: (timeField = "time") =>
 							this.generateSessionAttributionCTE(
@@ -571,10 +579,16 @@ export class SimpleQueryBuilder {
 			params.timezone = this.request.timezone as string;
 		}
 
-		const hasCTEs =
-			this.config.with?.length || this.config.plugins?.sessionAttribution;
+		const needsAttribution =
+			!!this.config.plugins?.sessionAttribution &&
+			!!this.request.filters?.some((f) =>
+				SESSION_ATTRIBUTION_FIELDS.includes(
+					f.field as (typeof SESSION_ATTRIBUTION_FIELDS)[number]
+				)
+			);
+		const hasCTEs = this.config.with?.length || needsAttribution;
 
-		if (this.config.plugins?.sessionAttribution && !this.config.with?.length) {
+		if (needsAttribution && !this.config.with?.length) {
 			return this.buildSessionAttributionQuery(params);
 		}
 
@@ -588,24 +602,35 @@ export class SimpleQueryBuilder {
 		const ctesStr = hasCTEs ? this.compileCTEs(params) : "";
 		const fromSource = this.config.from || this.config.table;
 
-		let sql = ctesStr ? `${ctesStr}\n` : "";
-		sql += `SELECT ${fieldsStr} FROM ${fromSource}`;
+		let body = `SELECT ${fieldsStr} FROM ${fromSource}`;
 
 		if (!this.config.from) {
 			const whereClause = this.buildWhereClause(params);
-			sql += ` WHERE ${whereClause.join(" AND ")}`;
+			body += ` WHERE ${whereClause.join(" AND ")}`;
 		} else if (this.config.where?.length) {
-			sql += ` WHERE ${this.config.where.join(" AND ")}`;
+			body += ` WHERE ${this.config.where.join(" AND ")}`;
 		}
 
-		sql = this.replaceDomainPlaceholders(sql);
-		sql += this.buildGroupByClause();
-		sql += this.buildHavingClause(params);
+		body = this.replaceDomainPlaceholders(body);
+		body += this.buildGroupByClause();
+		body += this.buildHavingClause(params);
+
+		const ctePrefix = ctesStr ? `${ctesStr}\n` : "";
+		let sql = ctePrefix + this.wrapPercentage(body);
 		sql += this.buildOrderByClause();
 		sql += this.buildLimitClause();
 		sql += this.buildOffsetClause();
 
 		return this.finalizeCompiledQuery(sql, params);
+	}
+
+	private wrapPercentage(innerSql: string): string {
+		const pct = this.config.percentageOf;
+		if (!pct) {
+			return innerSql;
+		}
+		const alias = pct.as ?? "percentage";
+		return `SELECT *, ROUND(${pct.of} / sum(${pct.of}) OVER () * 100, 2) AS ${alias} FROM (${innerSql})`;
 	}
 
 	private compileFields(fields?: ConfigField[]): string {
@@ -685,7 +710,14 @@ export class SimpleQueryBuilder {
 	private compileCTEs(params: Record<string, Filter["value"]>): string {
 		const ctes: string[] = [];
 
-		if (this.config.plugins?.sessionAttribution) {
+		const needsAttribution =
+			!!this.config.plugins?.sessionAttribution &&
+			!!this.request.filters?.some((f) =>
+				SESSION_ATTRIBUTION_FIELDS.includes(
+					f.field as (typeof SESSION_ATTRIBUTION_FIELDS)[number]
+				)
+			);
+		if (needsAttribution) {
 			const timeField = this.config.timeField || "time";
 			const table = this.config.table || "analytics.events";
 			ctes.push(
@@ -782,10 +814,10 @@ export class SimpleQueryBuilder {
 			filterClauses.length > 0 ? filterClauses.join(" AND ") : "1=1";
 
 		const idField = this.getIdField();
-		let sql = `
+		let body = `
 		WITH ${this.generateSessionAttributionCTE(timeField, table, "from", "to")},
 		attributed_events AS (
-			SELECT 
+			SELECT
 				e.* REPLACE(
 					${sessionAttribution.joinSelectFields("sa").join(",\n\t\t\t\t\t")}
 				)
@@ -800,8 +832,10 @@ export class SimpleQueryBuilder {
 		SELECT ${mainFields}
 		FROM attributed_events`;
 
-		sql = this.replaceDomainPlaceholders(sql);
-		sql += this.buildGroupByClause();
+		body = this.replaceDomainPlaceholders(body);
+		body += this.buildGroupByClause();
+
+		let sql = this.wrapPercentage(body);
 		sql += this.buildOrderByClause();
 		sql += this.buildLimitClause();
 		sql += this.buildOffsetClause();
@@ -904,13 +938,12 @@ export class SimpleQueryBuilder {
 
 	async execute(): Promise<Record<string, unknown>[]> {
 		const { sql, params } = this.compile();
-		const rawData = await chQuery<Record<string, unknown>>(
-			sql,
-			params,
-			this.config.noCache
-				? { clickhouse_settings: { use_query_cache: 0 } }
-				: undefined
-		);
+		const rawData = await chQuery<Record<string, unknown>>(sql, params, {
+			clickhouse_settings: {
+				use_query_cache: this.config.noCache ? 0 : 1,
+				allow_experimental_analyzer: 1,
+			},
+		});
 		return applyPlugins(rawData, this.config, this.websiteDomain);
 	}
 }

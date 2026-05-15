@@ -513,8 +513,8 @@ export const LinksBuilders: Record<string, SimpleQueryConfig> = {
 						href,
 						text,
 						COUNT(*) as total_clicks,
-						COUNT(DISTINCT anonymous_id) as unique_users,
-						COUNT(DISTINCT session_id) as unique_sessions,
+						uniq(anonymous_id) as unique_users,
+						uniq(session_id) as unique_sessions,
 						ROUND((COUNT(*) / SUM(COUNT(*)) OVER()) * 100, 2) as percentage,
 						MAX(timestamp) as last_clicked
 					FROM enriched_links
@@ -647,8 +647,8 @@ export const LinksBuilders: Record<string, SimpleQueryConfig> = {
 					SELECT
 						domain(href) as domain,
 						COUNT(*) as total_clicks,
-						COUNT(DISTINCT anonymous_id) as unique_users,
-						COUNT(DISTINCT href) as unique_links,
+						uniq(anonymous_id) as unique_users,
+						uniq(href) as unique_links,
 						ROUND((COUNT(*) / SUM(COUNT(*)) OVER()) * 100, 2) as percentage
 					FROM enriched_links
 					GROUP BY domain(href)

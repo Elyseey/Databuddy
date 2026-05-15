@@ -183,9 +183,9 @@ export const ProfilesBuilders: Record<string, SimpleQueryConfig> = {
         anonymous_id as visitor_id,
         MIN(time) as first_visit,
         MAX(time) as last_visit,
-        COUNT(DISTINCT session_id) as session_count,
+        uniq(session_id) as session_count,
         COUNT(*) as total_events,
-        COUNT(DISTINCT CASE WHEN event_name = 'screen_view' THEN path ELSE NULL END) as unique_pages,
+        uniqIf(path, event_name = 'screen_view') as unique_pages,
         any(user_agent) as user_agent,
         any(country) as country,
         any(region) as region,
@@ -209,7 +209,7 @@ export const ProfilesBuilders: Record<string, SimpleQueryConfig> = {
       SELECT
         ce.anonymous_id as visitor_id,
         COUNT(*) as custom_event_count,
-        COUNT(DISTINCT ce.event_name) as unique_event_names
+        uniq(ce.event_name) as unique_event_names
       FROM ${Analytics.custom_events} ce
       INNER JOIN visitor_profiles vp ON ce.anonymous_id = vp.visitor_id
       WHERE (ce.owner_id = {websiteId:String} OR ce.website_id = {websiteId:String})
@@ -225,7 +225,7 @@ export const ProfilesBuilders: Record<string, SimpleQueryConfig> = {
         MAX(e.time) as session_end,
         LEAST(dateDiff('second', MIN(e.time), MAX(e.time)), 28800) as duration,
         COUNT(*) as page_views,
-        COUNT(DISTINCT CASE WHEN e.event_name = 'screen_view' THEN e.path ELSE NULL END) as unique_pages,
+        uniqIf(e.path, e.event_name = 'screen_view') as unique_pages,
         any(e.user_agent) as user_agent,
         any(e.country) as country,
         any(e.region) as region,
@@ -326,7 +326,7 @@ export const ProfilesBuilders: Record<string, SimpleQueryConfig> = {
         {visitorId:String} as visitor_id,
         MIN(time) as first_visit,
         MAX(time) as last_visit,
-        COUNT(DISTINCT session_id) as total_sessions
+        uniq(session_id) as total_sessions
       FROM profile_activity
       WHERE session_id != ''
     ),
@@ -420,7 +420,7 @@ export const ProfilesBuilders: Record<string, SimpleQueryConfig> = {
       SELECT
         e.session_id,
         countIf(event_name = 'screen_view') as page_views,
-        COUNT(DISTINCT CASE WHEN event_name = 'screen_view' THEN path ELSE NULL END) as unique_pages,
+        uniqIf(path, event_name = 'screen_view') as unique_pages,
         any(device_type) as device,
         any(browser_name) as browser,
         any(os_name) as os,
