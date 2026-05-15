@@ -168,6 +168,7 @@ export const insightRuns = pgTable(
 			table.createdAt.desc()
 		),
 		index("insight_runs_status_idx").on(table.status),
+		index("insight_runs_status_updated_idx").on(table.status, table.updatedAt),
 		foreignKey({
 			columns: [table.organizationId],
 			foreignColumns: [organization.id],
@@ -218,6 +219,10 @@ export const insightRunItems = pgTable(
 			table.websiteId
 		),
 		index("insight_run_items_run_status_idx").on(table.runId, table.status),
+		index("insight_run_items_status_updated_idx").on(
+			table.status,
+			table.updatedAt
+		),
 		index("insight_run_items_org_website_idx").on(
 			table.organizationId,
 			table.websiteId

@@ -336,6 +336,8 @@ jobs:
             -e BULLMQ_REDIS_URL=redis://localhost:6379/4 \
             -e INSIGHTS_BULLMQ_REDIS_URL= \
             -e INSIGHTS_DISPATCH_INTERVAL_MS=60000 \
+            -e INSIGHTS_MAINTENANCE_INTERVAL_MS=60000 \
+            -e INSIGHTS_STALE_ITEM_MS=300000 \
             -e INSIGHTS_WORKER_CONCURRENCY=1 \
             -e INSIGHTS_WORKER_ENABLED=true \
             -e AI_GATEWAY_API_KEY=test-ai-gateway-key \

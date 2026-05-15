@@ -50,6 +50,19 @@ export function startInsightsWorker() {
 		});
 	});
 
+	worker.on("completed", (job) => {
+		log.info({
+			insights_worker: "job_completed",
+			job_id: job.id,
+			job_name: job.name,
+			attempts_made: job.attemptsMade,
+			duration_ms:
+				job.finishedOn && job.processedOn
+					? job.finishedOn - job.processedOn
+					: undefined,
+		});
+	});
+
 	worker.on("stalled", (jobId) => {
 		log.error({
 			insights_worker: "job_stalled",

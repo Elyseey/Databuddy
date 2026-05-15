@@ -9,9 +9,11 @@ import { getNextInsightRunAt } from "@databuddy/rpc/insight-schedule";
 import {
 	getInsightsQueue,
 	INSIGHTS_DISPATCH_JOB_NAME,
+	INSIGHTS_MAINTENANCE_JOB_NAME,
 	type InsightGenerationReason,
 } from "@databuddy/redis";
 import { log } from "evlog";
+import { getInsightsMaintenanceIntervalMs } from "./recovery";
 
 const DEFAULT_DISPATCH_INTERVAL_MS = 5 * 60 * 1000;
 const MIN_DISPATCH_INTERVAL_MS = 60 * 1000;
@@ -177,6 +179,27 @@ export async function ensureInsightsDispatchSchedule(): Promise<void> {
 	log.info({
 		service: "insights",
 		message: "Insights dispatch scheduler ensured",
+		interval_ms: intervalMs,
+	});
+}
+
+export async function ensureInsightsMaintenanceSchedule(): Promise<void> {
+	const intervalMs = getInsightsMaintenanceIntervalMs();
+	await getInsightsQueue().upsertJobScheduler(
+		INSIGHTS_MAINTENANCE_JOB_NAME,
+		{ every: intervalMs },
+		{
+			name: INSIGHTS_MAINTENANCE_JOB_NAME,
+			data: {
+				reason: "maintenance",
+				triggeredAt: new Date().toISOString(),
+			},
+		}
+	);
+
+	log.info({
+		service: "insights",
+		message: "Insights maintenance scheduler ensured",
 		interval_ms: intervalMs,
 	});
 }

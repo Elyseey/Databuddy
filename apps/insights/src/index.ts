@@ -2,7 +2,10 @@ import { db, shutdownPostgres, sql } from "@databuddy/db";
 import { closeInsightsQueue, getInsightsQueue } from "@databuddy/redis";
 import { Elysia } from "elysia";
 import { initLogger, log } from "evlog";
-import { ensureInsightsDispatchSchedule } from "./scheduler";
+import {
+	ensureInsightsDispatchSchedule,
+	ensureInsightsMaintenanceSchedule,
+} from "./scheduler";
 import { startInsightsWorker } from "./worker";
 
 const environment =
@@ -107,7 +110,10 @@ async function shutdown(signal: string) {
 
 if (workerEnabled) {
 	insightsWorker = startInsightsWorker();
-	await ensureInsightsDispatchSchedule();
+	await Promise.all([
+		ensureInsightsDispatchSchedule(),
+		ensureInsightsMaintenanceSchedule(),
+	]);
 	log.info("lifecycle", "insights worker started");
 } else {
 	log.info("lifecycle", "insights worker disabled");
