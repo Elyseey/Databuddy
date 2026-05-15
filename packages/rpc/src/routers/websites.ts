@@ -6,6 +6,8 @@ import {
 	getTrackingBlockOriginHost,
 	isActionableTrackingBlockReason,
 	isIgnoredTrackingBlockOrigin,
+	matchesTrackingBlockAllowedOrigin,
+	matchesTrackingBlockIgnoredOrigin,
 	type ActionableTrackingBlockReason,
 } from "@databuddy/shared/tracking-blocks";
 import {
@@ -93,6 +95,7 @@ interface TrackingIssue {
 	lastSeen: string | null;
 	message: string;
 	origin: string | null;
+	originHost: string | null;
 	severity: TrackingIssueSeverity;
 	type: TrackingIssueType;
 }
@@ -125,6 +128,7 @@ function buildTrackingIssue(
 			lastSeen: row.lastSeen,
 			message: `Recent tracking requests${source} are being blocked because they do not match the configured domain${expected}.`,
 			origin: row.origin || null,
+			originHost,
 			severity,
 			type: row.issueType,
 		};
@@ -139,6 +143,7 @@ function buildTrackingIssue(
 			message:
 				"Recent tracking requests are missing an Origin header and are blocked by the website origin allowlist.",
 			origin: null,
+			originHost: null,
 			severity,
 			type: row.issueType,
 		};
@@ -152,6 +157,7 @@ function buildTrackingIssue(
 		message:
 			"Recent tracking requests are being blocked by this website's IP allowlist.",
 		origin: row.origin || null,
+		originHost,
 		severity,
 		type: row.issueType,
 	};
@@ -189,8 +195,39 @@ async function getTrackingEventsStatus(
 	}
 }
 
+function shouldSkipBlockedTrackingIssueRow(
+	row: BlockedTrackingIssueRow,
+	options: {
+		allowedOrigins: string[];
+		ignoredOrigins: string[];
+		websiteDomain: string | null;
+	}
+): boolean {
+	if (isIgnoredTrackingBlockOrigin(row.origin)) {
+		return true;
+	}
+
+	if (matchesTrackingBlockIgnoredOrigin(row.origin, options.ignoredOrigins)) {
+		return true;
+	}
+
+	return (
+		row.issueType === "origin_not_authorized" &&
+		matchesTrackingBlockAllowedOrigin(
+			row.origin,
+			options.websiteDomain,
+			options.allowedOrigins
+		)
+	);
+}
+
 async function getRecentBlockedTrackingIssue(
-	websiteId: string
+	websiteId: string,
+	options: {
+		allowedOrigins: string[];
+		ignoredOrigins: string[];
+		websiteDomain: string | null;
+	}
 ): Promise<BlockedTrackingIssueRow | null> {
 	try {
 		const rows = await Promise.race([
@@ -220,7 +257,8 @@ async function getRecentBlockedTrackingIssue(
 		]);
 
 		return (
-			rows.find((row) => !isIgnoredTrackingBlockOrigin(row.origin)) ?? null
+			rows.find((row) => !shouldSkipBlockedTrackingIssueRow(row, options)) ??
+			null
 		);
 	} catch (error) {
 		const message =
@@ -279,6 +317,8 @@ const websiteSettingsSchema = z
 	.object({
 		allowedOrigins: z.array(z.string()).optional(),
 		allowedIps: z.array(z.string()).optional(),
+		ignoredTrackingOrigins: z.array(z.string()).optional(),
+		trackingIssueWarningsDisabled: z.boolean().optional(),
 	})
 	.nullable();
 
@@ -338,6 +378,7 @@ const trackingIssueOutputSchema = z.object({
 	lastSeen: z.string().nullable(),
 	message: z.string(),
 	origin: z.string().nullable(),
+	originHost: z.string().nullable(),
 	severity: z.enum(["critical", "warning"]),
 	type: z.enum(TRACKING_ISSUE_TYPES),
 });
@@ -873,10 +914,19 @@ export const websitesRouter = {
 				websiteId: input.websiteId,
 				permissions: ["read"],
 			});
+			const websiteSettings = website?.settings ?? null;
+			const trackingIssueWarningsDisabled =
+				websiteSettings?.trackingIssueWarningsDisabled === true;
 
 			const [eventsStatus, blockedIssueRow] = await Promise.all([
 				getTrackingEventsStatus(input.websiteId),
-				getRecentBlockedTrackingIssue(input.websiteId),
+				trackingIssueWarningsDisabled
+					? Promise.resolve(null)
+					: getRecentBlockedTrackingIssue(input.websiteId, {
+							allowedOrigins: websiteSettings?.allowedOrigins ?? [],
+							ignoredOrigins: websiteSettings?.ignoredTrackingOrigins ?? [],
+							websiteDomain: website?.domain ?? null,
+						}),
 			]);
 			const trackingIssue = blockedIssueRow
 				? buildTrackingIssue(

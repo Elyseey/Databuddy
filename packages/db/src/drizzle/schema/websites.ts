@@ -21,6 +21,8 @@ export const websiteStatus = pgEnum("WebsiteStatus", [
 export interface WebsiteSettings {
 	allowedIps?: string[];
 	allowedOrigins?: string[];
+	ignoredTrackingOrigins?: string[];
+	trackingIssueWarningsDisabled?: boolean;
 }
 
 export interface WebsiteIntegrations {

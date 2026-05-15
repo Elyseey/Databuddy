@@ -2,6 +2,7 @@ import { describe, expect, test } from "vitest";
 import {
 	decideBlockedTrafficAlert,
 	matchesTrackingAlertIgnoredOrigin,
+	shouldEvaluateBlockedTrafficAlert,
 	shouldIgnoreBlockedTrafficAlertEvent,
 } from "./blocked-traffic-alerts";
 
@@ -137,5 +138,14 @@ describe("blocked traffic alert rules", () => {
 				recentEvents: 10,
 			})
 		).toEqual({ kind: "blocked_spike", severity: "warning" });
+	});
+
+	test("continues checking spikes after the first spike threshold", () => {
+		expect(shouldEvaluateBlockedTrafficAlert(3)).toBe(true);
+		expect(shouldEvaluateBlockedTrafficAlert(4)).toBe(false);
+		expect(shouldEvaluateBlockedTrafficAlert(24)).toBe(false);
+		expect(shouldEvaluateBlockedTrafficAlert(25)).toBe(true);
+		expect(shouldEvaluateBlockedTrafficAlert(50)).toBe(true);
+		expect(shouldEvaluateBlockedTrafficAlert(75)).toBe(true);
 	});
 });

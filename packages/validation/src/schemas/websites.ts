@@ -86,6 +86,29 @@ const originSchema = z
 		{ message: "Must be a valid domain (e.g., cal.com, *.cal.com) or *" }
 	);
 
+const broadWildcardOriginRegex = /^\*\.?[^.]+$/;
+const ignoredTrackingOriginSchema = z
+	.string()
+	.trim()
+	.toLowerCase()
+	.min(1)
+	.max(255)
+	.refine(
+		(val) => {
+			if (val === "*" || broadWildcardOriginRegex.test(val)) {
+				return false;
+			}
+			if (val.startsWith("*.")) {
+				return DOMAIN_REGEX.test(val.slice(2));
+			}
+			return DOMAIN_REGEX.test(val);
+		},
+		{
+			message:
+				"Must be a specific domain or wildcard domain (e.g., staging.example.com, *.preview.example.com)",
+		}
+	);
+
 const ipSchema = z
 	.string()
 	.refine(
@@ -99,6 +122,8 @@ export const updateWebsiteSettingsSchema = z.object({
 		.object({
 			allowedOrigins: z.array(originSchema).optional(),
 			allowedIps: z.array(ipSchema).optional(),
+			ignoredTrackingOrigins: z.array(ignoredTrackingOriginSchema).optional(),
+			trackingIssueWarningsDisabled: z.boolean().optional(),
 		})
 		.partial()
 		.optional(),

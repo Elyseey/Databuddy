@@ -12,6 +12,7 @@ import {
 } from "@/hooks/use-websites";
 import { orpc } from "@/lib/orpc";
 import { Button, Card, Input } from "@databuddy/ui";
+import { Switch } from "@databuddy/ui/client";
 import { LockIcon, PlusIcon, XMarkIcon as XIcon } from "@databuddy/ui/icons";
 import {
 	areSecuritySettingsEqual,
@@ -48,6 +49,35 @@ function validateOrigin(value: string): { success: boolean; error?: string } {
 	return {
 		success: false,
 		error: "Must be a valid domain (e.g., cal.com, *.cal.com) or *",
+	};
+}
+
+function validateIgnoredTrackingOrigin(value: string): {
+	success: boolean;
+	error?: string;
+} {
+	const trimmed = value.trim();
+	if (trimmed === "*") {
+		return {
+			success: false,
+			error: "Use the warning toggle to hide every tracking warning",
+		};
+	}
+	if (trimmed.startsWith("*.")) {
+		if (domainRegex.test(trimmed.slice(2))) {
+			return { success: true };
+		}
+		return {
+			success: false,
+			error: "Invalid wildcard domain format (e.g., *.preview.example.com)",
+		};
+	}
+	if (domainRegex.test(trimmed)) {
+		return { success: true };
+	}
+	return {
+		success: false,
+		error: "Must be a valid domain (e.g., staging.example.com)",
 	};
 }
 
@@ -201,13 +231,28 @@ export default function SecurityPage() {
 
 	const [allowedOrigins, setAllowedOrigins] = useState<string[]>([]);
 	const [allowedIps, setAllowedIps] = useState<string[]>([]);
+	const [ignoredTrackingOrigins, setIgnoredTrackingOrigins] = useState<
+		string[]
+	>([]);
+	const [trackingIssueWarningsDisabled, setTrackingIssueWarningsDisabled] =
+		useState(false);
 	const savedSettings = useMemo(
 		() => readSecuritySettings(websiteData?.settings),
 		[websiteData?.settings]
 	);
 	const draftSettings = useMemo(
-		() => ({ allowedIps, allowedOrigins }),
-		[allowedIps, allowedOrigins]
+		() => ({
+			allowedIps,
+			allowedOrigins,
+			ignoredTrackingOrigins,
+			trackingIssueWarningsDisabled,
+		}),
+		[
+			allowedIps,
+			allowedOrigins,
+			ignoredTrackingOrigins,
+			trackingIssueWarningsDisabled,
+		]
 	);
 	const hasChanges = !areSecuritySettingsEqual(savedSettings, draftSettings);
 
@@ -221,6 +266,10 @@ export default function SecurityPage() {
 	const initializeSettings = useCallback(() => {
 		setAllowedOrigins(savedSettings.allowedOrigins);
 		setAllowedIps(savedSettings.allowedIps);
+		setIgnoredTrackingOrigins(savedSettings.ignoredTrackingOrigins);
+		setTrackingIssueWarningsDisabled(
+			savedSettings.trackingIssueWarningsDisabled
+		);
 	}, [savedSettings]);
 
 	useEffect(() => {
@@ -266,6 +315,14 @@ export default function SecurityPage() {
 
 	const handleIpRemove = useCallback((value: string) => {
 		setAllowedIps((prev) => prev.filter((v) => v !== value));
+	}, []);
+
+	const handleIgnoredOriginAdd = useCallback((value: string) => {
+		setIgnoredTrackingOrigins((prev) => [...prev, value]);
+	}, []);
+
+	const handleIgnoredOriginRemove = useCallback((value: string) => {
+		setIgnoredTrackingOrigins((prev) => prev.filter((v) => v !== value));
 	}, []);
 
 	if (!websiteData) {
@@ -331,6 +388,35 @@ export default function SecurityPage() {
 								placeholder="192.168.1.1 or 192.168.1.0/24"
 								validate={validateIp}
 								values={allowedIps}
+							/>
+						</Card.Content>
+					</Card>
+
+					<Card>
+						<Card.Header className="flex-row items-start justify-between gap-4">
+							<div className="space-y-1.5">
+								<Card.Title>Tracking Warnings</Card.Title>
+								<Card.Description>
+									Hide dashboard warnings for known noisy origins without
+									allowing those origins to send analytics.
+								</Card.Description>
+							</div>
+							<Switch
+								aria-label="Show tracking warnings"
+								checked={!trackingIssueWarningsDisabled}
+								onCheckedChange={(checked) =>
+									setTrackingIssueWarningsDisabled(!checked)
+								}
+							/>
+						</Card.Header>
+						<Card.Content>
+							<TagInput
+								label="ignored tracking origins"
+								onAdd={handleIgnoredOriginAdd}
+								onRemove={handleIgnoredOriginRemove}
+								placeholder="staging.example.com or *.preview.example.com"
+								validate={validateIgnoredTrackingOrigin}
+								values={ignoredTrackingOrigins}
 							/>
 						</Card.Content>
 					</Card>

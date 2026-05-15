@@ -12,6 +12,7 @@ import {
 	getTrackingBlockOriginHost,
 	isActionableTrackingBlockReason,
 	isIgnoredTrackingBlockOrigin,
+	matchesTrackingBlockIgnoredOrigin,
 } from "@databuddy/shared/tracking-blocks";
 import { captureError } from "@lib/tracing";
 
@@ -22,7 +23,6 @@ const ZERO_TRACKING_BLOCK_THRESHOLD = 3;
 const BLOCKED_SPIKE_THRESHOLD = 25;
 const MIN_BASELINE_EVENTS = 5;
 const SPIKE_MULTIPLIER = 3;
-const TRAILING_DOT_REGEX = /\.$/;
 
 export interface BlockedTrafficAlertContext {
 	organizationId?: string | null;
@@ -31,12 +31,12 @@ export interface BlockedTrafficAlertContext {
 	websiteName?: string | null;
 }
 
-interface TrackingHealthRow {
+interface TrackingHealthCounts {
 	baselineEvents: number;
 	recentEvents: number;
 }
 
-interface PreviousBlockedRow {
+interface PreviousBlockedCountRow {
 	previousBlocked: number;
 }
 
@@ -45,53 +45,25 @@ export interface BlockedTrafficAlertDecision {
 	severity: "critical" | "warning";
 }
 
-function alertOrigin(event: BlockedTraffic): string {
+function getAlertOrigin(event: BlockedTraffic): string {
 	return event.origin?.trim() || "";
 }
 
-function alertGroup(event: BlockedTraffic): string {
-	return encodeURIComponent(alertOrigin(event) || "missing-origin");
+function getAlertOriginKey(event: BlockedTraffic): string {
+	return encodeURIComponent(getAlertOrigin(event) || "missing-origin");
 }
 
-function eventSource(
+function getBlockedTrafficSource(
 	event: Pick<BlockedTraffic, "origin" | "referrer">
 ): string | null {
 	return event.origin || event.referrer || null;
-}
-
-function normalizedPatternHost(pattern: string): string | null {
-	const value = pattern.trim().toLowerCase();
-	if (!value) {
-		return null;
-	}
-	if (value.startsWith("*.")) {
-		return value.slice(2);
-	}
-	return (
-		getTrackingBlockOriginHost(value) ?? value.replace(TRAILING_DOT_REGEX, "")
-	);
 }
 
 export function matchesTrackingAlertIgnoredOrigin(
 	source: string | null,
 	patterns: string[]
 ): boolean {
-	const host =
-		getTrackingBlockOriginHost(source) ?? source?.trim().toLowerCase();
-	if (!host) {
-		return false;
-	}
-
-	return patterns.some((pattern) => {
-		const normalized = normalizedPatternHost(pattern);
-		if (!normalized) {
-			return false;
-		}
-		if (pattern.trim().startsWith("*.")) {
-			return host.endsWith(`.${normalized}`);
-		}
-		return host === normalized;
-	});
+	return matchesTrackingBlockIgnoredOrigin(source, patterns);
 }
 
 export function shouldIgnoreBlockedTrafficAlertEvent(
@@ -106,10 +78,10 @@ export function shouldIgnoreBlockedTrafficAlertEvent(
 		return true;
 	}
 
-	return isIgnoredTrackingBlockOrigin(eventSource(event));
+	return isIgnoredTrackingBlockOrigin(getBlockedTrafficSource(event));
 }
 
-function buildFix(event: BlockedTraffic): string {
+function buildRecommendedFix(event: BlockedTraffic): string {
 	const host = getTrackingBlockOriginHost(event.origin ?? null);
 	if (event.block_reason === "origin_not_authorized") {
 		return host
@@ -124,13 +96,13 @@ function buildFix(event: BlockedTraffic): string {
 	return "Update the website IP allowlist or remove the restriction if browser traffic should be accepted from dynamic client IPs.";
 }
 
-function dashboardUrl(clientId: string, reason: string): string {
+function buildDashboardUrl(clientId: string, reason: string): string {
 	const section = reason === "origin_not_authorized" ? "general" : "security";
 	return `${config.urls.dashboard}/websites/${clientId}/settings/${section}`;
 }
 
 async function incrementWindowCounter(event: BlockedTraffic): Promise<number> {
-	const key = `blocked-traffic-alert:count:${event.client_id}:${event.block_reason}:${alertGroup(event)}`;
+	const key = `blocked-traffic-alert:count:${event.client_id}:${event.block_reason}:${getAlertOriginKey(event)}`;
 	const count = await redis.incr(key);
 	if (count === 1) {
 		await redis.expire(key, ALERT_WINDOW_MINUTES * 60);
@@ -138,8 +110,10 @@ async function incrementWindowCounter(event: BlockedTraffic): Promise<number> {
 	return count;
 }
 
-async function getTrackingHealth(clientId: string): Promise<TrackingHealthRow> {
-	const rows = await chQuery<TrackingHealthRow>(
+async function getTrackingHealth(
+	clientId: string
+): Promise<TrackingHealthCounts> {
+	const rows = await chQuery<TrackingHealthCounts>(
 		`SELECT
 			countIf(event_name = 'screen_view' AND time >= now() - INTERVAL ${RECENT_SUCCESS_MINUTES} MINUTE) AS recentEvents,
 			countIf(event_name = 'screen_view' AND time >= now() - INTERVAL ${BASELINE_SUCCESS_HOURS} HOUR AND time < now() - INTERVAL ${RECENT_SUCCESS_MINUTES} MINUTE) AS baselineEvents
@@ -151,7 +125,7 @@ async function getTrackingHealth(clientId: string): Promise<TrackingHealthRow> {
 }
 
 async function getPreviousBlockedCount(event: BlockedTraffic): Promise<number> {
-	const rows = await chQuery<PreviousBlockedRow>(
+	const rows = await chQuery<PreviousBlockedCountRow>(
 		`SELECT count() AS previousBlocked
 		FROM analytics.blocked_traffic
 		PREWHERE timestamp >= now() - INTERVAL ${ALERT_WINDOW_MINUTES * 2} MINUTE
@@ -161,7 +135,7 @@ async function getPreviousBlockedCount(event: BlockedTraffic): Promise<number> {
 			AND ifNull(origin, '') = {origin:String}`,
 		{
 			clientId: event.client_id,
-			origin: alertOrigin(event),
+			origin: getAlertOrigin(event),
 			reason: event.block_reason,
 		}
 	);
@@ -193,11 +167,21 @@ export function decideBlockedTrafficAlert(input: {
 	return null;
 }
 
+export function shouldEvaluateBlockedTrafficAlert(
+	windowBlockedCount: number
+): boolean {
+	return (
+		windowBlockedCount === ZERO_TRACKING_BLOCK_THRESHOLD ||
+		(windowBlockedCount >= BLOCKED_SPIKE_THRESHOLD &&
+			windowBlockedCount % BLOCKED_SPIKE_THRESHOLD === 0)
+	);
+}
+
 function cooldownKey(
 	event: BlockedTraffic,
 	kind: BlockedTrafficAlertDecision["kind"]
 ): string {
-	return `blocked-traffic-alert:sent:${event.client_id}:${event.block_reason}:${alertGroup(event)}:${kind}`;
+	return `blocked-traffic-alert:sent:${event.client_id}:${event.block_reason}:${getAlertOriginKey(event)}:${kind}`;
 }
 
 async function reserveCooldown(
@@ -238,7 +222,7 @@ async function getOrganizationEmailSettings(
 	return normalizeEmailNotificationSettings(row?.emailNotifications);
 }
 
-function shouldSkipForSettings(input: {
+function isAlertMutedBySettings(input: {
 	decision: BlockedTrafficAlertDecision;
 	event: BlockedTraffic;
 	settings: EmailNotificationSettings;
@@ -261,7 +245,7 @@ function shouldSkipForSettings(input: {
 		return true;
 	}
 	return matchesTrackingAlertIgnoredOrigin(
-		eventSource(input.event),
+		getBlockedTrafficSource(input.event),
 		tracking.ignoredOrigins
 	);
 }
@@ -270,10 +254,10 @@ async function sendAlertEmail(input: {
 	context: BlockedTrafficAlertContext;
 	decision: BlockedTrafficAlertDecision;
 	event: BlockedTraffic;
-	health: TrackingHealthRow;
+	trackingHealth: TrackingHealthCounts;
 	ownerEmail: string;
 	previousBlocked: number;
-	windowCount: number;
+	windowBlockedCount: number;
 }): Promise<void> {
 	const apiKey = process.env.RESEND_API_KEY;
 	if (!apiKey) {
@@ -292,18 +276,18 @@ async function sendAlertEmail(input: {
 
 	const html = await render(
 		BlockedTrafficAlertEmail({
-			baselineEvents: input.health.baselineEvents,
+			baselineEvents: input.trackingHealth.baselineEvents,
 			baselineHours: BASELINE_SUCCESS_HOURS,
 			blockReason: input.event.block_reason,
-			blockedCount: input.windowCount,
-			dashboardUrl: dashboardUrl(
+			blockedCount: input.windowBlockedCount,
+			dashboardUrl: buildDashboardUrl(
 				input.event.client_id || "",
 				input.event.block_reason
 			),
-			fix: buildFix(input.event),
+			fix: buildRecommendedFix(input.event),
 			origin: input.event.origin ?? null,
 			previousBlockedCount: input.previousBlocked,
-			recentEvents: input.health.recentEvents,
+			recentEvents: input.trackingHealth.recentEvents,
 			severity: input.decision.severity,
 			siteLabel,
 			windowMinutes: ALERT_WINDOW_MINUTES,
@@ -343,32 +327,27 @@ async function maybeSendBlockedTrafficAlertAsync(
 		return;
 	}
 
-	const count = await incrementWindowCounter(event);
-	if (
-		!(
-			count === ZERO_TRACKING_BLOCK_THRESHOLD ||
-			count === BLOCKED_SPIKE_THRESHOLD
-		)
-	) {
+	const windowBlockedCount = await incrementWindowCounter(event);
+	if (!shouldEvaluateBlockedTrafficAlert(windowBlockedCount)) {
 		return;
 	}
 
-	const [health, previousBlocked] = await Promise.all([
+	const [trackingHealth, previousBlocked] = await Promise.all([
 		getTrackingHealth(event.client_id || ""),
 		getPreviousBlockedCount(event),
 	]);
 	const decision = decideBlockedTrafficAlert({
-		baselineEvents: health.baselineEvents,
-		count,
+		baselineEvents: trackingHealth.baselineEvents,
+		count: windowBlockedCount,
 		previousBlocked,
-		recentEvents: health.recentEvents,
+		recentEvents: trackingHealth.recentEvents,
 	});
 	if (!decision) {
 		return;
 	}
 
 	const settings = await getOrganizationEmailSettings(context.organizationId);
-	if (shouldSkipForSettings({ decision, event, settings })) {
+	if (isAlertMutedBySettings({ decision, event, settings })) {
 		return;
 	}
 
@@ -387,15 +366,13 @@ async function maybeSendBlockedTrafficAlertAsync(
 			context,
 			decision,
 			event,
-			health,
+			trackingHealth,
 			ownerEmail: owner.email,
 			previousBlocked,
-			windowCount: count,
+			windowBlockedCount,
 		});
 	} catch (error) {
-		await redis.del(reservedKey).catch(() => {
-			// Cooldown cleanup is best-effort; the alert evaluator must not throw twice.
-		});
+		await redis.del(reservedKey).catch(() => undefined);
 		throw error;
 	}
 }
