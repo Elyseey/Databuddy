@@ -72,8 +72,9 @@ test(
 		await expect(filterDialog).toBeHidden();
 
 		const main = authenticatedPage.getByRole("main");
-		await expect(main.getByText("Country")).toBeVisible();
-		await expect(main.getByText("US", { exact: true })).toBeVisible();
+		await expect(
+			main.getByRole("group", { name: "Country = US filter" })
+		).toBeVisible();
 		await expect(
 			main.getByText(formattedCount(seed.screenViewsByCountry.US ?? 0)).first()
 		).toBeVisible({ timeout: 20_000 });
