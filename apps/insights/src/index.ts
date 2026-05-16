@@ -108,16 +108,26 @@ async function shutdown(signal: string) {
 	process.exit(0);
 }
 
-if (workerEnabled) {
-	insightsWorker = startInsightsWorker();
-	await Promise.all([
-		ensureInsightsDispatchSchedule(),
-		ensureInsightsMaintenanceSchedule(),
-	]);
-	log.info("lifecycle", "insights worker started");
-} else {
-	log.info("lifecycle", "insights worker disabled");
+async function startRuntime() {
+	if (workerEnabled) {
+		insightsWorker = startInsightsWorker();
+		await Promise.all([
+			ensureInsightsDispatchSchedule(),
+			ensureInsightsMaintenanceSchedule(),
+		]);
+		log.info("lifecycle", "insights worker started");
+	} else {
+		log.info("lifecycle", "insights worker disabled");
+	}
 }
+
+startRuntime().catch((error) => {
+	log.error({
+		lifecycle: "startup",
+		error_message: error instanceof Error ? error.message : String(error),
+	});
+	exitAfterDrain(1);
+});
 
 process.on("SIGTERM", () => shutdown("SIGTERM"));
 process.on("SIGINT", () => shutdown("SIGINT"));

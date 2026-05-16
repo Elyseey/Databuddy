@@ -35,6 +35,7 @@ Keep additions **minimal**: one bullet, a new `rg` hint, or a routing note—eno
 - Slack agent evals live in `packages/evals`: use `bun run eval --surface slack` for the whole Slack surface. `--tag slack` is only a tiny smoke subset, and `cost_fallback` in agent telemetry is pricing-catalog fallback, not proof the model request fell back.
 - Slack agent expected stops such as exhausted Databunny credits should throw `DatabuddyAgentUserError` from `@databuddy/ai/agent/errors`; Slack surfaces those messages directly and reserves the generic reconnect copy for real infrastructure failures.
 - Slack Docker builds use `bun build --compile --bytecode`; keep `apps/slack/src/index.ts` bootstrapping inside an async `main()` instead of top-level `await`, which can fail during compile even when typecheck passes.
+- Insights Docker builds also use `bun build --compile --bytecode`; keep `apps/insights/src/index.ts` startup work inside async functions instead of top-level `await`.
 - After Slack Docker changes, verify the full pruned image with `docker build --progress=plain -f slack.Dockerfile -t databuddy-slack:test .`; the inner Bun compile is not enough because prune can miss dependency build outputs and package exports.
 - Slack-reachable shared packages (`@databuddy/ai`, `@databuddy/rpc`) must not import `evlog/elysia`; use host-injected request logger providers from the API and plain evlog fallbacks elsewhere.
 - AI link tools must assign link folders by existing folder `id` or `slug` only; folder names are display text and must not be used for routing or dedupe.
