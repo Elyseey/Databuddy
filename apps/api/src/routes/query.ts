@@ -8,6 +8,7 @@ import {
 	isApiKeyPresent,
 } from "@databuddy/api-keys/resolve";
 import { db } from "@databuddy/db";
+import { readBooleanEnv } from "@databuddy/env/boolean";
 import { ratelimit } from "@databuddy/redis/rate-limit";
 import {
 	getBillingOwner,
@@ -371,6 +372,10 @@ async function enforceQueryRateLimit(
 	requestId: string,
 	request: Request
 ): Promise<Response | null> {
+	if (readBooleanEnv("DATABUDDY_E2E_MODE")) {
+		return null;
+	}
+
 	const principal = ctx.apiKey
 		? `apikey:${ctx.apiKey.id}`
 		: ctx.user
