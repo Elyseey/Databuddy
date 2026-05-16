@@ -2,6 +2,7 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { readBooleanEnv } from "@databuddy/env/boolean";
+import { env } from "@databuddy/env/insights";
 import type { DrainContext, RequestLogger } from "evlog";
 import { createLogger, log } from "evlog";
 import { createAxiomDrain } from "evlog/axiom";
@@ -15,12 +16,22 @@ type LogLevel = "error" | "info" | "warn";
 
 const activeInsightsLog = new AsyncLocalStorage<RequestLogger>();
 
+const axiomApiKey = env.AXIOM_API_KEY ?? env.AXIOM_TOKEN;
+
 const pipeline = createDrainPipeline<DrainContext>({
 	batch: { size: 50, intervalMs: 5000 },
 	maxBufferSize: 2000,
 });
 
-const batchedAxiomDrain = pipeline(createAxiomDrain());
+const batchedAxiomDrain = axiomApiKey
+	? pipeline(
+			createAxiomDrain({
+				apiKey: axiomApiKey,
+				dataset: env.INSIGHTS_AXIOM_DATASET,
+				...(env.AXIOM_ORG_ID ? { orgId: env.AXIOM_ORG_ID } : {}),
+			})
+		)
+	: null;
 
 const fsDrain =
 	process.env.NODE_ENV === "development" || readBooleanEnv("INSIGHTS_EVLOG_FS")
@@ -58,6 +69,9 @@ export async function insightsLoggerDrain(ctx: DrainContext): Promise<void> {
 	if (fsDrain) {
 		await fsDrain(ctx);
 	}
+	if (!batchedAxiomDrain) {
+		return;
+	}
 	try {
 		await batchedAxiomDrain(ctx);
 	} catch {
@@ -66,6 +80,9 @@ export async function insightsLoggerDrain(ctx: DrainContext): Promise<void> {
 }
 
 export async function flushBatchedInsightsDrain(): Promise<void> {
+	if (!batchedAxiomDrain) {
+		return;
+	}
 	await batchedAxiomDrain.flush();
 }
 
