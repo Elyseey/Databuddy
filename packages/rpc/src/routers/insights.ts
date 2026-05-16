@@ -568,14 +568,14 @@ export const insightsRouter = {
 				);
 			}
 
-			const { generatedAt, narrative } = await loadNarrativeCached(
+			const cached = await loadNarrativeCached(
 				input.organizationId,
 				input.range
 			);
 			return {
 				success: true as const,
-				narrative,
-				generatedAt,
+				narrative: cached.narrative,
+				generatedAt: new Date(cached.generatedAt).toISOString(),
 			};
 		}),
 

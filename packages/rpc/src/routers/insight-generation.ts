@@ -344,6 +344,27 @@ async function listTargetWebsites(
 export async function queueInsightGenerationRun(
 	input: QueueInsightGenerationRunInput
 ): Promise<QueueInsightGenerationRunResult> {
+	if (!input.force) {
+		const [active] = await db
+			.select({ id: insightRuns.id, totalItems: insightRuns.totalItems })
+			.from(insightRuns)
+			.where(
+				and(
+					eq(insightRuns.organizationId, input.organizationId),
+					inArray(insightRuns.status, ["queued", "running"])
+				)
+			)
+			.orderBy(desc(insightRuns.createdAt))
+			.limit(1);
+		if (active) {
+			return {
+				queuedItems: active.totalItems,
+				runId: active.id,
+				status: "queued",
+			};
+		}
+	}
+
 	const targetWebsites = await listTargetWebsites(
 		input.organizationId,
 		input.websiteIds
