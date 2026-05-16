@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { auth } from "@databuddy/auth";
 import { and, db, eq } from "@databuddy/db";
+import { readBooleanEnv } from "@databuddy/env/boolean";
 import {
 	member,
 	organization,
@@ -8,11 +9,11 @@ import {
 	user,
 	websites,
 } from "@databuddy/db/schema";
-import { assertE2EAccess } from "../access";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+const TEST_KEY_HEADER = "x-e2e-test-key";
 const E2E_EMAIL_DOMAIN = "e2e.databuddy.local";
 const E2E_PASSWORD = "DatabuddyE2E!123";
 
@@ -20,6 +21,28 @@ interface SessionBody {
 	runScope?: unknown;
 	testScope?: unknown;
 	withWebsite?: unknown;
+}
+
+function isE2EModeEnabled(): boolean {
+	return readBooleanEnv("DATABUDDY_E2E_MODE");
+}
+
+function notFound(): Response {
+	return Response.json({ error: "Not found" }, { status: 404 });
+}
+
+function assertE2EAccess(request: Request): Response | null {
+	if (!isE2EModeEnabled()) {
+		return notFound();
+	}
+	const key = process.env.DATABUDDY_E2E_TEST_KEY;
+	if (!key) {
+		return notFound();
+	}
+	if (request.headers.get(TEST_KEY_HEADER) !== key) {
+		return Response.json({ error: "Unauthorized" }, { status: 401 });
+	}
+	return null;
 }
 
 function normalizeScope(value: unknown, fallback: string): string {

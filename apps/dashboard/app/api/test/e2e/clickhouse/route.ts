@@ -1,16 +1,38 @@
 import { clickHouse, TABLE_NAMES } from "@databuddy/db/clickhouse";
 import { readBooleanEnv } from "@databuddy/env/boolean";
-import { assertE2EAccess } from "../access";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+const TEST_KEY_HEADER = "x-e2e-test-key";
 const PATHS = ["/", "/pricing", "/docs", "/dashboard", "/settings"];
 const REFERRERS = [null, "https://google.com", "https://github.com"];
 
 interface SeedBody {
 	eventCount?: unknown;
 	websiteId?: unknown;
+}
+
+function isE2EModeEnabled(): boolean {
+	return readBooleanEnv("DATABUDDY_E2E_MODE");
+}
+
+function notFound(): Response {
+	return Response.json({ error: "Not found" }, { status: 404 });
+}
+
+function assertE2EAccess(request: Request): Response | null {
+	if (!isE2EModeEnabled()) {
+		return notFound();
+	}
+	const key = process.env.DATABUDDY_E2E_TEST_KEY;
+	if (!key) {
+		return notFound();
+	}
+	if (request.headers.get(TEST_KEY_HEADER) !== key) {
+		return Response.json({ error: "Unauthorized" }, { status: 401 });
+	}
+	return null;
 }
 
 function normalizeEventCount(value: unknown): number {
@@ -64,13 +86,12 @@ export async function POST(request: Request): Promise<Response> {
 	}
 
 	const body = (await request.json().catch(() => ({}))) as SeedBody;
-	const websiteId = body.websiteId;
-	if (typeof websiteId !== "string" || !websiteId) {
+	if (typeof body.websiteId !== "string" || !body.websiteId) {
 		return Response.json({ error: "websiteId is required" }, { status: 400 });
 	}
 
 	const eventCount = normalizeEventCount(body.eventCount);
-	await clearExistingSeedData(websiteId);
+	await clearExistingSeedData(body.websiteId);
 
 	const now = Date.now();
 	const users = Array.from(
@@ -92,7 +113,7 @@ export async function POST(request: Request): Promise<Response> {
 		const timestamp = new Date(session.start + index * 30_000);
 		return {
 			id: crypto.randomUUID(),
-			client_id: websiteId,
+			client_id: body.websiteId as string,
 			event_name: index % 4 === 0 ? "page_exit" : "screen_view",
 			anonymous_id: session.anonymousId,
 			time: clickHouseDate(timestamp),
@@ -136,7 +157,7 @@ export async function POST(request: Request): Promise<Response> {
 		.slice(0, Math.ceil(eventCount / 20))
 		.map((session) => ({
 			id: crypto.randomUUID(),
-			client_id: websiteId,
+			client_id: body.websiteId as string,
 			anonymous_id: session.anonymousId,
 			session_id: session.sessionId,
 			href: "https://github.com/databuddy-analytics/Databuddy",
@@ -165,6 +186,6 @@ export async function POST(request: Request): Promise<Response> {
 		screenViewsByCountry,
 		screenViewsByPath,
 		seeded: true,
-		websiteId,
+		websiteId: body.websiteId,
 	});
 }
