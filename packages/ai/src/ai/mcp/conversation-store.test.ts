@@ -76,6 +76,11 @@ vi.mock("@databuddy/redis", () => ({
 	closeUptimeQueue: vi.fn(async () => undefined),
 	createDrizzleCache: () => ({}),
 	getActiveStream: vi.fn(async () => null),
+	getAgentContextSnapshotKey: (
+		userId: string,
+		websiteId: string,
+		organizationId?: string | null
+	) => `agent:context-snapshot:${organizationId ?? userId}:${websiteId}`,
 	getBullMQConnectionOptions: vi.fn(() => ({})),
 	getBullMQWorkerConnectionOptions: vi.fn(() => ({})),
 	getCachedLink: vi.fn(async () => null),
