@@ -31,7 +31,11 @@ import {
 import { generateText, Output, stepCountIs, ToolLoopAgent } from "ai";
 import { randomUUIDv7 } from "bun";
 import dayjs from "dayjs";
-import { log } from "evlog";
+import {
+	captureInsightsError,
+	emitInsightsEvent,
+	setInsightsLog,
+} from "./lib/evlog-insights";
 
 const LEGACY_TIMEOUT_MS = 60_000;
 const AGENT_TIMEOUT_MS = 120_000;
@@ -71,10 +75,6 @@ export interface GenerateWebsiteInsightsResult {
 	message?: string;
 	resultCount: number;
 	status: "skipped" | "succeeded";
-}
-
-function errorMessage(error: unknown): string {
-	return error instanceof Error ? error.message : String(error);
 }
 
 function maxInsights(config: InsightGenerationConfigSnapshot): number {
@@ -344,12 +344,13 @@ async function validateOrRepairInsights(
 ): Promise<ParsedInsight[]> {
 	const validated = validateInsights(insights);
 	if (validated.warnings.length > 0) {
-		log.warn({
-			service: "insights",
-			message: "Insights validation repaired or dropped output",
+		emitInsightsEvent("warn", "generation.validation_warnings", {
 			organization_id: context.organizationId,
 			website_id: context.websiteId,
 			mode: context.mode,
+			input_count: insights.length,
+			output_count: validated.insights.length,
+			warning_count: validated.warnings.length,
 			warnings: validated.warnings,
 		});
 	}
@@ -360,6 +361,14 @@ async function validateOrRepairInsights(
 	}
 
 	try {
+		const repairStartedAt = performance.now();
+		emitInsightsEvent("info", "generation.repair.started", {
+			organization_id: context.organizationId,
+			website_id: context.websiteId,
+			mode: context.mode,
+			input_count: insights.length,
+			target_count: targetCount,
+		});
 		const ai = getAILogger();
 		const repair = await generateText({
 			model: ai.wrap(modelForTier(context.config.modelTier)),
@@ -402,24 +411,30 @@ async function validateOrRepairInsights(
 		const repairedOutput = repair.output?.insights ?? [];
 		const repaired = validateInsights(repairedOutput);
 		if (repaired.warnings.length > 0) {
-			log.warn({
-				service: "insights",
-				message: "Insights repair validation warnings",
+			emitInsightsEvent("warn", "generation.repair.validation_warnings", {
 				organization_id: context.organizationId,
 				website_id: context.websiteId,
 				mode: context.mode,
+				input_count: repairedOutput.length,
+				output_count: repaired.insights.length,
+				warning_count: repaired.warnings.length,
 				warnings: repaired.warnings,
 			});
 		}
 
 		if (repaired.insights.length >= validated.insights.length) {
+			emitInsightsEvent("info", "generation.repair.completed", {
+				organization_id: context.organizationId,
+				website_id: context.websiteId,
+				mode: context.mode,
+				duration_ms: Math.round(performance.now() - repairStartedAt),
+				input_count: insights.length,
+				output_count: repaired.insights.length,
+			});
 			return repaired.insights.slice(0, targetCount);
 		}
 	} catch (error) {
-		log.warn({
-			service: "insights",
-			message: "Insights repair failed",
-			error_message: errorMessage(error),
+		captureInsightsError(error, "generation.repair.failed", {
 			organization_id: context.organizationId,
 			website_id: context.websiteId,
 			mode: context.mode,
@@ -440,6 +455,15 @@ async function analyzeWebsiteLegacy(params: {
 	userId: string;
 	websiteId: string;
 }): Promise<ParsedInsight[]> {
+	const startedAt = performance.now();
+	emitInsightsEvent("info", "generation.legacy.started", {
+		organization_id: params.organizationId,
+		website_id: params.websiteId,
+		depth: params.config.depth,
+		model_tier: params.config.modelTier,
+		timezone: params.config.timezone,
+		lookback_days: params.config.lookbackDays,
+	});
 	const currentRange = params.period.current;
 	const previousRange = params.period.previous;
 	const [current, previous] = await Promise.all([
@@ -460,8 +484,22 @@ async function analyzeWebsiteLegacy(params: {
 	]);
 
 	if (current.summary.length === 0 && current.topPages.length === 0) {
+		emitInsightsEvent("info", "generation.legacy.skipped_no_data", {
+			organization_id: params.organizationId,
+			website_id: params.websiteId,
+			duration_ms: Math.round(performance.now() - startedAt),
+		});
 		return [];
 	}
+
+	emitInsightsEvent("info", "generation.legacy.context_loaded", {
+		organization_id: params.organizationId,
+		website_id: params.websiteId,
+		current_summary_rows: current.summary.length,
+		current_top_pages: current.topPages.length,
+		previous_summary_rows: previous.summary.length,
+		previous_top_pages: previous.topPages.length,
+	});
 
 	const dataSection = formatLegacyWebDataForPrompt(
 		current,
@@ -509,20 +547,29 @@ ${orgContext}${dataSection}${params.annotationContext}${params.recentInsightsBlo
 			},
 		});
 
-		return await validateOrRepairInsights(result.output?.insights ?? [], {
-			config: params.config,
-			domain: params.domain,
-			mode: "legacy",
-			organizationId: params.organizationId,
-			websiteId: params.websiteId,
-		});
-	} catch (error) {
-		log.warn({
-			service: "insights",
-			message: "Failed to generate insights with legacy fallback",
-			error_message: errorMessage(error),
+		const validated = await validateOrRepairInsights(
+			result.output?.insights ?? [],
+			{
+				config: params.config,
+				domain: params.domain,
+				mode: "legacy",
+				organizationId: params.organizationId,
+				websiteId: params.websiteId,
+			}
+		);
+		emitInsightsEvent("info", "generation.legacy.completed", {
 			organization_id: params.organizationId,
 			website_id: params.websiteId,
+			duration_ms: Math.round(performance.now() - startedAt),
+			raw_output_count: result.output?.insights?.length ?? 0,
+			output_count: validated.length,
+		});
+		return validated;
+	} catch (error) {
+		captureInsightsError(error, "generation.legacy.failed", {
+			organization_id: params.organizationId,
+			website_id: params.websiteId,
+			duration_ms: Math.round(performance.now() - startedAt),
 		});
 		return [];
 	}
@@ -537,6 +584,17 @@ async function analyzeWebsite(params: {
 	userId: string;
 	websiteId: string;
 }): Promise<ParsedInsight[]> {
+	const startedAt = performance.now();
+	emitInsightsEvent("info", "generation.agent.started", {
+		organization_id: params.organizationId,
+		website_id: params.websiteId,
+		depth: params.config.depth,
+		model_tier: params.config.modelTier,
+		timezone: params.config.timezone,
+		lookback_days: params.config.lookbackDays,
+		max_steps: params.config.maxSteps,
+		max_tool_calls: params.config.maxToolCalls,
+	});
 	const currentRange = params.period.current;
 	const previousRange = params.period.previous;
 	const hasData = await hasWebInsightData(
@@ -547,6 +605,11 @@ async function analyzeWebsite(params: {
 		params.config.timezone
 	);
 	if (!hasData) {
+		emitInsightsEvent("info", "generation.agent.skipped_no_data", {
+			organization_id: params.organizationId,
+			website_id: params.websiteId,
+			duration_ms: Math.round(performance.now() - startedAt),
+		});
 		return [];
 	}
 
@@ -564,6 +627,14 @@ async function analyzeWebsite(params: {
 		params.orgSites,
 		params.websiteId
 	);
+	emitInsightsEvent("info", "generation.context_loaded", {
+		organization_id: params.organizationId,
+		website_id: params.websiteId,
+		allowed_tools: allowedTools,
+		has_annotations: annotationContext.length > 0,
+		has_recent_insights: recentInsightsBlock.length > 0,
+		org_site_count: params.orgSites.length,
+	});
 	const userPrompt = `Analyze this website's period-over-period data and produce insights.
 
 **Current period:** ${currentRange.from} to ${currentRange.to}
@@ -627,9 +698,7 @@ ${orgContext}${annotationContext}${recentInsightsBlock}`;
 			},
 			onStepFinish: ({ usage, finishReason, toolCalls }) => {
 				toolCallCount += toolCalls.length;
-				log.info({
-					service: "insights",
-					message: "Insights worker agent step finished",
+				emitInsightsEvent("info", "generation.agent.step_finished", {
 					organization_id: params.organizationId,
 					website_id: params.websiteId,
 					finish_reason: finishReason,
@@ -666,31 +735,47 @@ ${orgContext}${annotationContext}${recentInsightsBlock}`;
 		});
 
 		if (result.output?.insights?.length) {
-			return await validateOrRepairInsights(result.output.insights, {
+			const validated = await validateOrRepairInsights(result.output.insights, {
 				config: params.config,
 				domain: params.domain,
 				mode: "agent",
 				organizationId: params.organizationId,
 				websiteId: params.websiteId,
 			});
+			emitInsightsEvent("info", "generation.agent.completed", {
+				organization_id: params.organizationId,
+				website_id: params.websiteId,
+				duration_ms: Math.round(performance.now() - startedAt),
+				raw_output_count: result.output.insights.length,
+				output_count: validated.length,
+				tool_call_count: toolCallCount,
+			});
+			setInsightsLog({
+				generation_mode: "agent",
+				tool_call_count: toolCallCount,
+				generated_candidate_count: validated.length,
+			});
+			return validated;
 		}
 
-		log.warn({
-			service: "insights",
-			message: "Insights worker agent finished without structured output",
+		emitInsightsEvent("warn", "generation.agent.missing_output", {
 			organization_id: params.organizationId,
 			website_id: params.websiteId,
+			duration_ms: Math.round(performance.now() - startedAt),
+			tool_call_count: toolCallCount,
 		});
 	} catch (error) {
-		log.warn({
-			service: "insights",
-			message: "Insights worker agent failed, using legacy fallback",
-			error_message: errorMessage(error),
+		captureInsightsError(error, "generation.agent.failed_using_legacy", {
 			organization_id: params.organizationId,
 			website_id: params.websiteId,
+			duration_ms: Math.round(performance.now() - startedAt),
 		});
 	}
 
+	emitInsightsEvent("info", "generation.legacy_fallback.started", {
+		organization_id: params.organizationId,
+		website_id: params.websiteId,
+	});
 	return analyzeWebsiteLegacy({
 		...params,
 		annotationContext,
@@ -705,18 +790,21 @@ async function persistWebsiteInsights(params: {
 	period: WeekOverWeekPeriod;
 	runId: string;
 }): Promise<GeneratedWebsiteInsight[]> {
+	const startedAt = performance.now();
 	const dedupeKeyToId = await fetchInsightDedupeKeyToIdMap(
 		params.organizationId,
 		params.config.cooldownHours
 	);
 	const seenInBatch = new Set<string>();
 	const finalInsights: GeneratedWebsiteInsight[] = [];
+	let duplicateCandidates = 0;
 
 	for (const insight of [...params.insights].sort(
 		(a, b) => b.priority - a.priority
 	)) {
 		const key = dedupeKeyFor(insight);
 		if (seenInBatch.has(key)) {
+			duplicateCandidates += 1;
 			continue;
 		}
 		seenInBatch.add(key);
@@ -728,6 +816,13 @@ async function persistWebsiteInsights(params: {
 	}
 
 	if (finalInsights.length === 0) {
+		emitInsightsEvent("info", "generation.persistence.skipped_empty", {
+			organization_id: params.organizationId,
+			run_id: params.runId,
+			candidate_count: params.insights.length,
+			duplicate_candidate_count: duplicateCandidates,
+			dedupe_window_count: dedupeKeyToId.size,
+		});
 		return [];
 	}
 
@@ -778,6 +873,17 @@ async function persistWebsiteInsights(params: {
 	const toRefresh = finalInsights.filter((insight) => {
 		const existingId = dedupeKeyToId.get(dedupeKeyFor(insight));
 		return existingId !== undefined && insight.id === existingId;
+	});
+
+	emitInsightsEvent("info", "generation.persistence.started", {
+		organization_id: params.organizationId,
+		run_id: params.runId,
+		candidate_count: params.insights.length,
+		final_count: finalInsights.length,
+		insert_count: toInsert.length,
+		refresh_count: toRefresh.length,
+		duplicate_candidate_count: duplicateCandidates,
+		dedupe_window_count: dedupeKeyToId.size,
 	});
 
 	if (toInsert.length > 0) {
@@ -848,6 +954,16 @@ async function persistWebsiteInsights(params: {
 		...websiteInvalidations,
 	]);
 
+	emitInsightsEvent("info", "generation.persistence.completed", {
+		organization_id: params.organizationId,
+		run_id: params.runId,
+		duration_ms: Math.round(performance.now() - startedAt),
+		result_count: finalInsights.length,
+		insert_count: toInsert.length,
+		refresh_count: toRefresh.length,
+		invalidated_website_count: websiteInvalidations.length,
+	});
+
 	return finalInsights;
 }
 
@@ -869,19 +985,33 @@ function storeWebsiteSummary(
 		`Insights for ${site.domain} (${dayjs().format("YYYY-MM-DD")}):\n${summary}`,
 		site.id,
 		{ period: "configured" }
-	).catch((error: unknown) => {
-		log.warn({
-			service: "insights",
-			message: "Failed to store analytics summary",
-			error_message: errorMessage(error),
-			website_id: site.id,
+	)
+		.then(() => {
+			emitInsightsEvent("info", "generation.summary_stored", {
+				website_id: site.id,
+				insight_count: insights.length,
+			});
+		})
+		.catch((error: unknown) => {
+			captureInsightsError(error, "generation.summary_store_failed", {
+				website_id: site.id,
+			});
 		});
-	});
 }
 
 export async function generateWebsiteInsights(
 	input: GenerateWebsiteInsightsInput
 ): Promise<GenerateWebsiteInsightsResult> {
+	const startedAt = performance.now();
+	emitInsightsEvent("info", "generation.website.started", {
+		organization_id: input.organizationId,
+		website_id: input.websiteId,
+		run_id: input.runId,
+		reason: input.reason,
+		depth: input.config.depth,
+		model_tier: input.config.modelTier,
+		allowed_tools: input.config.allowedTools,
+	});
 	const [site] = await db
 		.select({ id: websites.id, name: websites.name, domain: websites.domain })
 		.from(websites)
@@ -895,6 +1025,12 @@ export async function generateWebsiteInsights(
 		.limit(1);
 
 	if (!site) {
+		emitInsightsEvent("warn", "generation.website.skipped_missing_site", {
+			organization_id: input.organizationId,
+			website_id: input.websiteId,
+			run_id: input.runId,
+			duration_ms: Math.round(performance.now() - startedAt),
+		});
 		return {
 			status: "skipped",
 			resultCount: 0,
@@ -914,6 +1050,9 @@ export async function generateWebsiteInsights(
 		)
 		.orderBy(websites.domain)
 		.limit(100);
+	setInsightsLog({
+		organization_site_count: orgSites.length,
+	});
 
 	const period = getComparisonPeriod(input.config.lookbackDays);
 	const userId = input.requestedByUserId ?? "insights-worker";
@@ -936,6 +1075,12 @@ export async function generateWebsiteInsights(
 			websiteDomain: site.domain,
 		})
 	);
+	emitInsightsEvent("info", "generation.website.candidates_ready", {
+		organization_id: input.organizationId,
+		website_id: input.websiteId,
+		run_id: input.runId,
+		candidate_count: candidates.length,
+	});
 
 	const saved = await persistWebsiteInsights({
 		config: input.config,
@@ -947,17 +1092,20 @@ export async function generateWebsiteInsights(
 
 	storeWebsiteSummary(site, saved);
 
-	log.info({
-		service: "insights",
-		message: "Generated website insights",
+	emitInsightsEvent("info", "generation.website.completed", {
 		organization_id: input.organizationId,
 		website_id: input.websiteId,
 		run_id: input.runId,
+		duration_ms: Math.round(performance.now() - startedAt),
 		result_count: saved.length,
 		reason: input.reason,
 		depth: input.config.depth,
 		model_tier: input.config.modelTier,
 		allowed_tools: input.config.allowedTools,
+	});
+	setInsightsLog({
+		generation_result_count: saved.length,
+		generation_status: saved.length > 0 ? "succeeded" : "skipped",
 	});
 
 	return saved.length > 0

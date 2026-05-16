@@ -14,7 +14,7 @@ import {
 import { generateText } from "ai";
 import { randomUUIDv7 } from "bun";
 import dayjs from "dayjs";
-import { log } from "evlog";
+import { captureInsightsError, emitInsightsEvent } from "./lib/evlog-insights";
 
 const ROLLUP_RANGES = ["7d", "30d", "90d"] as const;
 const RANGE_TO_DAYS: Record<InsightRollupRange, number> = {
@@ -40,10 +40,6 @@ export interface RollupInsightSummary {
 	title: string;
 	websiteDomain: string;
 	websiteName: string | null;
-}
-
-function errorMessage(error: unknown): string {
-	return error instanceof Error ? error.message : String(error);
 }
 
 function sanitizeNarrative(value: string): string {
@@ -137,10 +133,20 @@ async function generateRollupNarrative(
 ): Promise<string> {
 	const fallback = buildDeterministicRollupNarrative(range, insights);
 	if (insights.length === 0) {
+		emitInsightsEvent("info", "rollup.narrative_deterministic_empty", {
+			organization_id: organizationId,
+			range,
+		});
 		return fallback;
 	}
 
 	try {
+		const startedAt = performance.now();
+		emitInsightsEvent("info", "rollup.narrative_generation_started", {
+			organization_id: organizationId,
+			range,
+			insight_count: insights.length,
+		});
 		const ai = getAILogger();
 		const result = await generateText({
 			model: ai.wrap(models.balanced),
@@ -179,14 +185,18 @@ async function generateRollupNarrative(
 		});
 
 		const text = sanitizeNarrative(result.text);
-		return text || fallback;
-	} catch (error) {
-		log.warn({
-			service: "insights",
-			message: "Failed to generate insight rollup narrative",
+		emitInsightsEvent("info", "rollup.narrative_generation_completed", {
 			organization_id: organizationId,
 			range,
-			error_message: errorMessage(error),
+			duration_ms: Math.round(performance.now() - startedAt),
+			insight_count: insights.length,
+			used_fallback: text.length === 0,
+		});
+		return text || fallback;
+	} catch (error) {
+		captureInsightsError(error, "rollup.narrative_generation_failed", {
+			organization_id: organizationId,
+			range,
 		});
 		return fallback;
 	}
@@ -226,7 +236,20 @@ async function generateRangeRollup(
 	range: InsightRollupRange,
 	generatedAt: Date
 ): Promise<void> {
+	const startedAt = performance.now();
+	emitInsightsEvent("info", "rollup.range_started", {
+		organization_id: data.organizationId,
+		run_id: data.runId,
+		reason: data.reason,
+		range,
+	});
 	const insights = await fetchRollupInsights(data.organizationId, range);
+	emitInsightsEvent("info", "rollup.range_insights_loaded", {
+		organization_id: data.organizationId,
+		run_id: data.runId,
+		range,
+		insight_count: insights.length,
+	});
 	const narrative = await generateRollupNarrative(
 		range,
 		data.organizationId,
@@ -240,23 +263,36 @@ async function generateRangeRollup(
 		range,
 		runId: data.runId,
 	});
+	emitInsightsEvent("info", "rollup.range_completed", {
+		organization_id: data.organizationId,
+		run_id: data.runId,
+		range,
+		duration_ms: Math.round(performance.now() - startedAt),
+		insight_count: insights.length,
+	});
 }
 
 export async function processRollupJob(
 	data: InsightsRollupJobData
 ): Promise<{ ranges: number; status: "succeeded" }> {
+	const startedAt = performance.now();
+	emitInsightsEvent("info", "rollup.job_started", {
+		organization_id: data.organizationId,
+		run_id: data.runId,
+		reason: data.reason,
+		range_count: ROLLUP_RANGES.length,
+	});
 	const generatedAt = new Date();
 	await Promise.all(
 		ROLLUP_RANGES.map((range) => generateRangeRollup(data, range, generatedAt))
 	);
 	await invalidateInsightsCachesForOrganization(data.organizationId);
 
-	log.info({
-		service: "insights",
-		message: "Generated insight rollups",
+	emitInsightsEvent("info", "rollup.job_completed", {
 		organization_id: data.organizationId,
 		run_id: data.runId,
 		reason: data.reason,
+		duration_ms: Math.round(performance.now() - startedAt),
 		ranges: ROLLUP_RANGES.length,
 	});
 

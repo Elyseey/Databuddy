@@ -12,7 +12,7 @@ import {
 	INSIGHTS_MAINTENANCE_JOB_NAME,
 	type InsightGenerationReason,
 } from "@databuddy/redis";
-import { log } from "evlog";
+import { captureInsightsError, emitInsightsEvent } from "./lib/evlog-insights";
 import { getInsightsMaintenanceIntervalMs } from "./recovery";
 
 const DEFAULT_DISPATCH_INTERVAL_MS = 5 * 60 * 1000;
@@ -28,10 +28,6 @@ export interface DispatchDueInsightRunsResult {
 	queuedItems: number;
 	scannedConfigs: number;
 	skippedConfigs: number;
-}
-
-function errorMessage(error: unknown): string {
-	return error instanceof Error ? error.message : String(error);
 }
 
 function dispatchIntervalMs(): number {
@@ -176,9 +172,7 @@ export async function ensureInsightsDispatchSchedule(): Promise<void> {
 		}
 	);
 
-	log.info({
-		service: "insights",
-		message: "Insights dispatch scheduler ensured",
+	emitInsightsEvent("info", "scheduler.dispatch_ensured", {
 		interval_ms: intervalMs,
 	});
 }
@@ -197,9 +191,7 @@ export async function ensureInsightsMaintenanceSchedule(): Promise<void> {
 		}
 	);
 
-	log.info({
-		service: "insights",
-		message: "Insights maintenance scheduler ensured",
+	emitInsightsEvent("info", "scheduler.maintenance_ensured", {
 		interval_ms: intervalMs,
 	});
 }
@@ -207,6 +199,7 @@ export async function ensureInsightsMaintenanceSchedule(): Promise<void> {
 export async function dispatchDueInsightRuns(
 	now = new Date()
 ): Promise<DispatchDueInsightRunsResult> {
+	const startedAt = performance.now();
 	const configs = await dueConfigs(now);
 	const result: DispatchDueInsightRunsResult = {
 		scannedConfigs: configs.length,
@@ -215,11 +208,19 @@ export async function dispatchDueInsightRuns(
 		queuedItems: 0,
 		skippedConfigs: 0,
 	};
+	emitInsightsEvent("info", "scheduler.dispatch_tick.started", {
+		scanned_configs: configs.length,
+	});
 
 	for (const config of configs) {
 		const claimed = await claimConfig(config, now);
 		if (!claimed) {
 			result.skippedConfigs += 1;
+			emitInsightsEvent("info", "scheduler.config_claim_skipped", {
+				config_id: config.id,
+				organization_id: config.organizationId,
+				website_id: config.websiteId,
+			});
 			continue;
 		}
 		result.claimedConfigs += 1;
@@ -229,6 +230,11 @@ export async function dispatchDueInsightRuns(
 			if (websiteIds.length === 0) {
 				await markConfigDispatched(claimed.id, now);
 				result.skippedConfigs += 1;
+				emitInsightsEvent("warn", "scheduler.config_skipped_no_targets", {
+					config_id: claimed.id,
+					organization_id: claimed.organizationId,
+					website_id: claimed.websiteId,
+				});
 				continue;
 			}
 
@@ -240,19 +246,33 @@ export async function dispatchDueInsightRuns(
 			await markConfigDispatched(claimed.id, now);
 			result.dispatchedRuns += 1;
 			result.queuedItems += queued.queuedItems;
-		} catch (error) {
-			await retryConfigSoon(claimed.id, now);
-			result.skippedConfigs += 1;
-			log.error({
-				service: "insights",
-				message: "Failed to dispatch scheduled insight run",
+			emitInsightsEvent("info", "scheduler.config_dispatched", {
 				config_id: claimed.id,
 				organization_id: claimed.organizationId,
 				website_id: claimed.websiteId,
-				error_message: errorMessage(error),
+				target_website_count: websiteIds.length,
+				queued_items: queued.queuedItems,
+				run_id: queued.runId,
+			});
+		} catch (error) {
+			await retryConfigSoon(claimed.id, now);
+			result.skippedConfigs += 1;
+			captureInsightsError(error, "scheduler.config_dispatch_failed", {
+				config_id: claimed.id,
+				organization_id: claimed.organizationId,
+				website_id: claimed.websiteId,
 			});
 		}
 	}
+
+	emitInsightsEvent("info", "scheduler.dispatch_tick.completed", {
+		duration_ms: Math.round(performance.now() - startedAt),
+		scanned_configs: result.scannedConfigs,
+		claimed_configs: result.claimedConfigs,
+		dispatched_runs: result.dispatchedRuns,
+		queued_items: result.queuedItems,
+		skipped_configs: result.skippedConfigs,
+	});
 
 	return result;
 }

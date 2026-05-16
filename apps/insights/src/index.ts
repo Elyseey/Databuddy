@@ -1,7 +1,16 @@
+import { setAiRequestLoggerProvider } from "@databuddy/ai/lib/request-logger";
 import { db, shutdownPostgres, sql } from "@databuddy/db";
 import { closeInsightsQueue, getInsightsQueue } from "@databuddy/redis";
 import { Elysia } from "elysia";
-import { initLogger, log } from "evlog";
+import { initLogger } from "evlog";
+import { evlog } from "evlog/elysia";
+import {
+	captureInsightsError,
+	emitInsightsEvent,
+	flushBatchedInsightsDrain,
+	getActiveInsightsLog,
+	insightsLoggerDrain,
+} from "./lib/evlog-insights";
 import {
 	ensureInsightsDispatchSchedule,
 	ensureInsightsMaintenanceSchedule,
@@ -21,22 +30,22 @@ initLogger({
 		region: process.env.UNKEY_REGION,
 		commitHash: process.env.UNKEY_GIT_COMMIT_SHA,
 	},
+	drain: insightsLoggerDrain,
 	sampling: {},
 });
 
+setAiRequestLoggerProvider(getActiveInsightsLog);
+
 process.on("unhandledRejection", (reason) => {
-	log.error({
+	captureInsightsError(reason, "process.unhandled_rejection", {
 		process: "unhandledRejection",
-		reason: reason instanceof Error ? reason.message : String(reason),
 	});
 	exitAfterDrain(1);
 });
 
 process.on("uncaughtException", (error) => {
-	log.error({
+	captureInsightsError(error, "process.uncaught_exception", {
 		process: "uncaughtException",
-		error_message: error.message,
-		error_stack: error.stack,
 		error_source: "process",
 	});
 	exitAfterDrain(1);
@@ -72,13 +81,13 @@ async function drainAll() {
 		Promise.allSettled([
 			insightsWorker?.close() ?? Promise.resolve(),
 			closeInsightsQueue(),
+			flushBatchedInsightsDrain(),
 			shutdownPostgres(),
 		]),
 		DRAIN_TIMEOUT_MS
 	).catch((error) => {
-		log.error({
+		captureInsightsError(error, "lifecycle.shutdown_failed", {
 			lifecycle: "shutdown",
-			error_message: error instanceof Error ? error.message : String(error),
 		});
 	});
 }
@@ -90,9 +99,8 @@ function exitAfterDrain(code: number) {
 	shuttingDown = true;
 	drainAll()
 		.catch((error) => {
-			log.error({
+			captureInsightsError(error, "lifecycle.shutdown_failed", {
 				lifecycle: "shutdown",
-				error_message: error instanceof Error ? error.message : String(error),
 			});
 		})
 		.finally(() => process.exit(code));
@@ -103,28 +111,37 @@ async function shutdown(signal: string) {
 		return;
 	}
 	shuttingDown = true;
-	log.info("lifecycle", `${signal} received, shutting down gracefully`);
+	emitInsightsEvent("info", "lifecycle.shutdown_requested", {
+		lifecycle: "shutdown",
+		signal,
+	});
 	await drainAll();
 	process.exit(0);
 }
 
 async function startRuntime() {
+	emitInsightsEvent("info", "lifecycle.starting", {
+		worker_enabled: workerEnabled,
+	});
 	if (workerEnabled) {
 		insightsWorker = startInsightsWorker();
 		await Promise.all([
 			ensureInsightsDispatchSchedule(),
 			ensureInsightsMaintenanceSchedule(),
 		]);
-		log.info("lifecycle", "insights worker started");
+		emitInsightsEvent("info", "lifecycle.started", {
+			worker_enabled: true,
+		});
 	} else {
-		log.info("lifecycle", "insights worker disabled");
+		emitInsightsEvent("info", "lifecycle.disabled", {
+			worker_enabled: false,
+		});
 	}
 }
 
 startRuntime().catch((error) => {
-	log.error({
+	captureInsightsError(error, "lifecycle.start_failed", {
 		lifecycle: "startup",
-		error_message: error instanceof Error ? error.message : String(error),
 	});
 	exitAfterDrain(1);
 });
@@ -151,6 +168,12 @@ async function probe(fn: () => Promise<void>): Promise<ProbeResult> {
 }
 
 const app = new Elysia()
+	.use(evlog())
+	.onError(({ code, error }) => {
+		captureInsightsError(error, "http.error", {
+			elysia_code: String(code),
+		});
+	})
 	.get("/health/status", async () => {
 		const [postgres, bullmqRedis] = await Promise.all([
 			probe(() => db.execute(sql`SELECT 1`).then(() => {})),

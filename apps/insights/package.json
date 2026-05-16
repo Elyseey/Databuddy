@@ -12,6 +12,7 @@
   "dependencies": {
     "@databuddy/ai": "workspace:*",
     "@databuddy/db": "workspace:*",
+    "@databuddy/env": "workspace:*",
     "@databuddy/redis": "workspace:*",
     "@databuddy/rpc": "workspace:*",
     "ai": "^6.0.154",

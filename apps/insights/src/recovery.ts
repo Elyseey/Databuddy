@@ -12,7 +12,7 @@ import {
 	INSIGHTS_ROLLUP_JOB_NAME,
 	insightsRollupJobId,
 } from "@databuddy/redis";
-import { log } from "evlog";
+import { captureInsightsError, emitInsightsEvent } from "./lib/evlog-insights";
 
 const DEFAULT_MAINTENANCE_INTERVAL_MS = 5 * 60 * 1000;
 const MIN_MAINTENANCE_INTERVAL_MS = 60 * 1000;
@@ -55,10 +55,6 @@ export interface InsightRecoveryResult {
 	scannedItems: number;
 	scannedRuns: number;
 	syncedRuns: number;
-}
-
-function errorMessage(error: unknown): string {
-	return error instanceof Error ? error.message : String(error);
 }
 
 function parseDurationMs(
@@ -195,6 +191,18 @@ export async function syncRunStatus(runId: string): Promise<RunStatusSummary> {
 		})
 		.where(eq(insightRuns.id, runId));
 
+	emitInsightsEvent("info", "recovery.run_status_synced", {
+		run_id: runId,
+		status,
+		total_items: totalItems,
+		completed_items: completedItems,
+		failed_items: failedItems,
+		queued_items: queuedItems,
+		running_items: runningItems,
+		skipped_items: skippedItems,
+		settled,
+	});
+
 	return {
 		completedItems,
 		failedItems,
@@ -212,12 +220,23 @@ export async function queueRollupIfSettled(
 	summary: RunStatusSummary
 ): Promise<void> {
 	if (!(summary.run && summary.settled && summary.completedItems > 0)) {
+		emitInsightsEvent("info", "recovery.rollup_queue_skipped", {
+			run_id: summary.run?.id,
+			status: summary.status,
+			settled: summary.settled,
+			completed_items: summary.completedItems,
+		});
 		return;
 	}
 	if (
 		summary.status !== "succeeded" &&
 		summary.status !== "partially_succeeded"
 	) {
+		emitInsightsEvent("info", "recovery.rollup_queue_skipped_status", {
+			run_id: summary.run.id,
+			status: summary.status,
+			completed_items: summary.completedItems,
+		});
 		return;
 	}
 
@@ -232,13 +251,16 @@ export async function queueRollupIfSettled(
 			},
 			{ jobId: insightsRollupJobId(summary.run.id) }
 		);
-	} catch (error) {
-		log.error({
-			service: "insights",
-			message: "Failed to queue insight rollup job",
+		emitInsightsEvent("info", "recovery.rollup_queued", {
 			run_id: summary.run.id,
 			organization_id: summary.run.organizationId,
-			error_message: errorMessage(error),
+			status: summary.status,
+			completed_items: summary.completedItems,
+		});
+	} catch (error) {
+		captureInsightsError(error, "recovery.rollup_queue_failed", {
+			run_id: summary.run.id,
+			organization_id: summary.run.organizationId,
 		});
 	}
 }
@@ -246,8 +268,13 @@ export async function queueRollupIfSettled(
 export async function recoverStaleInsightRuns(
 	now = new Date()
 ): Promise<InsightRecoveryResult> {
+	const startedAt = performance.now();
 	const cutoff = new Date(now.getTime() - getInsightsStaleItemMs());
 	const items = await staleItems(cutoff);
+	emitInsightsEvent("info", "recovery.sweep_started", {
+		cutoff_at: cutoff.toISOString(),
+		scanned_items: items.length,
+	});
 	const affectedRunIds = new Set<string>();
 	let failedItems = 0;
 	let keptItems = 0;
@@ -256,6 +283,12 @@ export async function recoverStaleInsightRuns(
 		const reason = await staleItemFailureReason(item);
 		if (!reason) {
 			keptItems += 1;
+			emitInsightsEvent("info", "recovery.stale_item_kept", {
+				item_id: item.id,
+				queue_job_id: item.queueJobId,
+				run_id: item.runId,
+				status: item.status,
+			});
 			continue;
 		}
 
@@ -270,6 +303,13 @@ export async function recoverStaleInsightRuns(
 			.where(eq(insightRunItems.id, item.id));
 		affectedRunIds.add(item.runId);
 		failedItems += 1;
+		emitInsightsEvent("warn", "recovery.stale_item_failed", {
+			item_id: item.id,
+			queue_job_id: item.queueJobId,
+			run_id: item.runId,
+			previous_status: item.status,
+			reason,
+		});
 	}
 
 	const runIds = new Set([...affectedRunIds, ...(await staleRunIds(cutoff))]);
@@ -280,13 +320,20 @@ export async function recoverStaleInsightRuns(
 	}
 
 	if (failedItems > 0 || runIds.size > 0) {
-		log.info({
-			service: "insights",
-			message: "Recovered stale insight run state",
+		emitInsightsEvent("info", "recovery.sweep_completed", {
+			duration_ms: Math.round(performance.now() - startedAt),
 			failed_items: failedItems,
 			kept_items: keptItems,
 			scanned_items: items.length,
 			synced_runs: runIds.size,
+		});
+	} else {
+		emitInsightsEvent("info", "recovery.sweep_completed", {
+			duration_ms: Math.round(performance.now() - startedAt),
+			failed_items: 0,
+			kept_items: keptItems,
+			scanned_items: items.length,
+			synced_runs: 0,
 		});
 	}
 
