@@ -5,7 +5,7 @@ import { useAtom, useSetAtom } from "jotai";
 import Link from "next/link";
 import { useParams, usePathname } from "next/navigation";
 import { parseAsBoolean, parseAsString, useQueryState } from "nuqs";
-import { useCallback, useEffect, useMemo } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 import { toast } from "sonner";
 import { NoticeBanner } from "@/app/(main)/websites/_components/notice-banner";
 import { LiveUserIndicator } from "@/components/analytics";
@@ -115,6 +115,8 @@ export default function WebsiteLayout({ children }: WebsiteLayoutProps) {
 		parseAsString
 	);
 	const [, addFilter] = useAtom(addDynamicFilterAtom);
+	const lastSyncedFiltersParam = useRef<string | null | undefined>(undefined);
+	const skipNextFilterUrlSync = useRef(false);
 	const serializedDynamicFilters = useMemo(
 		() =>
 			dynamicFilters.length > 0
@@ -128,29 +130,35 @@ export default function WebsiteLayout({ children }: WebsiteLayoutProps) {
 	}, [websiteId, setCurrentFilterWebsiteId]);
 
 	useEffect(() => {
+		if (lastSyncedFiltersParam.current === filtersParam) {
+			return;
+		}
+		lastSyncedFiltersParam.current = filtersParam;
+
 		const parsedFilters = parseDashboardFiltersParam(filtersParam);
 		if (parsedFilters === null) {
 			if (filtersParam === null) {
+				skipNextFilterUrlSync.current = true;
 				setDynamicFilters([]);
 			}
 			return;
 		}
 
-		const serializedParsedFilters =
-			parsedFilters.length > 0
-				? serializeDashboardFilters(parsedFilters)
-				: null;
-		if (serializedParsedFilters === serializedDynamicFilters) {
-			return;
-		}
-
+		skipNextFilterUrlSync.current = true;
 		setDynamicFilters(parsedFilters);
-	}, [filtersParam, serializedDynamicFilters, setDynamicFilters]);
+	}, [filtersParam, setDynamicFilters]);
 
 	useEffect(() => {
-		if (serializedDynamicFilters === filtersParam) {
+		if (skipNextFilterUrlSync.current) {
+			skipNextFilterUrlSync.current = false;
 			return;
 		}
+
+		if (serializedDynamicFilters === filtersParam) {
+			lastSyncedFiltersParam.current = filtersParam;
+			return;
+		}
+		lastSyncedFiltersParam.current = serializedDynamicFilters;
 		setFiltersParam(serializedDynamicFilters);
 	}, [filtersParam, serializedDynamicFilters, setFiltersParam]);
 
