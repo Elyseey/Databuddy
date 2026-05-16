@@ -97,17 +97,6 @@ export const CLICKHOUSE_OPTIONS: NodeClickHouseClientConfigOptions = {
 	},
 };
 
-const READ_DEFAULT_SETTINGS: Record<string, string | number> = {
-	max_memory_usage: 4_000_000_000,
-	max_execution_time: 15,
-	max_result_rows: 100_000,
-	use_query_cache: 1,
-	query_cache_min_query_runs: 2,
-	query_cache_ttl: 60,
-	query_cache_share_between_users: 0,
-	query_cache_nondeterministic_function_handling: "ignore",
-};
-
 function assertCacheCompatibleSettings(
 	settings: Record<string, string | number>
 ): void {
@@ -120,8 +109,6 @@ function assertCacheCompatibleSettings(
 		);
 	}
 }
-
-assertCacheCompatibleSettings(READ_DEFAULT_SETTINGS);
 
 const baseClient = createClient({
 	url: process.env.CLICKHOUSE_URL,
@@ -213,11 +200,9 @@ async function chQueryWithMeta<T>(
 	options?: ChQueryOptions
 ): Promise<ResponseJSON<T>> {
 	const json = await traced("ch.query", async () => {
-		const settings: Record<string, string | number> = {
-			...READ_DEFAULT_SETTINGS,
-			...(options?.readonly && { readonly: "2" }),
-			...options?.clickhouse_settings,
-		};
+		const settings: Record<string, string | number> = options?.readonly
+			? { readonly: "2" }
+			: (options?.clickhouse_settings ?? {});
 		assertCacheCompatibleSettings(settings);
 		const res = await clickHouse.query({
 			query,
