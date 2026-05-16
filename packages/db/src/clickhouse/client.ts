@@ -194,10 +194,6 @@ export interface ChQueryOptions {
 	readonly?: boolean;
 }
 
-const READONLY_BLOCKED_SETTING_RE =
-	/Cannot modify '([^']+)' setting in readonly mode/;
-let userIsReadonlyLevel1 = false;
-
 async function chQueryWithMeta<T>(
 	query: string,
 	params?: Record<string, unknown>,
@@ -208,34 +204,16 @@ async function chQueryWithMeta<T>(
 			? { ...(options.clickhouse_settings ?? {}), readonly: "2" }
 			: (options?.clickhouse_settings ?? {});
 		assertCacheCompatibleSettings(settings);
-
-		const exec = (s: Record<string, string | number>) =>
-			clickHouse.query({
-				query,
-				query_params: params,
-				...(Object.keys(s).length > 0 && { clickhouse_settings: s }),
-			});
-
-		const effectiveSettings =
-			userIsReadonlyLevel1 && !options?.readonly ? {} : settings;
-
-		try {
-			const res = await exec(effectiveSettings);
-			const data = await res.json<T>();
-			reportChMetrics(res.response_headers, res.query_id);
-			return data;
-		} catch (err) {
-			const msg = err instanceof Error ? err.message : String(err);
-			const match = msg.match(READONLY_BLOCKED_SETTING_RE);
-			if (!match || options?.readonly) {
-				throw err;
-			}
-			userIsReadonlyLevel1 = true;
-			const res = await exec({});
-			const data = await res.json<T>();
-			reportChMetrics(res.response_headers, res.query_id);
-			return data;
-		}
+		const res = await clickHouse.query({
+			query,
+			query_params: params,
+			...(Object.keys(settings).length > 0 && {
+				clickhouse_settings: settings,
+			}),
+		});
+		const data = await res.json<T>();
+		reportChMetrics(res.response_headers, res.query_id);
+		return data;
 	});
 
 	const intColumns = new Set(
