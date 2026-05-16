@@ -16,7 +16,17 @@ import { storeAnalyticsSummary } from "@databuddy/ai/lib/supermemory";
 import type { ParsedInsight } from "@databuddy/ai/schemas/smart-insights-output";
 import { insightsOutputSchema } from "@databuddy/ai/schemas/smart-insights-output";
 import { createInsightsAgentTools } from "@databuddy/ai/tools/insights-agent-tools";
-import { and, db, desc, eq, gte, isNotNull, isNull, sql } from "@databuddy/db";
+import {
+	and,
+	db,
+	desc,
+	eq,
+	gte,
+	inArray,
+	isNotNull,
+	isNull,
+	sql,
+} from "@databuddy/db";
 import {
 	analyticsInsights,
 	annotations,
@@ -47,6 +57,31 @@ const TOOL_NAMES = [
 	"ops_context",
 	"business_context",
 ] as const satisfies readonly InsightGenerationTool[];
+
+interface ExecutableTool {
+	execute?: (...args: never[]) => unknown;
+}
+
+function withToolCallBudget<T extends object>(
+	tools: T,
+	onExecute: (toolName: string) => void
+): T {
+	return Object.fromEntries(
+		Object.entries(tools).map(([name, tool]) => {
+			const executable = tool as ExecutableTool;
+			return [
+				name,
+				{
+					...(tool as object),
+					execute: (...args: never[]) => {
+						onExecute(name);
+						return executable.execute?.(...args);
+					},
+				},
+			];
+		})
+	) as T;
+}
 
 interface OrgWebsiteRow {
 	domain: string;
@@ -566,14 +601,23 @@ async function analyzeWebsite(params: {
 	const startedAt = performance.now();
 	const currentRange = params.period.current;
 	const previousRange = params.period.previous;
-	const hasData = await hasWebInsightData(
-		params.websiteId,
-		params.domain,
-		currentRange.from,
-		currentRange.to,
-		params.config.timezone
-	);
-	if (!hasData) {
+	const [hasCurrentData, hasPreviousData] = await Promise.all([
+		hasWebInsightData(
+			params.websiteId,
+			params.domain,
+			currentRange.from,
+			currentRange.to,
+			params.config.timezone
+		),
+		hasWebInsightData(
+			params.websiteId,
+			params.domain,
+			previousRange.from,
+			previousRange.to,
+			params.config.timezone
+		),
+	]);
+	if (!(hasCurrentData || hasPreviousData)) {
 		emitInsightsEvent("info", "generation.agent.skipped_no_data", {
 			organization_id: params.organizationId,
 			website_id: params.websiteId,
@@ -615,11 +659,12 @@ ${orgContext}${annotationContext}${recentInsightsBlock}`;
 		timezone: params.config.timezone,
 		periodBounds: { current: currentRange, previous: previousRange },
 	});
-	const tools = Object.fromEntries(
+	const availableTools = Object.fromEntries(
 		Object.entries(allTools).filter(([name]) =>
 			allowedTools.includes(name as InsightGenerationTool)
 		)
 	) as Partial<typeof allTools>;
+	const activeToolNames = allowedTools.filter((name) => name in availableTools);
 
 	try {
 		const appContext: AppContext = {
@@ -632,6 +677,16 @@ ${orgContext}${annotationContext}${recentInsightsBlock}`;
 			chatId: `insights:${params.organizationId}:${params.websiteId}`,
 		};
 		let toolCallCount = 0;
+		let executedToolCallCount = 0;
+		const maxToolCalls = Math.max(1, params.config.maxToolCalls);
+		const tools = withToolCallBudget(availableTools, (toolName) => {
+			if (executedToolCallCount >= maxToolCalls) {
+				throw new Error(
+					`Insight generation tool-call budget exceeded before ${toolName}`
+				);
+			}
+			executedToolCallCount += 1;
+		});
 		const ai = getAILogger();
 		const agent = new ToolLoopAgent({
 			model: ai.wrap(modelForTier(params.config.modelTier)),
@@ -649,13 +704,18 @@ ${orgContext}${annotationContext}${recentInsightsBlock}`;
 				)
 			),
 			prepareStep: ({ stepNumber }) => {
-				if (stepNumber === 0 && "web_metrics" in tools) {
+				const remainingToolCalls = maxToolCalls - executedToolCallCount;
+				if (remainingToolCalls <= 0) {
+					return { activeTools: [] };
+				}
+				const activeTools = activeToolNames.slice(0, remainingToolCalls);
+				if (stepNumber === 0 && activeTools.includes("web_metrics")) {
 					return {
 						activeTools: ["web_metrics"],
 						toolChoice: { type: "tool", toolName: "web_metrics" },
 					};
 				}
-				return { activeTools: allowedTools };
+				return { activeTools };
 			},
 			onStepFinish: ({ usage, finishReason, toolCalls }) => {
 				toolCallCount += toolCalls.length;
@@ -668,6 +728,7 @@ ${orgContext}${annotationContext}${recentInsightsBlock}`;
 					),
 					total_tokens: usage?.totalTokens,
 					tool_call_count: toolCallCount,
+					executed_tool_call_count: executedToolCallCount,
 				});
 			},
 			temperature: 0.2,
@@ -891,8 +952,33 @@ async function persistWebsiteInsights(params: {
 		)
 	);
 
+	const persistedRows = await db
+		.select({
+			dedupeKey: analyticsInsights.dedupeKey,
+			id: analyticsInsights.id,
+		})
+		.from(analyticsInsights)
+		.where(
+			and(
+				eq(analyticsInsights.organizationId, params.organizationId),
+				inArray(
+					analyticsInsights.dedupeKey,
+					finalInsights.map((insight) => dedupeKeyFor(insight))
+				)
+			)
+		);
+	const persistedIdByDedupeKey = new Map(
+		persistedRows.flatMap((row) =>
+			row.dedupeKey ? [[row.dedupeKey, row.id] as const] : []
+		)
+	);
+	const persistedInsights = finalInsights.map((insight) => {
+		const persistedId = persistedIdByDedupeKey.get(dedupeKeyFor(insight));
+		return persistedId ? { ...insight, id: persistedId } : insight;
+	});
+
 	const websiteInvalidations = [
-		...new Set(finalInsights.map((insight) => insight.websiteId)),
+		...new Set(persistedInsights.map((insight) => insight.websiteId)),
 	].map((websiteId) => invalidateAgentContextSnapshotsForWebsite(websiteId));
 
 	await Promise.all([
@@ -904,13 +990,13 @@ async function persistWebsiteInsights(params: {
 		organization_id: params.organizationId,
 		run_id: params.runId,
 		duration_ms: Math.round(performance.now() - startedAt),
-		result_count: finalInsights.length,
+		result_count: persistedInsights.length,
 		insert_count: toInsert.length,
 		refresh_count: toRefresh.length,
 		invalidated_website_count: websiteInvalidations.length,
 	});
 
-	return finalInsights;
+	return persistedInsights;
 }
 
 function storeWebsiteSummary(

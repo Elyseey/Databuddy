@@ -48,6 +48,7 @@ function nextRunAtFor(config: DueConfig, from: Date): Date | null {
 			cron: config.cron,
 			enabled: config.enabled,
 			frequency: config.frequency as InsightGenerationFrequency,
+			timezone: config.timezone,
 		},
 		from
 	);
@@ -153,7 +154,18 @@ async function orgScheduledWebsiteIds(
 
 async function targetWebsiteIds(config: DueConfig): Promise<string[]> {
 	if (config.websiteId) {
-		return [config.websiteId];
+		const [website] = await db
+			.select({ id: websites.id })
+			.from(websites)
+			.where(
+				and(
+					eq(websites.id, config.websiteId),
+					eq(websites.organizationId, config.organizationId),
+					isNull(websites.deletedAt)
+				)
+			)
+			.limit(1);
+		return website ? [website.id] : [];
 	}
 	return await orgScheduledWebsiteIds(config.organizationId);
 }
@@ -235,6 +247,17 @@ export async function dispatchDueInsightRuns(
 				reason: "scheduled" satisfies InsightGenerationReason,
 				websiteIds,
 			});
+			if (queued.reusedRun) {
+				await retryConfigSoon(claimed.id, now);
+				result.skippedConfigs += 1;
+				emitInsightsEvent("warn", "scheduler.config_skipped_active_run", {
+					config_id: claimed.id,
+					organization_id: claimed.organizationId,
+					website_id: claimed.websiteId,
+					run_id: queued.runId,
+				});
+				continue;
+			}
 			await markConfigDispatched(claimed.id, now);
 			result.dispatchedRuns += 1;
 			result.queuedItems += queued.queuedItems;

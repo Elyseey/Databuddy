@@ -245,7 +245,7 @@ export const SessionsBuilders: Record<string, SimpleQueryConfig> = {
 					LEFT JOIN custom_counts cc ON bs.session_id = cc.session_id
 					LEFT JOIN errors_by_session es ON bs.session_id = es.session_id
 					WHERE bs.page_views > 0
-					ORDER BY interesting_score DESC, bs.last_visit DESC
+					ORDER BY interesting_score DESC, bs.last_visit DESC, bs.session_id DESC
 					LIMIT {limit:Int32} OFFSET {offset:Int32}
 				),
 				paths_for_top AS (

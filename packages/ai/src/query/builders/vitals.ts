@@ -235,7 +235,6 @@ export const VitalsBuilders: Record<string, SimpleQueryConfig> = {
 			groupBy: "page, metric_name",
 			extraWhere: "wv.path != ''",
 			defaultLimit: 50,
-			needsSessionDimensions: false,
 		}),
 		timeField: "timestamp",
 		customizable: true,

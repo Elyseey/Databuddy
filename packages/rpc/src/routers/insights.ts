@@ -398,7 +398,7 @@ export const insightsRouter = {
 				queuedItems?: number;
 				runId?: string;
 				status: "queued" | "skipped" | "disabled" | "unavailable";
-			} = { status: "unavailable" };
+			};
 
 			try {
 				const queued = await queueInsightGenerationRun({
@@ -605,15 +605,11 @@ export const insightsRouter = {
 				.delete(insightRollups)
 				.where(eq(insightRollups.organizationId, input.organizationId));
 
+			await db
+				.delete(insightUserFeedback)
+				.where(eq(insightUserFeedback.organizationId, input.organizationId));
+
 			if (ids.length > 0) {
-				await db
-					.delete(insightUserFeedback)
-					.where(
-						and(
-							eq(insightUserFeedback.organizationId, input.organizationId),
-							inArray(insightUserFeedback.insightId, ids)
-						)
-					);
 				await db
 					.delete(analyticsInsights)
 					.where(eq(analyticsInsights.organizationId, input.organizationId));

@@ -45,6 +45,14 @@ interface TooltipPlacementInput {
 	viewportWidth: number;
 }
 
+interface TooltipIndexPlacementInput {
+	index: number;
+	itemCount: number;
+	rect: DOMRect;
+	viewportHeight: number;
+	viewportWidth: number;
+}
+
 const TOOLTIP_WIDTH = 224;
 const TOOLTIP_GUTTER = 12;
 const TOOLTIP_HIDE_MS = 120;
@@ -283,8 +291,44 @@ function getTooltipPlacement({
 	};
 }
 
+function getTooltipPlacementForIndex({
+	index,
+	itemCount,
+	rect,
+	viewportHeight,
+	viewportWidth,
+}: TooltipIndexPlacementInput): TooltipState {
+	const cellWidth = rect.width / itemCount;
+	const tooltipHalfWidth = TOOLTIP_WIDTH / 2;
+	const left = clamp(
+		rect.left + (index + 0.5) * cellWidth,
+		tooltipHalfWidth + TOOLTIP_GUTTER,
+		viewportWidth - tooltipHalfWidth - TOOLTIP_GUTTER
+	);
+	const above = viewportHeight - rect.bottom < 260 && rect.top > 180;
+
+	return {
+		above,
+		index,
+		left,
+		top: above ? rect.top - 10 : rect.bottom + 10,
+	};
+}
+
+function getDayLabel(day: HeatmapDay): string {
+	const severity = SEVERITY_META[getSeverity(day)].label;
+	const uptime = day.hasData
+		? `${day.uptime.toFixed(2)}% uptime`
+		: "No data recorded";
+	const downtime =
+		day.downtimeSeconds > 0
+			? `, ${formatDowntime(day.downtimeSeconds)} downtime`
+			: "";
+	return `${formatLongDate(day.date)}, ${severity}, ${uptime}${downtime}`;
+}
+
 export function UptimeHistory({ dailyData, days }: UptimeHistoryProps) {
-	const gridRef = useRef<HTMLDivElement>(null);
+	const gridRef = useRef<HTMLFieldSetElement>(null);
 	const hideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 	const [tooltip, setTooltip] = useState<TooltipState | null>(null);
 	const [isTooltipVisible, setIsTooltipVisible] = useState(false);
@@ -311,7 +355,7 @@ export function UptimeHistory({ dailyData, days }: UptimeHistoryProps) {
 	}, [clearHideTimer]);
 
 	const handlePointerMove = useCallback(
-		(event: ReactPointerEvent<HTMLDivElement>) => {
+		(event: ReactPointerEvent<HTMLFieldSetElement>) => {
 			const grid = gridRef.current;
 
 			if (!grid || heatmapData.length === 0) {
@@ -334,6 +378,29 @@ export function UptimeHistory({ dailyData, days }: UptimeHistoryProps) {
 		[clearHideTimer, heatmapData]
 	);
 
+	const handleDayFocus = useCallback(
+		(index: number) => {
+			const grid = gridRef.current;
+
+			if (!grid || heatmapData.length === 0) {
+				return;
+			}
+
+			clearHideTimer();
+			setTooltip(
+				getTooltipPlacementForIndex({
+					index,
+					itemCount: heatmapData.length,
+					rect: grid.getBoundingClientRect(),
+					viewportHeight: window.innerHeight,
+					viewportWidth: window.innerWidth,
+				})
+			);
+			setIsTooltipVisible(true);
+		},
+		[clearHideTimer, heatmapData.length]
+	);
+
 	useEffect(
 		() => () => {
 			clearHideTimer();
@@ -347,13 +414,12 @@ export function UptimeHistory({ dailyData, days }: UptimeHistoryProps) {
 				<span className="font-medium">{days} days ago</span>
 				<span>Today</span>
 			</div>
-			<div
+			<fieldset
 				aria-label={`${days} day uptime history`}
-				className="relative -my-3 grid cursor-pointer gap-x-px py-3 sm:gap-x-[2px]"
+				className="relative -my-3 grid cursor-pointer gap-x-px border-0 px-0 py-3 sm:gap-x-[2px]"
 				onPointerLeave={hideTooltip}
 				onPointerMove={handlePointerMove}
 				ref={gridRef}
-				role="img"
 				style={{
 					gridTemplateColumns: `repeat(${heatmapData.length}, minmax(0, 1fr))`,
 				}}
@@ -367,6 +433,7 @@ export function UptimeHistory({ dailyData, days }: UptimeHistoryProps) {
 
 					return (
 						<div
+							aria-hidden
 							className="relative h-1.5 overflow-hidden rounded-full"
 							key={`${segment.start}-${segment.length}-${segment.severity}`}
 							style={{
@@ -389,7 +456,24 @@ export function UptimeHistory({ dailyData, days }: UptimeHistoryProps) {
 						</div>
 					);
 				})}
-			</div>
+				<div
+					className="pointer-events-none absolute inset-y-3 right-0 left-0 grid gap-x-px sm:gap-x-[2px]"
+					style={{
+						gridTemplateColumns: `repeat(${heatmapData.length}, minmax(0, 1fr))`,
+					}}
+				>
+					{heatmapData.map((day, index) => (
+						<button
+							aria-label={getDayLabel(day)}
+							className="h-full rounded-full bg-transparent outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+							key={day.date.toISOString()}
+							onBlur={hideTooltip}
+							onFocus={() => handleDayFocus(index)}
+							type="button"
+						/>
+					))}
+				</div>
+			</fieldset>
 			{typeof document !== "undefined" && activeDay && tooltip
 				? createPortal(
 						<UptimeTooltip

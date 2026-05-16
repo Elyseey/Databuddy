@@ -245,6 +245,11 @@ export const analyticsInsights = pgTable(
 			name: "analytics_insights_organization_id_fkey",
 		}).onDelete("cascade"),
 		foreignKey({
+			columns: [table.organizationId, table.websiteId],
+			foreignColumns: [websites.organizationId, websites.id],
+			name: "analytics_insights_org_website_fkey",
+		}).onDelete("cascade"),
+		foreignKey({
 			columns: [table.websiteId],
 			foreignColumns: [websites.id],
 			name: "analytics_insights_website_id_fkey",

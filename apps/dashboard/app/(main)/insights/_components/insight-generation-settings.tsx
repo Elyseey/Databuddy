@@ -21,7 +21,7 @@ import {
 } from "@databuddy/ui/client";
 
 type Depth = "light" | "standard" | "deep";
-type Frequency = "hourly" | "daily" | "weekly";
+type Frequency = "hourly" | "daily" | "weekly" | "custom";
 type ModelTier = "fast" | "balanced" | "deep";
 type ToolName =
 	| "web_metrics"
@@ -38,6 +38,7 @@ interface WebsiteOption {
 interface ConfigFormState {
 	allowedTools: ToolName[];
 	cooldownHours: string;
+	cron: string;
 	depth: Depth;
 	enabled: boolean;
 	frequency: Frequency;
@@ -57,6 +58,7 @@ interface InsightGenerationSettingsProps {
 const DEFAULT_FORM: ConfigFormState = {
 	allowedTools: ["web_metrics", "product_metrics", "ops_context"],
 	cooldownHours: "6",
+	cron: "",
 	depth: "standard",
 	enabled: true,
 	frequency: "weekly",
@@ -72,6 +74,7 @@ const FREQUENCY_OPTIONS: { label: string; value: Frequency }[] = [
 	{ label: "Hourly", value: "hourly" },
 	{ label: "Daily", value: "daily" },
 	{ label: "Weekly", value: "weekly" },
+	{ label: "Custom", value: "custom" },
 ];
 
 const QUALITY_PRESETS: { depth: Depth; label: string; modelTier: ModelTier }[] =
@@ -111,6 +114,7 @@ export function InsightGenerationSettings({
 		setForm({
 			allowedTools: normalizeTools(config.allowedTools as ToolName[]),
 			cooldownHours: String(config.cooldownHours),
+			cron: config.cron ?? "",
 			depth: config.depth as Depth,
 			enabled: config.enabled,
 			frequency: normalizeFrequency(config.frequency),
@@ -297,6 +301,21 @@ export function InsightGenerationSettings({
 												value={form.timezone}
 											/>
 										</Field>
+										{form.frequency === "custom" ? (
+											<Field>
+												<Field.Label>Cron</Field.Label>
+												<Input
+													disabled={isBusy}
+													onChange={(e) =>
+														setForm((c) => ({
+															...c,
+															cron: e.target.value,
+														}))
+													}
+													value={form.cron}
+												/>
+											</Field>
+										) : null}
 										<div className="grid grid-cols-2 gap-3">
 											<Field>
 												<Field.Label>Lookback (days)</Field.Label>
@@ -455,7 +474,12 @@ function normalizeTools(tools: ToolName[]): ToolName[] {
 }
 
 function normalizeFrequency(frequency: string): Frequency {
-	return frequency === "hourly" || frequency === "daily" ? frequency : "weekly";
+	return frequency === "hourly" ||
+		frequency === "daily" ||
+		frequency === "weekly" ||
+		frequency === "custom"
+		? frequency
+		: "weekly";
 }
 
 function toggleTool(
@@ -493,7 +517,7 @@ function formToPatch(form: ConfigFormState) {
 	return {
 		allowedTools: normalizeTools(form.allowedTools),
 		cooldownHours: boundedInt(form.cooldownHours, 6, 1, 168),
-		cron: null,
+		cron: form.frequency === "custom" ? form.cron.trim() || null : null,
 		depth: form.depth,
 		enabled: form.enabled,
 		frequency: form.frequency,

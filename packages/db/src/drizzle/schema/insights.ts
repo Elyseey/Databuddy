@@ -125,6 +125,11 @@ export const insightGenerationConfigs = pgTable(
 			name: "insight_generation_configs_organization_id_fkey",
 		}).onDelete("cascade"),
 		foreignKey({
+			columns: [table.organizationId, table.websiteId],
+			foreignColumns: [websites.organizationId, websites.id],
+			name: "insight_generation_configs_org_website_fkey",
+		}).onDelete("cascade"),
+		foreignKey({
 			columns: [table.websiteId],
 			foreignColumns: [websites.id],
 			name: "insight_generation_configs_website_id_fkey",
@@ -236,6 +241,11 @@ export const insightRunItems = pgTable(
 			columns: [table.organizationId],
 			foreignColumns: [organization.id],
 			name: "insight_run_items_organization_id_fkey",
+		}).onDelete("cascade"),
+		foreignKey({
+			columns: [table.organizationId, table.websiteId],
+			foreignColumns: [websites.organizationId, websites.id],
+			name: "insight_run_items_org_website_fkey",
 		}).onDelete("cascade"),
 		foreignKey({
 			columns: [table.websiteId],

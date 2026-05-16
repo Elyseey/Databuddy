@@ -244,7 +244,7 @@ async function getRecentBlockedTrackingIssue(
 				GROUP BY issueType, origin
 				HAVING count >= {minBlocks:UInt32}
 				ORDER BY count DESC, lastSeen DESC
-				LIMIT 20`,
+				LIMIT 100`,
 				{
 					issueTypes: [...TRACKING_ISSUE_TYPES],
 					minBlocks: TRACKING_ISSUE_MIN_BLOCKS,

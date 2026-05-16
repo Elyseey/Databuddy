@@ -150,9 +150,14 @@ export interface QueueInsightGenerationRunInput
 
 export interface QueueInsightGenerationRunResult {
 	queuedItems: number;
+	reusedRun?: boolean;
 	runId?: string;
 	status: z.infer<typeof queueStatusSchema>;
 }
+
+const CONFIG_PATCH_KEYS = Object.keys(
+	configPatchSchema.shape
+) as (keyof InsightGenerationConfigPatch)[];
 
 function rowToConfig(
 	row: InsightGenerationConfig | null,
@@ -240,7 +245,23 @@ function applyPatch(
 	if (next.frequency !== "custom") {
 		next.cron = null;
 	}
+	if (
+		next.frequency === "custom" &&
+		!getNextInsightRunAt({ ...next, enabled: true }, new Date())
+	) {
+		throw rpcError.badRequest("Custom cron expression is invalid");
+	}
 	return next;
+}
+
+function pickConfigPatch(
+	input: InsightGenerationConfigPatch
+): InsightGenerationConfigPatch {
+	return Object.fromEntries(
+		CONFIG_PATCH_KEYS.flatMap((key) =>
+			input[key] === undefined ? [] : [[key, input[key]]]
+		)
+	) as InsightGenerationConfigPatch;
 }
 
 async function resolveScope(
@@ -393,10 +414,10 @@ export async function queueInsightGenerationRun(
 	input: QueueInsightGenerationRunInput
 ): Promise<QueueInsightGenerationRunResult> {
 	const baseConfig = await ensureOrganizationInsightGenerationConfig(
-		input.organizationId,
-		input
+		input.organizationId
 	);
-	const runConfig = applyPatch(baseConfig, input);
+	const runPatch = pickConfigPatch(input);
+	const runConfig = applyPatch(baseConfig, runPatch);
 	const reason = input.reason ?? "manual";
 
 	if (!input.force) {
@@ -414,6 +435,7 @@ export async function queueInsightGenerationRun(
 		if (active) {
 			return {
 				queuedItems: active.totalItems,
+				reusedRun: true,
 				runId: active.id,
 				status: "queued",
 			};
@@ -428,32 +450,16 @@ export async function queueInsightGenerationRun(
 		input.organizationId,
 		input.websiteIds
 	);
-	const runId = randomUUIDv7();
-	const requestedByUserId = input.requestedByUserId ?? null;
-	const now = new Date();
-
-	await db.insert(insightRuns).values({
-		id: runId,
-		organizationId: input.organizationId,
-		requestedByUserId,
-		reason,
-		status: targetWebsites.length === 0 ? "skipped" : "queued",
-		timezone: runConfig.timezone,
-		totalItems: targetWebsites.length,
-		...(targetWebsites.length === 0 ? { finishedAt: now } : {}),
-	});
-
-	if (targetWebsites.length === 0) {
-		return { queuedItems: 0, runId, status: "skipped" };
-	}
-
 	const items = await Promise.all(
 		targetWebsites.map(async (website) => {
 			const websiteConfig = await getEffectiveConfig(
 				input.organizationId,
 				website.id
 			);
-			const config = applyPatch(websiteConfig, input);
+			const config = applyPatch(websiteConfig, runPatch);
+			if (reason !== "manual" && !config.enabled) {
+				return null;
+			}
 			const itemId = randomUUIDv7();
 			return {
 				config: toSnapshot(config),
@@ -463,9 +469,28 @@ export async function queueInsightGenerationRun(
 			};
 		})
 	);
+	const queueItems = items.filter((item) => item !== null);
+	const runId = randomUUIDv7();
+	const requestedByUserId = input.requestedByUserId ?? null;
+	const now = new Date();
+
+	await db.insert(insightRuns).values({
+		id: runId,
+		organizationId: input.organizationId,
+		requestedByUserId,
+		reason,
+		status: queueItems.length === 0 ? "skipped" : "queued",
+		timezone: runConfig.timezone,
+		totalItems: queueItems.length,
+		...(queueItems.length === 0 ? { finishedAt: now } : {}),
+	});
+
+	if (queueItems.length === 0) {
+		return { queuedItems: 0, runId, status: "skipped" };
+	}
 
 	await db.insert(insightRunItems).values(
-		items.map((item) => ({
+		queueItems.map((item) => ({
 			id: item.itemId,
 			runId,
 			organizationId: input.organizationId,
@@ -478,7 +503,7 @@ export async function queueInsightGenerationRun(
 	try {
 		const queue = getInsightsQueue();
 		await Promise.all(
-			items.map((item) =>
+			queueItems.map((item) =>
 				queue.add(
 					INSIGHTS_GENERATE_WEBSITE_JOB_NAME,
 					{
@@ -501,7 +526,7 @@ export async function queueInsightGenerationRun(
 				.update(insightRuns)
 				.set({
 					errorMessage: message,
-					failedItems: items.length,
+					failedItems: queueItems.length,
 					finishedAt: new Date(),
 					status: "failed",
 				})
@@ -519,7 +544,7 @@ export async function queueInsightGenerationRun(
 	}
 
 	return {
-		queuedItems: items.length,
+		queuedItems: queueItems.length,
 		runId,
 		status: "queued",
 	};

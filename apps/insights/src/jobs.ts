@@ -1,4 +1,4 @@
-import { db, eq } from "@databuddy/db";
+import { db, eq, sql } from "@databuddy/db";
 import { insightRunItems, insightRuns } from "@databuddy/db/schema";
 import {
 	INSIGHTS_DISPATCH_JOB_NAME,
@@ -62,7 +62,7 @@ async function processGenerateWebsiteJob(
 			.update(insightRuns)
 			.set({
 				status: "running",
-				startedAt: now,
+				startedAt: sql`coalesce(${insightRuns.startedAt}, ${now})`,
 				updatedAt: now,
 			})
 			.where(eq(insightRuns.id, data.runId)),

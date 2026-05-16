@@ -3,7 +3,6 @@ import { db, shutdownPostgres, sql } from "@databuddy/db";
 import { closeInsightsQueue, getInsightsQueue } from "@databuddy/redis";
 import { Elysia } from "elysia";
 import { initLogger } from "evlog";
-import { evlog } from "evlog/elysia";
 import {
 	captureInsightsError,
 	emitInsightsEvent,
@@ -95,7 +94,7 @@ async function drainAll() {
 
 function exitAfterDrain(code: number) {
 	if (shuttingDown) {
-		process.exit(code);
+		return;
 	}
 	shuttingDown = true;
 	drainAll()
@@ -169,7 +168,6 @@ async function probe(fn: () => Promise<void>): Promise<ProbeResult> {
 }
 
 const app = new Elysia()
-	.use(evlog())
 	.onError(({ code, error }) => {
 		captureInsightsError(error, "http.error", {
 			elysia_code: String(code),

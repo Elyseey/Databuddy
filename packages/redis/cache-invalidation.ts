@@ -104,6 +104,7 @@ const USER_PREFERENCES_CACHE_PREFIX = cacheNamespaces.userPreferences;
 const STATUS_PAGE_CACHE_PREFIX = cacheNamespaces.statusPage;
 const SLACK_INTEGRATION_CACHE_PREFIX = cacheNamespaces.slackIntegrationByTeam;
 const SLACK_CHANNEL_BINDING_CACHE_PREFIX = cacheNamespaces.slackChannelBinding;
+// Keep in sync with CACHE_KEY_PREFIX in packages/rpc/src/routers/insights.ts.
 const LEGACY_INSIGHTS_API_CACHE_PREFIX = "ai-insights";
 
 export interface CacheInvalidationResult {

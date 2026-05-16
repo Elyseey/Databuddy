@@ -1,12 +1,35 @@
+import dayjs from "dayjs";
+import timezonePlugin from "dayjs/plugin/timezone";
+import utcPlugin from "dayjs/plugin/utc";
+
+dayjs.extend(utcPlugin);
+dayjs.extend(timezonePlugin);
+
 export type InsightScheduleFrequency = "hourly" | "daily" | "weekly" | "custom";
 
 export interface InsightScheduleConfig {
 	cron: string | null;
 	enabled: boolean;
 	frequency: InsightScheduleFrequency;
+	timezone?: string;
 }
 
 const CRON_FIELD_SEPARATOR = /\s+/;
+const CRON_NUMERIC_FIELD_REGEX = /^\d+(,\d+)*$/;
+const CRON_STEP_FIELD_REGEX = /^\d+$/;
+const DEFAULT_TIMEZONE = "UTC";
+
+function normalizeTimezone(timezone: string | undefined): string {
+	if (!timezone) {
+		return DEFAULT_TIMEZONE;
+	}
+	try {
+		new Intl.DateTimeFormat("en-US", { timeZone: timezone });
+		return timezone;
+	} catch {
+		return DEFAULT_TIMEZONE;
+	}
+}
 
 function parseCronField(
 	value: string,
@@ -18,7 +41,11 @@ function parseCronField(
 	}
 
 	if (value.startsWith("*/")) {
-		const step = Number.parseInt(value.slice(2), 10);
+		const stepValue = value.slice(2);
+		if (!CRON_STEP_FIELD_REGEX.test(stepValue)) {
+			return null;
+		}
+		const step = Number(stepValue);
 		if (!Number.isSafeInteger(step) || step <= 0) {
 			return null;
 		}
@@ -28,7 +55,11 @@ function parseCronField(
 		).filter((item) => (item - min) % step === 0);
 	}
 
-	const values = value.split(",").map((part) => Number.parseInt(part, 10));
+	if (!CRON_NUMERIC_FIELD_REGEX.test(value)) {
+		return null;
+	}
+
+	const values = value.split(",").map((part) => Number(part));
 	if (
 		values.some(
 			(item) => !Number.isSafeInteger(item) || item < min || item > max
@@ -39,7 +70,11 @@ function parseCronField(
 	return [...new Set(values)].sort((a, b) => a - b);
 }
 
-function nextRunFromCron(cron: string | null, from: Date): Date | null {
+function nextRunFromCron(
+	cron: string | null,
+	from: Date,
+	timezone: string
+): Date | null {
 	if (!cron) {
 		return null;
 	}
@@ -64,22 +99,24 @@ function nextRunFromCron(cron: string | null, from: Date): Date | null {
 	const daySet = new Set(days);
 	const monthSet = new Set(months);
 	const weekdaySet = new Set(weekdays.map((day) => (day === 7 ? 0 : day)));
-	const candidate = new Date(from);
-	candidate.setSeconds(0, 0);
-	candidate.setMinutes(candidate.getMinutes() + 1);
+	let candidate = dayjs(from)
+		.tz(timezone)
+		.add(1, "minute")
+		.second(0)
+		.millisecond(0);
 
-	const maxMinutes = 366 * 24 * 60;
+	const maxMinutes = 5 * 366 * 24 * 60;
 	for (let i = 0; i < maxMinutes; i += 1) {
 		if (
-			minuteSet.has(candidate.getMinutes()) &&
-			hourSet.has(candidate.getHours()) &&
-			daySet.has(candidate.getDate()) &&
-			monthSet.has(candidate.getMonth() + 1) &&
-			weekdaySet.has(candidate.getDay())
+			minuteSet.has(candidate.minute()) &&
+			hourSet.has(candidate.hour()) &&
+			daySet.has(candidate.date()) &&
+			monthSet.has(candidate.month() + 1) &&
+			weekdaySet.has(candidate.day())
 		) {
-			return candidate;
+			return candidate.toDate();
 		}
-		candidate.setMinutes(candidate.getMinutes() + 1);
+		candidate = candidate.add(1, "minute");
 	}
 
 	return null;
@@ -93,23 +130,21 @@ export function getNextInsightRunAt(
 		return null;
 	}
 
-	const next = new Date(from);
+	const timezone = normalizeTimezone(config.timezone);
+	const now = dayjs(from).tz(timezone);
 	if (config.frequency === "hourly") {
-		next.setHours(next.getHours() + 1, 0, 0, 0);
-		return next;
+		return now.add(1, "hour").minute(0).second(0).millisecond(0).toDate();
 	}
 
 	if (config.frequency === "daily") {
-		next.setDate(next.getDate() + 1);
-		next.setHours(9, 0, 0, 0);
-		return next;
+		const next = now.hour(9).minute(0).second(0).millisecond(0);
+		return (next.isAfter(now) ? next : next.add(1, "day")).toDate();
 	}
 
 	if (config.frequency === "weekly") {
-		next.setDate(next.getDate() + 7);
-		next.setHours(9, 0, 0, 0);
-		return next;
+		const next = now.hour(9).minute(0).second(0).millisecond(0);
+		return (next.isAfter(now) ? next : next.add(7, "day")).toDate();
 	}
 
-	return nextRunFromCron(config.cron, from);
+	return nextRunFromCron(config.cron, from, timezone);
 }

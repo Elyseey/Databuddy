@@ -235,6 +235,14 @@ function buildDeviceTypeSQL(
 	};
 }
 
+function isSessionAttributionField(
+	field: string
+): field is (typeof SESSION_ATTRIBUTION_FIELDS)[number] {
+	return SESSION_ATTRIBUTION_FIELDS.includes(
+		field as (typeof SESSION_ATTRIBUTION_FIELDS)[number]
+	);
+}
+
 interface FilterResult {
 	clause: string;
 	params: Record<string, Filter["value"]>;
@@ -300,7 +308,11 @@ export class SimpleQueryBuilder {
 			: null;
 	}
 
-	private buildFilter(filter: Filter, index: number): FilterResult {
+	private buildFilter(
+		filter: Filter,
+		index: number,
+		options?: { sessionAttributionAlias?: string }
+	): FilterResult {
 		const isGloballyAllowed = GLOBAL_ALLOWED_FILTERS.includes(
 			filter.field as (typeof GLOBAL_ALLOWED_FILTERS)[number]
 		);
@@ -318,6 +330,16 @@ export class SimpleQueryBuilder {
 
 		const key = `f${index}`;
 		const operator = FilterOperators[filter.op];
+		const sessionAttributionAlias = options?.sessionAttributionAlias;
+
+		if (sessionAttributionAlias && isSessionAttributionField(filter.field)) {
+			return this.buildSessionAttributionFilter(
+				filter,
+				key,
+				operator,
+				sessionAttributionAlias
+			);
+		}
 
 		if (filter.field === "path") {
 			return buildGenericFilter(
@@ -373,6 +395,59 @@ export class SimpleQueryBuilder {
 		return buildGenericFilter(filter, key, operator, filter.field);
 	}
 
+	private buildSessionAttributionFilter(
+		filter: Filter,
+		key: string,
+		operator: string,
+		alias: string
+	): FilterResult {
+		if (filter.field === "referrer") {
+			return buildGenericFilter(
+				filter,
+				key,
+				operator,
+				String(SQL_EXPRESSIONS.normalizedReferrer).replace(
+					/\breferrer\b/g,
+					`${alias}.session_referrer`
+				),
+				(v) =>
+					normalizeReferrerValue(
+						v,
+						filter.op === "contains" || filter.op === "not_contains"
+					)
+			);
+		}
+
+		if (filter.field === "device_type" && typeof filter.value === "string") {
+			const fieldExpr = `${alias}.session_device_type`;
+			const isNegative =
+				filter.op === "ne" ||
+				filter.op === "not_in" ||
+				filter.op === "not_contains";
+			const lower = filter.value.toLowerCase();
+			if (lower === "desktop") {
+				const clause = `(${fieldExpr} = '' OR lower(${fieldExpr}) = {${key}:String})`;
+				return {
+					clause: isNegative ? `NOT ${clause}` : clause,
+					params: { [key]: "desktop" },
+				};
+			}
+			return {
+				clause: isNegative
+					? `lower(${fieldExpr}) != {${key}:String}`
+					: `lower(${fieldExpr}) = {${key}:String}`,
+				params: { [key]: lower },
+			};
+		}
+
+		return buildGenericFilter(
+			filter,
+			key,
+			operator,
+			`${alias}.session_${filter.field}`
+		);
+	}
+
 	private getIdField(): string {
 		return this.config.idField || "client_id";
 	}
@@ -408,6 +483,37 @@ export class SimpleQueryBuilder {
 					.join(", ")}.`
 			);
 		}
+	}
+
+	private needsSessionAttribution(): boolean {
+		if (!this.config.plugins?.sessionAttribution) {
+			return false;
+		}
+
+		if (
+			this.request.filters?.some((filter) =>
+				isSessionAttributionField(filter.field)
+			)
+		) {
+			return true;
+		}
+
+		if (
+			this.request.groupBy?.some((field) => isSessionAttributionField(field))
+		) {
+			return true;
+		}
+
+		const parts = [
+			...(this.config.fields ?? []).map((field) => compileConfigField(field)),
+			...(this.config.groupBy ?? []),
+			...(this.config.where ?? []),
+		];
+		return parts.some((part) =>
+			SESSION_ATTRIBUTION_FIELDS.some((field) =>
+				new RegExp(`\\b${field}\\b`).test(part)
+			)
+		);
 	}
 
 	private generateSessionAttributionCTE(
@@ -523,13 +629,7 @@ export class SimpleQueryBuilder {
 				whereClauseParams.__orgLevel = "true";
 			}
 
-			const needsAttribution =
-				!!this.config.plugins?.sessionAttribution &&
-				!!this.request.filters?.some((f) =>
-					SESSION_ATTRIBUTION_FIELDS.includes(
-						f.field as (typeof SESSION_ATTRIBUTION_FIELDS)[number]
-					)
-				);
+			const needsAttribution = this.needsSessionAttribution();
 			const helpers = needsAttribution
 				? {
 						sessionAttributionCTE: (timeField = "time") =>
@@ -582,13 +682,7 @@ export class SimpleQueryBuilder {
 			params.timezone = this.request.timezone as string;
 		}
 
-		const needsAttribution =
-			!!this.config.plugins?.sessionAttribution &&
-			!!this.request.filters?.some((f) =>
-				SESSION_ATTRIBUTION_FIELDS.includes(
-					f.field as (typeof SESSION_ATTRIBUTION_FIELDS)[number]
-				)
-			);
+		const needsAttribution = this.needsSessionAttribution();
 		const hasCTEs = this.config.with?.length || needsAttribution;
 
 		if (needsAttribution && !this.config.with?.length) {
@@ -643,6 +737,10 @@ export class SimpleQueryBuilder {
 			.filter((name) => name !== percentageAlias);
 
 		if (outputFields?.length) {
+			const timeBucketAlias = this.getTimeBucketAlias();
+			if (timeBucketAlias && !outputFields.includes(timeBucketAlias)) {
+				return [timeBucketAlias, ...outputFields].join(", ");
+			}
 			return outputFields.join(", ");
 		}
 
@@ -757,13 +855,7 @@ export class SimpleQueryBuilder {
 	private compileCTEs(params: Record<string, Filter["value"]>): string {
 		const ctes: string[] = [];
 
-		const needsAttribution =
-			!!this.config.plugins?.sessionAttribution &&
-			!!this.request.filters?.some((f) =>
-				SESSION_ATTRIBUTION_FIELDS.includes(
-					f.field as (typeof SESSION_ATTRIBUTION_FIELDS)[number]
-				)
-			);
+		const needsAttribution = this.needsSessionAttribution();
 		if (needsAttribution) {
 			const timeField = this.config.timeField || "time";
 			const table = this.config.table || "analytics.events";
@@ -848,7 +940,9 @@ export class SimpleQueryBuilder {
 	): CompiledQuery {
 		const timeField = this.config.timeField || "time";
 		const table = this.config.table || "analytics.events";
-		const filterClauses = this.buildWhereClauseFromFilters(params);
+		const filterClauses = this.buildWhereClauseFromFilters(params, {
+			sessionAttributionAlias: "sa",
+		});
 
 		const mainFields = this.compileFields(this.config.fields).replace(
 			/, /g,
@@ -920,7 +1014,8 @@ export class SimpleQueryBuilder {
 	}
 
 	private buildWhereClauseFromFilters(
-		params: Record<string, Filter["value"]>
+		params: Record<string, Filter["value"]>,
+		options?: { sessionAttributionAlias?: string }
 	): string[] {
 		const whereClause: string[] = [];
 
@@ -930,7 +1025,11 @@ export class SimpleQueryBuilder {
 				if (!filter || filter.target || filter.having) {
 					continue;
 				}
-				const { clause, params: filterParams } = this.buildFilter(filter, i);
+				const { clause, params: filterParams } = this.buildFilter(
+					filter,
+					i,
+					options
+				);
 				whereClause.push(clause);
 				Object.assign(params, filterParams);
 			}

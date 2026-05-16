@@ -84,7 +84,9 @@ async function fetchRollupInsights(
 	organizationId: string,
 	range: InsightRollupRange
 ): Promise<RollupInsightSummary[]> {
-	const cutoff = dayjs().subtract(RANGE_TO_DAYS[range], "day").toDate();
+	const cutoff = dayjs()
+		.subtract(RANGE_TO_DAYS[range], "day")
+		.format("YYYY-MM-DD");
 	const rows = await db
 		.select({
 			title: analyticsInsights.title,
@@ -103,7 +105,7 @@ async function fetchRollupInsights(
 		.where(
 			and(
 				eq(analyticsInsights.organizationId, organizationId),
-				gte(analyticsInsights.createdAt, cutoff),
+				gte(analyticsInsights.currentPeriodTo, cutoff),
 				isNull(websites.deletedAt)
 			)
 		)

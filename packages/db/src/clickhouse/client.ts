@@ -201,7 +201,7 @@ async function chQueryWithMeta<T>(
 ): Promise<ResponseJSON<T>> {
 	const json = await traced("ch.query", async () => {
 		const settings: Record<string, string | number> = options?.readonly
-			? { readonly: "2" }
+			? { ...(options.clickhouse_settings ?? {}), readonly: "2" }
 			: (options?.clickhouse_settings ?? {});
 		assertCacheCompatibleSettings(settings);
 		const res = await clickHouse.query({

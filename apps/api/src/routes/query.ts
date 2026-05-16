@@ -20,43 +20,6 @@ import {
 } from "@databuddy/shared/types/features";
 import type { CustomQueryRequest } from "@databuddy/ai/query/custom-query-types";
 import { compileQuery, executeBatch } from "@databuddy/ai/query";
-
-const PER_WEBSITE_QUERY_CONCURRENCY = Math.max(
-	1,
-	Number(process.env.PER_WEBSITE_QUERY_CONCURRENCY ?? 8)
-);
-
-interface KeyedSemaphore {
-	active: number;
-	queue: Array<() => void>;
-}
-
-const websiteSemaphores = new Map<string, KeyedSemaphore>();
-
-async function runPerWebsite<T>(key: string, fn: () => Promise<T>): Promise<T> {
-	let sem = websiteSemaphores.get(key);
-	if (!sem) {
-		sem = { active: 0, queue: [] };
-		websiteSemaphores.set(key, sem);
-	}
-	if (sem.active >= PER_WEBSITE_QUERY_CONCURRENCY) {
-		await new Promise<void>((resolve) => {
-			(sem as KeyedSemaphore).queue.push(resolve);
-		});
-	}
-	sem.active++;
-	try {
-		return await fn();
-	} finally {
-		sem.active--;
-		const next = sem.queue.shift();
-		if (next) {
-			next();
-		} else if (sem.active === 0 && sem.queue.length === 0) {
-			websiteSemaphores.delete(key);
-		}
-	}
-}
 import {
 	canReadQueryTypesPublicly,
 	QueryBuilders,
@@ -79,6 +42,47 @@ import {
 	DynamicQueryRequestSchema,
 	type DynamicQueryRequestType,
 } from "../schemas/query-schemas";
+
+const parsedPerWebsiteQueryConcurrency = Number(
+	process.env.PER_WEBSITE_QUERY_CONCURRENCY ?? 8
+);
+const PER_WEBSITE_QUERY_CONCURRENCY = Number.isFinite(
+	parsedPerWebsiteQueryConcurrency
+)
+	? Math.max(1, parsedPerWebsiteQueryConcurrency)
+	: 8;
+
+interface KeyedSemaphore {
+	active: number;
+	queue: Array<() => void>;
+}
+
+const websiteSemaphores = new Map<string, KeyedSemaphore>();
+
+async function runPerWebsite<T>(key: string, fn: () => Promise<T>): Promise<T> {
+	let sem = websiteSemaphores.get(key);
+	if (!sem) {
+		sem = { active: 0, queue: [] };
+		websiteSemaphores.set(key, sem);
+	}
+	while (sem.active >= PER_WEBSITE_QUERY_CONCURRENCY) {
+		await new Promise<void>((resolve) => {
+			(sem as KeyedSemaphore).queue.push(resolve);
+		});
+	}
+	sem.active++;
+	try {
+		return await fn();
+	} finally {
+		sem.active--;
+		const next = sem.queue.shift();
+		if (next) {
+			next();
+		} else if (sem.active === 0 && sem.queue.length === 0) {
+			websiteSemaphores.delete(key);
+		}
+	}
+}
 
 const DEFAULT_ALLOWED_FILTERS = [
 	"path",

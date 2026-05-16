@@ -54,6 +54,7 @@ export const websites = pgTable(
 			table.organizationId,
 			table.domain
 		),
+		uniqueIndex("websites_org_id_unique").on(table.organizationId, table.id),
 		foreignKey({
 			columns: [table.organizationId],
 			foreignColumns: [organization.id],
