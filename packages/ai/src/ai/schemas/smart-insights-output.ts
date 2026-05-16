@@ -127,9 +127,9 @@ export const insightSchema = z.object({
 export const insightsOutputSchema = z.object({
 	insights: z
 		.array(insightSchema)
-		.max(3)
+		.max(10)
 		.describe(
-			"1-3 insights ranked by actionability × business impact. When the week is mostly positive, at least one insight MUST still call out a material risk or watch (e.g. session duration down, bounce up, single-channel dependency, volatile referrer, error count up in absolute terms) if those signals appear in the data—do not only celebrate wins. Skip repeating a narrative already listed under recently reported insights unless the change is materially new."
+			"Insight cards ranked by actionability × business impact. Default runs usually request 1-3 cards, but configured deep runs may request more. When the period is mostly positive, at least one insight MUST still call out a material risk or watch (e.g. session duration down, bounce up, single-channel dependency, volatile referrer, error count up in absolute terms) if those signals appear in the data—do not only celebrate wins. Skip repeating a narrative already listed under recently reported insights unless the change is materially new."
 		),
 });
 

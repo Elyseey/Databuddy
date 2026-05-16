@@ -19,8 +19,8 @@ initLogger({
 	env: {
 		service: "uptime",
 		environment: UPTIME_ENV.environment,
-		region: process.env.UNKEY_REGION,
-		commitHash: process.env.UNKEY_GIT_COMMIT_SHA,
+		region: process.env.RAILWAY_REPLICA_REGION,
+		commitHash: process.env.RAILWAY_GIT_COMMIT_SHA,
 	},
 	drain: uptimeLoggerDrain,
 	sampling: {},

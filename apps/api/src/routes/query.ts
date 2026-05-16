@@ -8,6 +8,7 @@ import {
 	isApiKeyPresent,
 } from "@databuddy/api-keys/resolve";
 import { db } from "@databuddy/db";
+import { readBooleanEnv } from "@databuddy/env/boolean";
 import { ratelimit } from "@databuddy/redis/rate-limit";
 import {
 	getBillingOwner,
@@ -20,7 +21,10 @@ import {
 } from "@databuddy/shared/types/features";
 import type { CustomQueryRequest } from "@databuddy/ai/query/custom-query-types";
 import { compileQuery, executeBatch } from "@databuddy/ai/query";
-import { QueryBuilders } from "@databuddy/ai/query/builders";
+import {
+	canReadQueryTypesPublicly,
+	QueryBuilders,
+} from "@databuddy/ai/query/builders";
 import { executeCustomQuery } from "@databuddy/ai/query/custom-query-builder";
 import {
 	isNormalizedQueryDate,
@@ -30,7 +34,6 @@ import type { Filter, QueryRequest } from "@databuddy/ai/query/types";
 import { Elysia, t } from "elysia";
 import { getAccessibleWebsites } from "../lib/accessible-websites";
 import { resolveDatePreset } from "../lib/date-presets";
-import { isPublicQueryAccess } from "../lib/public-query-access";
 import { mergeWideEvent } from "../lib/tracing";
 import { getCachedWebsiteDomain, getWebsiteDomain } from "../lib/website-utils";
 import {
@@ -40,6 +43,47 @@ import {
 	DynamicQueryRequestSchema,
 	type DynamicQueryRequestType,
 } from "../schemas/query-schemas";
+
+const parsedPerWebsiteQueryConcurrency = Number(
+	process.env.PER_WEBSITE_QUERY_CONCURRENCY ?? 8
+);
+const PER_WEBSITE_QUERY_CONCURRENCY = Number.isFinite(
+	parsedPerWebsiteQueryConcurrency
+)
+	? Math.max(1, parsedPerWebsiteQueryConcurrency)
+	: 8;
+
+interface KeyedSemaphore {
+	active: number;
+	queue: Array<() => void>;
+}
+
+const websiteSemaphores = new Map<string, KeyedSemaphore>();
+
+async function runPerWebsite<T>(key: string, fn: () => Promise<T>): Promise<T> {
+	let sem = websiteSemaphores.get(key);
+	if (!sem) {
+		sem = { active: 0, queue: [] };
+		websiteSemaphores.set(key, sem);
+	}
+	while (sem.active >= PER_WEBSITE_QUERY_CONCURRENCY) {
+		await new Promise<void>((resolve) => {
+			(sem as KeyedSemaphore).queue.push(resolve);
+		});
+	}
+	sem.active++;
+	try {
+		return await fn();
+	} finally {
+		sem.active--;
+		const next = sem.queue.shift();
+		if (next) {
+			next();
+		} else if (sem.active === 0 && sem.queue.length === 0) {
+			websiteSemaphores.delete(key);
+		}
+	}
+}
 
 const DEFAULT_ALLOWED_FILTERS = [
 	"path",
@@ -328,6 +372,10 @@ async function enforceQueryRateLimit(
 	requestId: string,
 	request: Request
 ): Promise<Response | null> {
+	if (readBooleanEnv("DATABUDDY_E2E_MODE")) {
+		return null;
+	}
+
 	const principal = ctx.apiKey
 		? `apikey:${ctx.apiKey.id}`
 		: ctx.user
@@ -479,7 +527,7 @@ async function verifyWebsiteAccess(
 		return false;
 	}
 
-	if (website.isPublic && isPublicQueryAccess(queryTypes)) {
+	if (website.isPublic && canReadQueryTypesPublicly(queryTypes)) {
 		mergeWideEvent({ access_result: "public_query" });
 		return true;
 	}
@@ -948,9 +996,11 @@ async function executeDynamicQuery(
 	}
 
 	if (validParameters.length > 0) {
-		const results = await executeBatch(
-			validParameters.map((v) => v.request),
-			{ websiteDomain: domain, timezone }
+		const results = await runPerWebsite(projectId, () =>
+			executeBatch(
+				validParameters.map((v) => v.request),
+				{ websiteDomain: domain, timezone }
+			)
 		);
 
 		for (let i = 0; i < validParameters.length; i++) {

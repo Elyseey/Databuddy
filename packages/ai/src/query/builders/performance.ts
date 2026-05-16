@@ -22,13 +22,13 @@ const WEB_VITALS_SESSION_DIMENSIONS_CTE = `
 `;
 
 const WEB_VITALS_METRICS = `
-	COUNT(DISTINCT wv.anonymous_id) as visitors,
+	uniq(wv.anonymous_id) as visitors,
 	avgIf(wv.metric_value, wv.metric_name = 'FCP' AND wv.metric_value > 0) as avg_fcp,
-	quantileIf(0.50)(wv.metric_value, wv.metric_name = 'FCP' AND wv.metric_value > 0) as p50_fcp,
+	quantileTDigestIf(0.50)(wv.metric_value, wv.metric_name = 'FCP' AND wv.metric_value > 0) as p50_fcp,
 	avgIf(wv.metric_value, wv.metric_name = 'LCP' AND wv.metric_value > 0) as avg_lcp,
-	quantileIf(0.50)(wv.metric_value, wv.metric_name = 'LCP' AND wv.metric_value > 0) as p50_lcp,
+	quantileTDigestIf(0.50)(wv.metric_value, wv.metric_name = 'LCP' AND wv.metric_value > 0) as p50_lcp,
 	avgIf(wv.metric_value, wv.metric_name = 'CLS') as avg_cls,
-	quantileIf(0.50)(wv.metric_value, wv.metric_name = 'CLS') as p50_cls,
+	quantileTDigestIf(0.50)(wv.metric_value, wv.metric_name = 'CLS') as p50_cls,
 	avgIf(wv.metric_value, wv.metric_name = 'INP' AND wv.metric_value > 0) as avg_inp,
 	avgIf(wv.metric_value, wv.metric_name = 'TTFB' AND wv.metric_value > 0) as avg_ttfb,
 	COUNT(*) as measurements
@@ -79,7 +79,7 @@ export const PerformanceBuilders: Record<string, SimpleQueryConfig> = {
 		table: Analytics.events,
 		fields: [
 			"decodeURLComponent(CASE WHEN trimRight(path(path), '/') = '' THEN '/' ELSE trimRight(path(path), '/') END) as name",
-			"COUNT(DISTINCT anonymous_id) as visitors",
+			"uniq(anonymous_id) as visitors",
 			"AVG(CASE WHEN load_time > 0 THEN load_time ELSE NULL END) as avg_load_time",
 			"quantileTDigest(0.50)(CASE WHEN load_time > 0 THEN load_time ELSE NULL END) as p50_load_time",
 			"AVG(CASE WHEN ttfb > 0 THEN ttfb ELSE NULL END) as avg_ttfb",
@@ -109,7 +109,7 @@ export const PerformanceBuilders: Record<string, SimpleQueryConfig> = {
 		table: Analytics.events,
 		fields: [
 			"browser_name as name",
-			"COUNT(DISTINCT anonymous_id) as visitors",
+			"uniq(anonymous_id) as visitors",
 			"AVG(CASE WHEN load_time > 0 THEN load_time ELSE NULL END) as avg_load_time",
 			"quantileTDigest(0.50)(CASE WHEN load_time > 0 THEN load_time ELSE NULL END) as p50_load_time",
 			"AVG(CASE WHEN ttfb > 0 THEN ttfb ELSE NULL END) as avg_ttfb",
@@ -142,7 +142,7 @@ export const PerformanceBuilders: Record<string, SimpleQueryConfig> = {
 		table: Analytics.events,
 		fields: [
 			"country as name",
-			"COUNT(DISTINCT anonymous_id) as visitors",
+			"uniq(anonymous_id) as visitors",
 			"AVG(CASE WHEN load_time > 0 THEN load_time ELSE NULL END) as avg_load_time",
 			"quantileTDigest(0.50)(CASE WHEN load_time > 0 THEN load_time ELSE NULL END) as p50_load_time",
 			"AVG(CASE WHEN ttfb > 0 THEN ttfb ELSE NULL END) as avg_ttfb",
@@ -172,7 +172,7 @@ export const PerformanceBuilders: Record<string, SimpleQueryConfig> = {
 		table: Analytics.events,
 		fields: [
 			"os_name as name",
-			"COUNT(DISTINCT anonymous_id) as visitors",
+			"uniq(anonymous_id) as visitors",
 			"AVG(CASE WHEN load_time > 0 THEN load_time ELSE NULL END) as avg_load_time",
 			"quantileTDigest(0.50)(CASE WHEN load_time > 0 THEN load_time ELSE NULL END) as p50_load_time",
 			"AVG(CASE WHEN ttfb > 0 THEN ttfb ELSE NULL END) as avg_ttfb",
@@ -201,7 +201,7 @@ export const PerformanceBuilders: Record<string, SimpleQueryConfig> = {
 		table: Analytics.events,
 		fields: [
 			"CONCAT(region, ', ', country) as name",
-			"COUNT(DISTINCT anonymous_id) as visitors",
+			"uniq(anonymous_id) as visitors",
 			"AVG(CASE WHEN load_time > 0 THEN load_time ELSE NULL END) as avg_load_time",
 			"quantileTDigest(0.50)(CASE WHEN load_time > 0 THEN load_time ELSE NULL END) as p50_load_time",
 			"AVG(CASE WHEN ttfb > 0 THEN ttfb ELSE NULL END) as avg_ttfb",
@@ -300,13 +300,13 @@ export const PerformanceBuilders: Record<string, SimpleQueryConfig> = {
 				sql: `
 					SELECT 
 						decodeURLComponent(CASE WHEN trimRight(path(path), '/') = '' THEN '/' ELSE trimRight(path(path), '/') END) as name,
-						COUNT(DISTINCT anonymous_id) as visitors,
+						uniq(anonymous_id) as visitors,
 						avgIf(metric_value, metric_name = 'FCP' AND metric_value > 0) as avg_fcp,
-						quantileIf(0.50)(metric_value, metric_name = 'FCP' AND metric_value > 0) as p50_fcp,
+						quantileTDigestIf(0.50)(metric_value, metric_name = 'FCP' AND metric_value > 0) as p50_fcp,
 						avgIf(metric_value, metric_name = 'LCP' AND metric_value > 0) as avg_lcp,
-						quantileIf(0.50)(metric_value, metric_name = 'LCP' AND metric_value > 0) as p50_lcp,
+						quantileTDigestIf(0.50)(metric_value, metric_name = 'LCP' AND metric_value > 0) as p50_lcp,
 						avgIf(metric_value, metric_name = 'CLS') as avg_cls,
-						quantileIf(0.50)(metric_value, metric_name = 'CLS') as p50_cls,
+						quantileTDigestIf(0.50)(metric_value, metric_name = 'CLS') as p50_cls,
 						avgIf(metric_value, metric_name = 'INP' AND metric_value > 0) as avg_inp,
 						avgIf(metric_value, metric_name = 'TTFB' AND metric_value > 0) as avg_ttfb,
 						COUNT(*) as measurements
@@ -508,15 +508,15 @@ export const PerformanceBuilders: Record<string, SimpleQueryConfig> = {
 				SELECT 
 					toDate(timestamp) as date,
 					avgIf(metric_value, metric_name = 'FCP' AND metric_value > 0) as avg_fcp,
-					quantileIf(0.50)(metric_value, metric_name = 'FCP' AND metric_value > 0) as p50_fcp,
+					quantileTDigestIf(0.50)(metric_value, metric_name = 'FCP' AND metric_value > 0) as p50_fcp,
 					avgIf(metric_value, metric_name = 'LCP' AND metric_value > 0) as avg_lcp,
-					quantileIf(0.50)(metric_value, metric_name = 'LCP' AND metric_value > 0) as p50_lcp,
+					quantileTDigestIf(0.50)(metric_value, metric_name = 'LCP' AND metric_value > 0) as p50_lcp,
 					avgIf(metric_value, metric_name = 'CLS') as avg_cls,
-					quantileIf(0.50)(metric_value, metric_name = 'CLS') as p50_cls,
+					quantileTDigestIf(0.50)(metric_value, metric_name = 'CLS') as p50_cls,
 					avgIf(metric_value, metric_name = 'INP' AND metric_value > 0) as avg_inp,
-					quantileIf(0.50)(metric_value, metric_name = 'INP' AND metric_value > 0) as p50_inp,
+					quantileTDigestIf(0.50)(metric_value, metric_name = 'INP' AND metric_value > 0) as p50_inp,
 					avgIf(metric_value, metric_name = 'TTFB' AND metric_value > 0) as avg_ttfb,
-					quantileIf(0.50)(metric_value, metric_name = 'TTFB' AND metric_value > 0) as p50_ttfb,
+					quantileTDigestIf(0.50)(metric_value, metric_name = 'TTFB' AND metric_value > 0) as p50_ttfb,
 					COUNT(*) as measurements
 				FROM ${Analytics.web_vitals_spans}
 				WHERE 

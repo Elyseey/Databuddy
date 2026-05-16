@@ -162,18 +162,9 @@ export const ErrorsBuilders: Record<string, SimpleQueryConfig> = {
 						AND time >= toDateTime({startDate:String})
 						AND time <= toDateTime(concat({endDate:String}, ' 23:59:59'))
 					),
-					error_sessions AS (
-						SELECT uniq(session_id) as error_count
-						FROM ${Analytics.error_spans}
-						WHERE client_id = {websiteId:String}
-						AND timestamp >= toDateTime({startDate:String})
-						AND timestamp <= toDateTime(concat({endDate:String}, ' 23:59:59'))
-						AND message != ''
-						${filterClause}
-					),
 					error_stats AS (
 						SELECT
-							COUNT(*) as totalErrors,
+							count() as totalErrors,
 							uniq(message) as uniqueErrorTypes,
 							uniq(anonymous_id) as affectedUsers,
 							uniq(session_id) as affectedSessions
@@ -189,10 +180,9 @@ export const ErrorsBuilders: Record<string, SimpleQueryConfig> = {
 						es.uniqueErrorTypes,
 						es.affectedUsers,
 						es.affectedSessions,
-						ROUND((err.error_count / ts.total) * 100, 2) as errorRate
+						ROUND((es.affectedSessions / ts.total) * 100, 2) as errorRate
 					FROM error_stats es
 					CROSS JOIN total_sessions ts
-					CROSS JOIN error_sessions err
 				`,
 				params: {
 					websiteId,

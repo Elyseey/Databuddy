@@ -93,11 +93,11 @@ const enrichers = [
 ] as const;
 
 const deploymentMeta: Record<string, string> = {};
-if (process.env.UNKEY_INSTANCE_ID) {
-	deploymentMeta.instance_id = process.env.UNKEY_INSTANCE_ID;
+if (process.env.RAILWAY_REPLICA_ID) {
+	deploymentMeta.instance_id = process.env.RAILWAY_REPLICA_ID;
 }
-if (process.env.UNKEY_DEPLOYMENT_ID) {
-	deploymentMeta.deployment_id = process.env.UNKEY_DEPLOYMENT_ID;
+if (process.env.RAILWAY_DEPLOYMENT_ID) {
+	deploymentMeta.deployment_id = process.env.RAILWAY_DEPLOYMENT_ID;
 }
 
 export function enrichUptimeWideEvent(ctx: EnrichContext): void {

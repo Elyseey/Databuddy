@@ -1,7 +1,10 @@
 import { chQuery } from "@databuddy/db/clickhouse";
 import { captureError, mergeWideEvent, record } from "../lib/tracing";
 import { QueryBuilders } from "./builders";
-import { SimpleQueryBuilder } from "./simple-builder";
+import {
+	getClickHouseQuerySettings,
+	SimpleQueryBuilder,
+} from "./simple-builder";
 import type { QueryRequest, SimpleQueryConfig } from "./types";
 import { applyPlugins } from "./utils";
 
@@ -14,6 +17,37 @@ interface BatchResult {
 interface BatchOptions {
 	timezone?: string;
 	websiteDomain?: string | null;
+}
+
+const parsedBatchGroupConcurrency = Number(
+	process.env.BATCH_GROUP_CONCURRENCY ?? 3
+);
+const BATCH_GROUP_CONCURRENCY = Number.isFinite(parsedBatchGroupConcurrency)
+	? Math.max(1, parsedBatchGroupConcurrency)
+	: 3;
+
+async function mapWithConcurrency<T, R>(
+	items: T[],
+	concurrency: number,
+	fn: (item: T) => Promise<R>
+): Promise<R[]> {
+	if (items.length <= concurrency) {
+		return Promise.all(items.map(fn));
+	}
+	const results: R[] = new Array(items.length);
+	let cursor = 0;
+	const workers = Array.from(
+		{ length: Math.min(concurrency, items.length) },
+		async () => {
+			while (cursor < items.length) {
+				const i = cursor++;
+				const item = items[i] as T;
+				results[i] = await fn(item);
+			}
+		}
+	);
+	await Promise.all(workers);
+	return results;
 }
 
 const ALIAS_REGEX = /\s+as\s+([\w]+)\s*$/i;
@@ -352,13 +386,9 @@ export function executeBatch(
 					({ req }) => QueryBuilders[req.type]?.noCache
 				);
 				const rawRows = await record("chUnionQuery", () =>
-					chQuery(
-						sql,
-						params,
-						groupNoCache
-							? { clickhouse_settings: { use_query_cache: 0 } }
-							: undefined
-					)
+					chQuery(sql, params, {
+						clickhouse_settings: getClickHouseQuerySettings(groupNoCache),
+					})
 				);
 
 				mergeWideEvent({
@@ -398,8 +428,10 @@ export function executeBatch(
 			}
 		}
 
-		const groupResults = await Promise.all(
-			Array.from(groups.values()).map(runGroup)
+		const groupResults = await mapWithConcurrency(
+			Array.from(groups.values()),
+			BATCH_GROUP_CONCURRENCY,
+			runGroup
 		);
 		const unionCount = groupResults.reduce((s, r) => s + r.unionCount, 0);
 		const singleCount = groupResults.reduce((s, r) => s + r.singleCount, 0);

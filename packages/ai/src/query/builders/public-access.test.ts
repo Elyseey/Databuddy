@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { PUBLIC_QUERY_TYPES, QueryBuilders } from "./index";
+import {
+	canReadQueryTypesPublicly,
+	PUBLIC_QUERY_TYPES,
+	QueryBuilders,
+} from "./index";
 
 const PUBLIC_OVERVIEW_QUERY_TYPES = [
 	"summary_metrics",
@@ -80,5 +84,24 @@ describe("query builder publicAccess", () => {
 		for (const type of revenueTypes) {
 			expect(QueryBuilders[type]?.publicAccess, type).not.toBe(true);
 		}
+	});
+
+	it("allows public reads only when every requested builder opts in", () => {
+		expect(
+			canReadQueryTypesPublicly([
+				"summary_metrics",
+				"top_pages",
+				"custom_events_summary",
+				"recent_errors",
+				"vitals_overview",
+			])
+		).toBe(true);
+
+		expect(canReadQueryTypesPublicly(["revenue_overview"])).toBe(false);
+		expect(
+			canReadQueryTypesPublicly(["summary_metrics", "revenue_overview"])
+		).toBe(false);
+		expect(canReadQueryTypesPublicly(["missing_query_type"])).toBe(false);
+		expect(canReadQueryTypesPublicly([])).toBe(false);
 	});
 });

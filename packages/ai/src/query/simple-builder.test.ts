@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { QueryBuilders } from "./builders";
-import { SimpleQueryBuilder } from "./simple-builder";
+import {
+	getClickHouseQuerySettings,
+	SimpleQueryBuilder,
+} from "./simple-builder";
 import type { Filter, QueryRequest, SimpleQueryConfig } from "./types";
 import { applyPlugins } from "./utils";
 
@@ -630,6 +633,7 @@ describe("SimpleQueryBuilder.compile", () => {
 				type: "summary_metrics",
 				from: "2026-04-27 12:00:00Z",
 				to: "2026-04-27 13:28:59Z",
+				filters: [{ field: "referrer", op: "eq", value: "google.com" }],
 			})
 		);
 
@@ -642,6 +646,28 @@ describe("SimpleQueryBuilder.compile", () => {
 		expect(params.endDate).toBe("2026-04-27 13:28:59");
 	});
 
+	it("uses session attribution columns for custom SQL filters", () => {
+		const config = QueryBuilders.entry_pages;
+		if (!config) {
+			throw new Error("entry_pages builder is missing");
+		}
+
+		const builder = new SimpleQueryBuilder(
+			config,
+			makeRequest({
+				type: "entry_pages",
+				filters: [{ field: "country", op: "eq", value: "US" }],
+			})
+		);
+
+		const { sql, params } = builder.compile();
+
+		expect(sql).toContain("session_attribution AS");
+		expect(sql).toContain("sa.session_country = {f0:String}");
+		expect(sql).not.toContain("\n                    AND country = {f0:String}");
+		expect(params.f0).toBe("US");
+	});
+
 	it("normalizes standard session attribution queries", () => {
 		const { sql, params } = compile(
 			{
@@ -651,6 +677,7 @@ describe("SimpleQueryBuilder.compile", () => {
 			},
 			{
 				from: "2026-04-27 12:00:00Z",
+				filters: [{ field: "utm_source", op: "eq", value: "newsletter" }],
 				to: "2026-04-27 13:28:59Z",
 			}
 		);
@@ -670,7 +697,10 @@ describe("SimpleQueryBuilder.compile", () => {
 
 		const builder = new SimpleQueryBuilder(
 			config,
-			makeRequest({ type: "traffic_sources" }),
+			makeRequest({
+				type: "traffic_sources",
+				filters: [{ field: "referrer", op: "eq", value: "google.com" }],
+			}),
 			"example.com"
 		);
 
@@ -684,7 +714,7 @@ describe("SimpleQueryBuilder.compile", () => {
 		expect(sql).toContain("domain(referrer) LIKE 'x.com%'");
 		expect(sql).toContain("https://linkedin.com");
 		expect(sql).toContain("as name");
-		expect(sql).toContain("as percentage");
+		expect(sql).toMatch(/\bas percentage\b/i);
 		expect(sql).not.toContain("referrer != ''");
 	});
 
@@ -839,5 +869,22 @@ describe("SimpleQueryBuilder.compile", () => {
 	it("applies offset", () => {
 		const { sql } = compile({}, { offset: 50 });
 		expect(sql).toContain("OFFSET 50");
+	});
+});
+
+describe("getClickHouseQuerySettings", () => {
+	it("ignores nondeterministic functions when query cache is enabled", () => {
+		expect(getClickHouseQuerySettings()).toMatchObject({
+			allow_experimental_analyzer: 1,
+			query_cache_nondeterministic_function_handling: "ignore",
+			use_query_cache: 1,
+		});
+	});
+
+	it("does not set nondeterministic cache handling when cache is disabled", () => {
+		expect(getClickHouseQuerySettings(true)).toEqual({
+			allow_experimental_analyzer: 1,
+			use_query_cache: 0,
+		});
 	});
 });

@@ -19,7 +19,7 @@ const MAX_REDIRECTS = 10;
 const USER_AGENT =
 	"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36";
 const PROBE_REGION =
-	process.env.PROBE_REGION || process.env.UNKEY_REGION || "default";
+	process.env.PROBE_REGION || process.env.RAILWAY_REPLICA_REGION || "default";
 
 interface FetchSuccess {
 	bytes: number;
@@ -145,7 +145,7 @@ async function pingWebsite(
 			const res = await safeFetch(current, {
 				method: "GET",
 				headers: HEADERS,
-				maxRedirects: 0,
+				followRedirects: false,
 				timeoutMs: timeout,
 			});
 

@@ -35,6 +35,94 @@ export function getTrackingBlockOriginHost(
 	}
 }
 
+function normalizeTrackingDomain(value: string | null): string | null {
+	const trimmed = value?.trim().toLowerCase();
+	if (!trimmed) {
+		return null;
+	}
+
+	const withoutWildcard = trimmed.startsWith("*.") ? trimmed.slice(2) : trimmed;
+	const urlString = withoutWildcard.includes("://")
+		? withoutWildcard
+		: `https://${withoutWildcard}`;
+
+	try {
+		return new URL(urlString).hostname
+			.toLowerCase()
+			.replace(TRAILING_DOT_REGEX, "");
+	} catch {
+		return withoutWildcard.replace(TRAILING_DOT_REGEX, "");
+	}
+}
+
+function isSubdomain(origin: string, base: string): boolean {
+	return origin.endsWith(`.${base}`) && origin.length > base.length + 1;
+}
+
+function matchesOriginPattern(
+	host: string,
+	pattern: string,
+	options: { includeApexForWildcard: boolean }
+): boolean {
+	const trimmed = pattern.trim().toLowerCase();
+	if (!trimmed) {
+		return false;
+	}
+	if (trimmed === "*") {
+		return true;
+	}
+	if (trimmed === "localhost" || trimmed.includes("localhost:*")) {
+		return host === "localhost";
+	}
+
+	const normalized = normalizeTrackingDomain(trimmed);
+	if (!normalized) {
+		return false;
+	}
+
+	if (trimmed.startsWith("*.")) {
+		return options.includeApexForWildcard
+			? host === normalized || isSubdomain(host, normalized)
+			: isSubdomain(host, normalized);
+	}
+
+	return host === normalized;
+}
+
+export function matchesTrackingBlockAllowedOrigin(
+	origin: string | null,
+	websiteDomain: string | null,
+	allowedOrigins: string[] = []
+): boolean {
+	const host = normalizeTrackingDomain(getTrackingBlockOriginHost(origin));
+	if (!host || host === "null") {
+		return false;
+	}
+
+	const domain = normalizeTrackingDomain(websiteDomain);
+	if (domain && (host === domain || isSubdomain(host, domain))) {
+		return true;
+	}
+
+	return allowedOrigins.some((pattern) =>
+		matchesOriginPattern(host, pattern, { includeApexForWildcard: true })
+	);
+}
+
+export function matchesTrackingBlockIgnoredOrigin(
+	source: string | null,
+	patterns: string[] = []
+): boolean {
+	const host = normalizeTrackingDomain(getTrackingBlockOriginHost(source));
+	if (!host) {
+		return false;
+	}
+
+	return patterns.some((pattern) =>
+		matchesOriginPattern(host, pattern, { includeApexForWildcard: false })
+	);
+}
+
 function isPrivateIpv4(host: string): boolean {
 	const parts = host.split(".").map((part) => Number.parseInt(part, 10));
 	if (parts.length !== 4 || parts.some((part) => Number.isNaN(part))) {
