@@ -221,10 +221,15 @@ function applyPatch(
 	config: z.infer<typeof configOutputSchema>,
 	patch: z.infer<typeof configPatchSchema>
 ): z.infer<typeof configOutputSchema> {
+	const cleanPatch = Object.fromEntries(
+		Object.entries(configPatchSchema.parse(patch)).filter(
+			([, value]) => value !== undefined
+		)
+	) as InsightGenerationConfigPatch;
 	const next = {
 		...config,
-		...patch,
-		cron: patch.cron === undefined ? config.cron : patch.cron,
+		...cleanPatch,
+		cron: cleanPatch.cron === undefined ? config.cron : cleanPatch.cron,
 	};
 	if (next.frequency === "custom" && !next.cron) {
 		throw rpcError.badRequest("Custom frequency requires a cron expression");
@@ -315,6 +320,46 @@ async function getEffectiveConfig(
 	);
 }
 
+export async function ensureOrganizationInsightGenerationConfig(
+	organizationId: string,
+	patch: InsightGenerationConfigPatch = {}
+): Promise<z.infer<typeof configOutputSchema>> {
+	const existing = await findConfig(organizationId, null);
+	if (existing) {
+		return rowToConfig(
+			existing,
+			defaultConfig(organizationId, null),
+			"organization"
+		);
+	}
+
+	const next = applyPatch(defaultConfig(organizationId, null), patch);
+	const now = new Date();
+	await db
+		.insert(insightGenerationConfigs)
+		.values({
+			id: randomUUIDv7(),
+			organizationId,
+			websiteId: null,
+			allowedTools: next.allowedTools,
+			cooldownHours: next.cooldownHours,
+			cron: next.cron,
+			depth: next.depth,
+			enabled: next.enabled,
+			frequency: next.frequency,
+			lookbackDays: next.lookbackDays,
+			maxInsightsPerWebsite: next.maxInsightsPerWebsite,
+			maxSteps: next.maxSteps,
+			maxToolCalls: next.maxToolCalls,
+			modelTier: next.modelTier,
+			nextRunAt: getNextInsightRunAt(next, now),
+			timezone: next.timezone,
+		})
+		.onConflictDoNothing();
+
+	return getEffectiveConfig(organizationId, null);
+}
+
 async function listTargetWebsites(
 	organizationId: string,
 	websiteIds: string[] | undefined
@@ -344,6 +389,8 @@ async function listTargetWebsites(
 export async function queueInsightGenerationRun(
 	input: QueueInsightGenerationRunInput
 ): Promise<QueueInsightGenerationRunResult> {
+	await ensureOrganizationInsightGenerationConfig(input.organizationId, input);
+
 	if (!input.force) {
 		const [active] = await db
 			.select({ id: insightRuns.id, totalItems: insightRuns.totalItems })
