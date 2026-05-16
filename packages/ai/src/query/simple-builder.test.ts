@@ -646,6 +646,28 @@ describe("SimpleQueryBuilder.compile", () => {
 		expect(params.endDate).toBe("2026-04-27 13:28:59");
 	});
 
+	it("uses session attribution columns for custom SQL filters", () => {
+		const config = QueryBuilders.entry_pages;
+		if (!config) {
+			throw new Error("entry_pages builder is missing");
+		}
+
+		const builder = new SimpleQueryBuilder(
+			config,
+			makeRequest({
+				type: "entry_pages",
+				filters: [{ field: "country", op: "eq", value: "US" }],
+			})
+		);
+
+		const { sql, params } = builder.compile();
+
+		expect(sql).toContain("session_attribution AS");
+		expect(sql).toContain("sa.session_country = {f0:String}");
+		expect(sql).not.toContain("\n                    AND country = {f0:String}");
+		expect(params.f0).toBe("US");
+	});
+
 	it("normalizes standard session attribution queries", () => {
 		const { sql, params } = compile(
 			{

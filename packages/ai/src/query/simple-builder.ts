@@ -635,13 +635,16 @@ export class SimpleQueryBuilder {
 
 		if (this.config.customSql) {
 			const whereClauseParams: Record<string, Filter["value"]> = {};
-			const whereClause = this.buildWhereClauseFromFilters(whereClauseParams);
+			const needsAttribution = this.needsSessionAttribution();
+			const whereClause = this.buildWhereClauseFromFilters(
+				whereClauseParams,
+				needsAttribution ? { sessionAttributionAlias: "sa" } : undefined
+			);
 
 			if (this.request.organizationWebsiteIds) {
 				whereClauseParams.__orgLevel = "true";
 			}
 
-			const needsAttribution = this.needsSessionAttribution();
 			const helpers = needsAttribution
 				? {
 						sessionAttributionCTE: (timeField = "time") =>
