@@ -208,19 +208,11 @@ export async function dispatchDueInsightRuns(
 		queuedItems: 0,
 		skippedConfigs: 0,
 	};
-	emitInsightsEvent("info", "scheduler.dispatch_tick.started", {
-		scanned_configs: configs.length,
-	});
 
 	for (const config of configs) {
 		const claimed = await claimConfig(config, now);
 		if (!claimed) {
 			result.skippedConfigs += 1;
-			emitInsightsEvent("info", "scheduler.config_claim_skipped", {
-				config_id: config.id,
-				organization_id: config.organizationId,
-				website_id: config.websiteId,
-			});
 			continue;
 		}
 		result.claimedConfigs += 1;

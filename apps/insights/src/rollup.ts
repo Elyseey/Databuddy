@@ -142,11 +142,6 @@ async function generateRollupNarrative(
 
 	try {
 		const startedAt = performance.now();
-		emitInsightsEvent("info", "rollup.narrative_generation_started", {
-			organization_id: organizationId,
-			range,
-			insight_count: insights.length,
-		});
 		const ai = getAILogger();
 		const result = await generateText({
 			model: ai.wrap(models.balanced),
@@ -237,19 +232,7 @@ async function generateRangeRollup(
 	generatedAt: Date
 ): Promise<void> {
 	const startedAt = performance.now();
-	emitInsightsEvent("info", "rollup.range_started", {
-		organization_id: data.organizationId,
-		run_id: data.runId,
-		reason: data.reason,
-		range,
-	});
 	const insights = await fetchRollupInsights(data.organizationId, range);
-	emitInsightsEvent("info", "rollup.range_insights_loaded", {
-		organization_id: data.organizationId,
-		run_id: data.runId,
-		range,
-		insight_count: insights.length,
-	});
 	const narrative = await generateRollupNarrative(
 		range,
 		data.organizationId,
@@ -276,12 +259,6 @@ export async function processRollupJob(
 	data: InsightsRollupJobData
 ): Promise<{ ranges: number; status: "succeeded" }> {
 	const startedAt = performance.now();
-	emitInsightsEvent("info", "rollup.job_started", {
-		organization_id: data.organizationId,
-		run_id: data.runId,
-		reason: data.reason,
-		range_count: ROLLUP_RANGES.length,
-	});
 	const generatedAt = new Date();
 	await Promise.all(
 		ROLLUP_RANGES.map((range) => generateRangeRollup(data, range, generatedAt))

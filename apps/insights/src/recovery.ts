@@ -12,7 +12,11 @@ import {
 	INSIGHTS_ROLLUP_JOB_NAME,
 	insightsRollupJobId,
 } from "@databuddy/redis";
-import { captureInsightsError, emitInsightsEvent } from "./lib/evlog-insights";
+import {
+	captureInsightsError,
+	emitInsightsEvent,
+	setInsightsLog,
+} from "./lib/evlog-insights";
 
 const DEFAULT_MAINTENANCE_INTERVAL_MS = 5 * 60 * 1000;
 const MIN_MAINTENANCE_INTERVAL_MS = 60 * 1000;
@@ -191,16 +195,15 @@ export async function syncRunStatus(runId: string): Promise<RunStatusSummary> {
 		})
 		.where(eq(insightRuns.id, runId));
 
-	emitInsightsEvent("info", "recovery.run_status_synced", {
-		run_id: runId,
-		status,
-		total_items: totalItems,
-		completed_items: completedItems,
-		failed_items: failedItems,
-		queued_items: queuedItems,
-		running_items: runningItems,
-		skipped_items: skippedItems,
-		settled,
+	setInsightsLog({
+		run_status: status,
+		run_total_items: totalItems,
+		run_completed_items: completedItems,
+		run_failed_items: failedItems,
+		run_queued_items: queuedItems,
+		run_running_items: runningItems,
+		run_skipped_items: skippedItems,
+		run_settled: settled,
 	});
 
 	return {
@@ -220,23 +223,12 @@ export async function queueRollupIfSettled(
 	summary: RunStatusSummary
 ): Promise<void> {
 	if (!(summary.run && summary.settled && summary.completedItems > 0)) {
-		emitInsightsEvent("info", "recovery.rollup_queue_skipped", {
-			run_id: summary.run?.id,
-			status: summary.status,
-			settled: summary.settled,
-			completed_items: summary.completedItems,
-		});
 		return;
 	}
 	if (
 		summary.status !== "succeeded" &&
 		summary.status !== "partially_succeeded"
 	) {
-		emitInsightsEvent("info", "recovery.rollup_queue_skipped_status", {
-			run_id: summary.run.id,
-			status: summary.status,
-			completed_items: summary.completedItems,
-		});
 		return;
 	}
 
@@ -254,7 +246,7 @@ export async function queueRollupIfSettled(
 		emitInsightsEvent("info", "recovery.rollup_queued", {
 			run_id: summary.run.id,
 			organization_id: summary.run.organizationId,
-			status: summary.status,
+			run_status: summary.status,
 			completed_items: summary.completedItems,
 		});
 	} catch (error) {
@@ -271,10 +263,6 @@ export async function recoverStaleInsightRuns(
 	const startedAt = performance.now();
 	const cutoff = new Date(now.getTime() - getInsightsStaleItemMs());
 	const items = await staleItems(cutoff);
-	emitInsightsEvent("info", "recovery.sweep_started", {
-		cutoff_at: cutoff.toISOString(),
-		scanned_items: items.length,
-	});
 	const affectedRunIds = new Set<string>();
 	let failedItems = 0;
 	let keptItems = 0;
@@ -283,12 +271,6 @@ export async function recoverStaleInsightRuns(
 		const reason = await staleItemFailureReason(item);
 		if (!reason) {
 			keptItems += 1;
-			emitInsightsEvent("info", "recovery.stale_item_kept", {
-				item_id: item.id,
-				queue_job_id: item.queueJobId,
-				run_id: item.runId,
-				status: item.status,
-			});
 			continue;
 		}
 
@@ -319,23 +301,13 @@ export async function recoverStaleInsightRuns(
 		await queueRollupIfSettled(summary);
 	}
 
-	if (failedItems > 0 || runIds.size > 0) {
-		emitInsightsEvent("info", "recovery.sweep_completed", {
-			duration_ms: Math.round(performance.now() - startedAt),
-			failed_items: failedItems,
-			kept_items: keptItems,
-			scanned_items: items.length,
-			synced_runs: runIds.size,
-		});
-	} else {
-		emitInsightsEvent("info", "recovery.sweep_completed", {
-			duration_ms: Math.round(performance.now() - startedAt),
-			failed_items: 0,
-			kept_items: keptItems,
-			scanned_items: items.length,
-			synced_runs: 0,
-		});
-	}
+	emitInsightsEvent("info", "recovery.sweep_completed", {
+		duration_ms: Math.round(performance.now() - startedAt),
+		failed_items: failedItems,
+		kept_items: keptItems,
+		scanned_items: items.length,
+		synced_runs: runIds.size,
+	});
 
 	return {
 		failedItems,

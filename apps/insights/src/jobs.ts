@@ -57,16 +57,6 @@ async function processGenerateWebsiteJob(
 	job: Job<InsightsQueueJobData>
 ): Promise<{ resultCount: number; status: "skipped" | "succeeded" }> {
 	const now = new Date();
-	emitInsightsEvent("info", "job.generate_website.starting", {
-		...jobContext(job),
-		item_id: data.itemId,
-		depth: data.config.depth,
-		model_tier: data.config.modelTier,
-		allowed_tools: data.config.allowedTools,
-		lookback_days: data.config.lookbackDays,
-		max_steps: data.config.maxSteps,
-		max_tool_calls: data.config.maxToolCalls,
-	});
 	await Promise.all([
 		db
 			.update(insightRuns)
@@ -99,13 +89,6 @@ async function processGenerateWebsiteJob(
 			websiteId: data.websiteId,
 		});
 
-		emitInsightsEvent("info", "job.generate_website.generated", {
-			...jobContext(job),
-			item_id: data.itemId,
-			result_count: result.resultCount,
-			result_status: result.status,
-		});
-
 		await db
 			.update(insightRunItems)
 			.set({
@@ -125,13 +108,6 @@ async function processGenerateWebsiteJob(
 			run_total_items: summary.totalItems,
 		});
 		await queueRollupIfSettled(summary);
-		emitInsightsEvent("info", "job.generate_website.completed", {
-			...jobContext(job),
-			item_id: data.itemId,
-			result_count: result.resultCount,
-			result_status: result.status,
-			run_status: summary.status,
-		});
 		return { resultCount: result.resultCount, status: result.status };
 	} catch (error) {
 		const finalAttempt = isFinalAttempt(job);

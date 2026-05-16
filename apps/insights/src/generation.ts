@@ -360,15 +360,8 @@ async function validateOrRepairInsights(
 		return validated.insights.slice(0, targetCount);
 	}
 
+	const repairStartedAt = performance.now();
 	try {
-		const repairStartedAt = performance.now();
-		emitInsightsEvent("info", "generation.repair.started", {
-			organization_id: context.organizationId,
-			website_id: context.websiteId,
-			mode: context.mode,
-			input_count: insights.length,
-			target_count: targetCount,
-		});
 		const ai = getAILogger();
 		const repair = await generateText({
 			model: ai.wrap(modelForTier(context.config.modelTier)),
@@ -438,6 +431,9 @@ async function validateOrRepairInsights(
 			organization_id: context.organizationId,
 			website_id: context.websiteId,
 			mode: context.mode,
+			duration_ms: Math.round(performance.now() - repairStartedAt),
+			input_count: insights.length,
+			target_count: targetCount,
 		});
 	}
 
@@ -456,14 +452,6 @@ async function analyzeWebsiteLegacy(params: {
 	websiteId: string;
 }): Promise<ParsedInsight[]> {
 	const startedAt = performance.now();
-	emitInsightsEvent("info", "generation.legacy.started", {
-		organization_id: params.organizationId,
-		website_id: params.websiteId,
-		depth: params.config.depth,
-		model_tier: params.config.modelTier,
-		timezone: params.config.timezone,
-		lookback_days: params.config.lookbackDays,
-	});
 	const currentRange = params.period.current;
 	const previousRange = params.period.previous;
 	const [current, previous] = await Promise.all([
@@ -491,15 +479,6 @@ async function analyzeWebsiteLegacy(params: {
 		});
 		return [];
 	}
-
-	emitInsightsEvent("info", "generation.legacy.context_loaded", {
-		organization_id: params.organizationId,
-		website_id: params.websiteId,
-		current_summary_rows: current.summary.length,
-		current_top_pages: current.topPages.length,
-		previous_summary_rows: previous.summary.length,
-		previous_top_pages: previous.topPages.length,
-	});
 
 	const dataSection = formatLegacyWebDataForPrompt(
 		current,
@@ -585,16 +564,6 @@ async function analyzeWebsite(params: {
 	websiteId: string;
 }): Promise<ParsedInsight[]> {
 	const startedAt = performance.now();
-	emitInsightsEvent("info", "generation.agent.started", {
-		organization_id: params.organizationId,
-		website_id: params.websiteId,
-		depth: params.config.depth,
-		model_tier: params.config.modelTier,
-		timezone: params.config.timezone,
-		lookback_days: params.config.lookbackDays,
-		max_steps: params.config.maxSteps,
-		max_tool_calls: params.config.maxToolCalls,
-	});
 	const currentRange = params.period.current;
 	const previousRange = params.period.previous;
 	const hasData = await hasWebInsightData(
@@ -627,14 +596,6 @@ async function analyzeWebsite(params: {
 		params.orgSites,
 		params.websiteId
 	);
-	emitInsightsEvent("info", "generation.context_loaded", {
-		organization_id: params.organizationId,
-		website_id: params.websiteId,
-		allowed_tools: allowedTools,
-		has_annotations: annotationContext.length > 0,
-		has_recent_insights: recentInsightsBlock.length > 0,
-		org_site_count: params.orgSites.length,
-	});
 	const userPrompt = `Analyze this website's period-over-period data and produce insights.
 
 **Current period:** ${currentRange.from} to ${currentRange.to}
@@ -772,10 +733,6 @@ ${orgContext}${annotationContext}${recentInsightsBlock}`;
 		});
 	}
 
-	emitInsightsEvent("info", "generation.legacy_fallback.started", {
-		organization_id: params.organizationId,
-		website_id: params.websiteId,
-	});
 	return analyzeWebsiteLegacy({
 		...params,
 		annotationContext,
@@ -873,17 +830,6 @@ async function persistWebsiteInsights(params: {
 	const toRefresh = finalInsights.filter((insight) => {
 		const existingId = dedupeKeyToId.get(dedupeKeyFor(insight));
 		return existingId !== undefined && insight.id === existingId;
-	});
-
-	emitInsightsEvent("info", "generation.persistence.started", {
-		organization_id: params.organizationId,
-		run_id: params.runId,
-		candidate_count: params.insights.length,
-		final_count: finalInsights.length,
-		insert_count: toInsert.length,
-		refresh_count: toRefresh.length,
-		duplicate_candidate_count: duplicateCandidates,
-		dedupe_window_count: dedupeKeyToId.size,
 	});
 
 	if (toInsert.length > 0) {
@@ -1003,15 +949,6 @@ export async function generateWebsiteInsights(
 	input: GenerateWebsiteInsightsInput
 ): Promise<GenerateWebsiteInsightsResult> {
 	const startedAt = performance.now();
-	emitInsightsEvent("info", "generation.website.started", {
-		organization_id: input.organizationId,
-		website_id: input.websiteId,
-		run_id: input.runId,
-		reason: input.reason,
-		depth: input.config.depth,
-		model_tier: input.config.modelTier,
-		allowed_tools: input.config.allowedTools,
-	});
 	const [site] = await db
 		.select({ id: websites.id, name: websites.name, domain: websites.domain })
 		.from(websites)
@@ -1075,12 +1012,6 @@ export async function generateWebsiteInsights(
 			websiteDomain: site.domain,
 		})
 	);
-	emitInsightsEvent("info", "generation.website.candidates_ready", {
-		organization_id: input.organizationId,
-		website_id: input.websiteId,
-		run_id: input.runId,
-		candidate_count: candidates.length,
-	});
 
 	const saved = await persistWebsiteInsights({
 		config: input.config,
