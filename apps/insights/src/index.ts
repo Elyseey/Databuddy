@@ -18,7 +18,8 @@ import {
 import { startInsightsWorker } from "./worker";
 
 const environment =
-	process.env.UNKEY_ENVIRONMENT_SLUG ??
+	process.env.APP_ENV ??
+	process.env.RAILWAY_ENVIRONMENT_NAME ??
 	(process.env.NODE_ENV === "development" ? "development" : "production");
 const workerEnabled = process.env.INSIGHTS_WORKER_ENABLED !== "false";
 const DRAIN_TIMEOUT_MS = 10_000;
@@ -27,8 +28,8 @@ initLogger({
 	env: {
 		service: "insights",
 		environment,
-		region: process.env.UNKEY_REGION,
-		commitHash: process.env.UNKEY_GIT_COMMIT_SHA,
+		region: process.env.RAILWAY_REPLICA_REGION,
+		commitHash: process.env.RAILWAY_GIT_COMMIT_SHA,
 	},
 	drain: insightsLoggerDrain,
 	sampling: {},
