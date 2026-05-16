@@ -28,12 +28,12 @@ import { applyPlugins } from "./utils";
 export function getClickHouseQuerySettings(
 	noCache?: boolean
 ): Record<string, string | number> {
+	if (noCache) {
+		return { use_query_cache: 0 };
+	}
 	return {
-		use_query_cache: noCache ? 0 : 1,
-		allow_experimental_analyzer: 1,
-		...(noCache
-			? {}
-			: { query_cache_nondeterministic_function_handling: "ignore" }),
+		use_query_cache: 1,
+		query_cache_nondeterministic_function_handling: "ignore",
 	};
 }
 

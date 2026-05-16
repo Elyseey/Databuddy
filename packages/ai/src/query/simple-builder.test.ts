@@ -874,8 +874,7 @@ describe("SimpleQueryBuilder.compile", () => {
 
 describe("getClickHouseQuerySettings", () => {
 	it("ignores nondeterministic functions when query cache is enabled", () => {
-		expect(getClickHouseQuerySettings()).toMatchObject({
-			allow_experimental_analyzer: 1,
+		expect(getClickHouseQuerySettings()).toEqual({
 			query_cache_nondeterministic_function_handling: "ignore",
 			use_query_cache: 1,
 		});
@@ -883,7 +882,6 @@ describe("getClickHouseQuerySettings", () => {
 
 	it("does not set nondeterministic cache handling when cache is disabled", () => {
 		expect(getClickHouseQuerySettings(true)).toEqual({
-			allow_experimental_analyzer: 1,
 			use_query_cache: 0,
 		});
 	});
