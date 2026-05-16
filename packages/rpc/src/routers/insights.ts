@@ -336,7 +336,7 @@ export const insightsRouter = {
 					.object({
 						queuedItems: z.number().optional(),
 						runId: z.string().optional(),
-						status: z.enum(["queued", "skipped", "unavailable"]),
+						status: z.enum(["queued", "skipped", "disabled", "unavailable"]),
 					})
 					.optional(),
 				insights: z.array(websiteInsightSchema),
@@ -362,7 +362,7 @@ export const insightsRouter = {
 							generation?: {
 								queuedItems?: number;
 								runId?: string;
-								status: "queued" | "skipped" | "unavailable";
+								status: "queued" | "skipped" | "disabled" | "unavailable";
 							};
 							insights: z.infer<typeof websiteInsightSchema>[];
 							source: "ai" | "fallback";
@@ -397,14 +397,14 @@ export const insightsRouter = {
 			let generation: {
 				queuedItems?: number;
 				runId?: string;
-				status: "queued" | "skipped" | "unavailable";
+				status: "queued" | "skipped" | "disabled" | "unavailable";
 			} = { status: "unavailable" };
 
 			try {
 				const queued = await queueInsightGenerationRun({
 					organizationId: input.organizationId,
 					requestedByUserId: context.user.id,
-					reason: "manual",
+					reason: "cooldown_refresh",
 					timezone: input.timezone,
 				});
 				generation = {

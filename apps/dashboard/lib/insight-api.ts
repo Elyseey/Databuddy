@@ -72,7 +72,7 @@ export interface InsightsAiResponse {
 	generation?: {
 		queuedItems?: number;
 		runId?: string;
-		status: "queued" | "skipped" | "unavailable";
+		status: "queued" | "skipped" | "disabled" | "unavailable";
 	};
 	insights: Insight[];
 	source: "ai" | "fallback";

@@ -140,11 +140,15 @@ export function InsightGenerationSettings({
 	const triggerMutation = useMutation({
 		...orpc.insightGeneration.triggerRun.mutationOptions(),
 		onSuccess: async (data) => {
-			toast.success(
-				data.status === "queued"
-					? `Queued ${data.queuedItems} insight job${data.queuedItems === 1 ? "" : "s"}`
-					: "No websites available to run"
-			);
+			if (data.status === "queued") {
+				toast.success(
+					`Queued ${data.queuedItems} insight job${data.queuedItems === 1 ? "" : "s"}`
+				);
+			} else if (data.status === "disabled") {
+				toast.info("Insight generation is disabled");
+			} else {
+				toast.success("No websites available to run");
+			}
 			await invalidateInsightGenerationQueries(queryClient, organizationId);
 			setOpen(false);
 		},

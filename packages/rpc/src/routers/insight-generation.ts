@@ -1,5 +1,6 @@
 import { and, db, desc, eq, inArray, isNull } from "@databuddy/db";
 import {
+	INSIGHT_GENERATION_DEFAULT_TOOLS,
 	insightGenerationConfigs,
 	insightRunItems,
 	insightRuns,
@@ -11,6 +12,7 @@ import {
 	getInsightsQueue,
 	INSIGHTS_GENERATE_WEBSITE_JOB_NAME,
 	insightsWebsiteJobId,
+	invalidateInsightsCachesForOrganization,
 	type InsightGenerationReason,
 } from "@databuddy/redis";
 import { randomUUIDv7 } from "bun";
@@ -20,6 +22,7 @@ import { type Context, protectedProcedure } from "../orpc";
 import { withWorkspace } from "../procedures/with-workspace";
 import { getNextInsightRunAt } from "../services/insight-schedule";
 
+const queueStatusSchema = z.enum(["queued", "skipped", "disabled"]);
 const generationToolSchema = z.enum([
 	"web_metrics",
 	"product_metrics",
@@ -121,7 +124,7 @@ const DEFAULT_CONFIG: Omit<
 	| "updatedAt"
 	| "websiteId"
 > = {
-	allowedTools: ["web_metrics", "product_metrics", "ops_context"],
+	allowedTools: [...INSIGHT_GENERATION_DEFAULT_TOOLS],
 	cooldownHours: 6,
 	cron: null,
 	depth: "standard",
@@ -147,8 +150,8 @@ export interface QueueInsightGenerationRunInput
 
 export interface QueueInsightGenerationRunResult {
 	queuedItems: number;
-	runId: string;
-	status: "queued" | "skipped";
+	runId?: string;
+	status: z.infer<typeof queueStatusSchema>;
 }
 
 function rowToConfig(
@@ -389,7 +392,12 @@ async function listTargetWebsites(
 export async function queueInsightGenerationRun(
 	input: QueueInsightGenerationRunInput
 ): Promise<QueueInsightGenerationRunResult> {
-	await ensureOrganizationInsightGenerationConfig(input.organizationId, input);
+	const baseConfig = await ensureOrganizationInsightGenerationConfig(
+		input.organizationId,
+		input
+	);
+	const runConfig = applyPatch(baseConfig, input);
+	const reason = input.reason ?? "manual";
 
 	if (!input.force) {
 		const [active] = await db
@@ -412,16 +420,17 @@ export async function queueInsightGenerationRun(
 		}
 	}
 
+	if (reason !== "manual" && !runConfig.enabled) {
+		return { queuedItems: 0, status: "disabled" };
+	}
+
 	const targetWebsites = await listTargetWebsites(
 		input.organizationId,
 		input.websiteIds
 	);
 	const runId = randomUUIDv7();
 	const requestedByUserId = input.requestedByUserId ?? null;
-	const baseConfig = await getEffectiveConfig(input.organizationId, null);
-	const runConfig = applyPatch(baseConfig, input);
 	const now = new Date();
-	const reason = input.reason ?? "manual";
 
 	await db.insert(insightRuns).values({
 		id: runId,
@@ -604,6 +613,11 @@ export const insightGenerationRouter = {
 				});
 			}
 
+			await invalidateInsightsCachesForOrganization(scope.organizationId).catch(
+				() => {
+					// Cache invalidation is best-effort after the config write succeeds.
+				}
+			);
 			return getEffectiveConfig(scope.organizationId, scope.websiteId);
 		}),
 
@@ -627,8 +641,8 @@ export const insightGenerationRouter = {
 		.output(
 			z.object({
 				queuedItems: z.number(),
-				runId: z.string(),
-				status: z.enum(["queued", "skipped"]),
+				runId: z.string().optional(),
+				status: queueStatusSchema,
 			})
 		)
 		.handler(async ({ context, input }) => {
