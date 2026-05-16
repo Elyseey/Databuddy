@@ -1,42 +1,27 @@
 "use client";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import {
-	cloneElement,
-	type ReactElement,
-	type ReactNode,
-	useEffect,
-	useMemo,
-	useState,
-} from "react";
+import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { insightQueries } from "@/lib/insight-api";
 import { orpc } from "@/lib/orpc";
-import { cn } from "@/lib/utils";
 import {
-	BrainIcon,
-	CalendarDotsIcon,
+	CaretUpDownIcon,
 	FloppyDiskIcon,
 	GearIcon,
-	GlobeSimpleIcon,
 	MediaPlayIcon,
-	TargetIcon,
-	TimerIcon,
-	WandSparkleIcon,
 } from "@databuddy/ui/icons";
+import { Button, Field, Input, Skeleton, guessTimezone } from "@databuddy/ui";
 import {
-	Badge,
-	Button,
-	Card,
-	Field,
-	Input,
-	Skeleton,
-	guessTimezone,
-} from "@databuddy/ui";
-import { Checkbox, Select, Switch } from "@databuddy/ui/client";
+	Accordion,
+	Popover,
+	SearchList,
+	Sheet,
+	Switch,
+} from "@databuddy/ui/client";
 
 type Depth = "light" | "standard" | "deep";
-type Frequency = "hourly" | "daily" | "weekly" | "custom";
+type Frequency = "hourly" | "daily" | "weekly";
 type ModelTier = "fast" | "balanced" | "deep";
 type ToolName =
 	| "web_metrics"
@@ -53,7 +38,6 @@ interface WebsiteOption {
 interface ConfigFormState {
 	allowedTools: ToolName[];
 	cooldownHours: string;
-	cron: string;
 	depth: Depth;
 	enabled: boolean;
 	frequency: Frequency;
@@ -73,7 +57,6 @@ interface InsightGenerationSettingsProps {
 const DEFAULT_FORM: ConfigFormState = {
 	allowedTools: ["web_metrics", "product_metrics", "ops_context"],
 	cooldownHours: "6",
-	cron: "",
 	depth: "standard",
 	enabled: true,
 	frequency: "weekly",
@@ -89,42 +72,20 @@ const FREQUENCY_OPTIONS: { label: string; value: Frequency }[] = [
 	{ label: "Hourly", value: "hourly" },
 	{ label: "Daily", value: "daily" },
 	{ label: "Weekly", value: "weekly" },
-	{ label: "Custom", value: "custom" },
 ];
 
-const DEPTH_OPTIONS: { label: string; value: Depth }[] = [
-	{ label: "Light", value: "light" },
-	{ label: "Standard", value: "standard" },
-	{ label: "Deep", value: "deep" },
-];
+const QUALITY_PRESETS: { depth: Depth; label: string; modelTier: ModelTier }[] =
+	[
+		{ depth: "light", label: "Fast", modelTier: "fast" },
+		{ depth: "standard", label: "Balanced", modelTier: "balanced" },
+		{ depth: "deep", label: "Thorough", modelTier: "deep" },
+	];
 
-const MODEL_OPTIONS: { label: string; value: ModelTier }[] = [
-	{ label: "Fast", value: "fast" },
-	{ label: "Balanced", value: "balanced" },
-	{ label: "Deep", value: "deep" },
-];
-
-const TOOL_OPTIONS: {
-	description: string;
-	label: string;
-	value: ToolName;
-}[] = [
-	{
-		description: "Traffic, pages, referrers",
-		label: "Web",
-		value: "web_metrics",
-	},
-	{
-		description: "Events, funnels, goals",
-		label: "Product",
-		value: "product_metrics",
-	},
-	{ description: "Errors, vitals, uptime", label: "Ops", value: "ops_context" },
-	{
-		description: "Revenue and context",
-		label: "Business",
-		value: "business_context",
-	},
+const TOOL_OPTIONS: { label: string; value: ToolName }[] = [
+	{ label: "Web metrics", value: "web_metrics" },
+	{ label: "Product metrics", value: "product_metrics" },
+	{ label: "Ops context", value: "ops_context" },
+	{ label: "Business context", value: "business_context" },
 ];
 
 export function InsightGenerationSettings({
@@ -132,16 +93,12 @@ export function InsightGenerationSettings({
 	websites,
 }: InsightGenerationSettingsProps) {
 	const queryClient = useQueryClient();
-	const [scope, setScope] = useState("organization");
-	const websiteId = scope === "organization" ? null : scope;
+	const [open, setOpen] = useState(false);
 	const [form, setForm] = useState<ConfigFormState>(DEFAULT_FORM);
 
 	const configQuery = useQuery({
 		...orpc.insightGeneration.getConfig.queryOptions({
-			input: {
-				organizationId,
-				websiteId: websiteId ?? undefined,
-			},
+			input: { organizationId },
 		}),
 		enabled: !!organizationId,
 	});
@@ -154,10 +111,9 @@ export function InsightGenerationSettings({
 		setForm({
 			allowedTools: normalizeTools(config.allowedTools as ToolName[]),
 			cooldownHours: String(config.cooldownHours),
-			cron: config.cron ?? "",
 			depth: config.depth as Depth,
 			enabled: config.enabled,
-			frequency: config.frequency as Frequency,
+			frequency: normalizeFrequency(config.frequency),
 			lookbackDays: String(config.lookbackDays),
 			maxInsightsPerWebsite: String(config.maxInsightsPerWebsite),
 			maxSteps: String(config.maxSteps),
@@ -167,19 +123,12 @@ export function InsightGenerationSettings({
 		});
 	}, [configQuery.data]);
 
-	const selectedScopeLabel = useMemo(() => {
-		if (scope === "organization") {
-			return "Organization";
-		}
-		const website = websites.find((item) => item.id === scope);
-		return website?.name || website?.domain || "Website";
-	}, [scope, websites]);
-
 	const saveMutation = useMutation({
 		...orpc.insightGeneration.upsertConfig.mutationOptions(),
 		onSuccess: async () => {
-			toast.success("Insights settings saved");
+			toast.success("Settings saved");
 			await invalidateInsightGenerationQueries(queryClient, organizationId);
+			setOpen(false);
 		},
 		onError: (error) => {
 			toast.error(
@@ -197,6 +146,7 @@ export function InsightGenerationSettings({
 					: "No websites available to run"
 			);
 			await invalidateInsightGenerationQueries(queryClient, organizationId);
+			setOpen(false);
 		},
 		onError: (error) => {
 			toast.error(
@@ -210,395 +160,298 @@ export function InsightGenerationSettings({
 		saveMutation.isPending ||
 		triggerMutation.isPending;
 
-	const patch = () => ({
-		...formToPatch(form),
-		organizationId,
-		websiteId: websiteId ?? undefined,
-	});
+	const activeQuality = useMemo(
+		() =>
+			QUALITY_PRESETS.find(
+				(p) => p.depth === form.depth && p.modelTier === form.modelTier
+			) ?? QUALITY_PRESETS[1],
+		[form.depth, form.modelTier]
+	);
+
+	const handleSave = () => {
+		saveMutation.mutate({
+			...formToPatch(form),
+			organizationId,
+		});
+	};
+
+	const handleRun = () => {
+		triggerMutation.mutate({
+			...formToPatch(form),
+			force: true,
+			organizationId,
+			websiteIds: websites.map((w) => w.id),
+		});
+	};
 
 	return (
-		<Card aria-label="Insight generation settings">
-			<Card.Header className="gap-3">
-				<div className="flex items-start justify-between gap-3">
-					<div className="min-w-0 space-y-1">
-						<div className="flex items-center gap-2">
-							<GearIcon
-								aria-hidden
-								className="size-4 text-primary"
-								weight="duotone"
-							/>
-							<Card.Title>Analysis plan</Card.Title>
-						</div>
-						<Card.Description>{selectedScopeLabel}</Card.Description>
-					</div>
-					{configQuery.data?.source && (
-						<Badge className="capitalize" size="sm" variant="muted">
-							{configQuery.data.source}
-						</Badge>
-					)}
-				</div>
-				<Select
-					disabled={!organizationId || isBusy}
-					onValueChange={(value) => setScope(String(value))}
-					value={scope}
-				>
-					<Select.Trigger>
-						<Select.Value />
-					</Select.Trigger>
-					<Select.Content>
-						<Select.Item value="organization">Organization</Select.Item>
-						{websites.map((website) => (
-							<Select.Item key={website.id} value={website.id}>
-								{website.name || website.domain}
-							</Select.Item>
-						))}
-					</Select.Content>
-				</Select>
-			</Card.Header>
+		<Sheet onOpenChange={setOpen} open={open}>
+			<Sheet.Trigger
+				render={
+					<Button size="sm" type="button" variant="secondary">
+						<GearIcon className="size-4" weight="duotone" />
+					</Button>
+				}
+			/>
+			<Sheet.Content side="right">
+				<Sheet.Header>
+					<Sheet.Title>Insight generation</Sheet.Title>
+					<Sheet.Description>
+						Configure how and when insights are generated.
+					</Sheet.Description>
+				</Sheet.Header>
 
-			<Card.Content className="space-y-5">
-				{configQuery.isLoading ? (
-					<div className="space-y-3">
-						<Skeleton className="h-10 rounded" />
-						<Skeleton className="h-24 rounded" />
-						<Skeleton className="h-28 rounded" />
-					</div>
-				) : (
-					<>
-						<div className="flex items-center justify-between gap-3 rounded-md border border-border/60 bg-muted/30 p-3">
-							<div className="min-w-0">
-								<div className="flex items-center gap-2 font-medium text-sm">
-									<WandSparkleIcon
-										aria-hidden
-										className="size-4 text-primary"
-										weight="duotone"
-									/>
-									Generation
+				<Sheet.Body className="space-y-6">
+					{configQuery.isLoading ? (
+						<div className="space-y-4">
+							<Skeleton className="h-10 rounded" />
+							<Skeleton className="h-10 rounded" />
+							<Skeleton className="h-10 rounded" />
+						</div>
+					) : (
+						<>
+							<div className="flex items-center justify-between gap-3">
+								<div>
+									<p className="font-medium text-sm">Enabled</p>
+									<p className="text-muted-foreground text-xs">
+										Automatically generate insights on schedule
+									</p>
 								</div>
-								<p className="mt-1 text-muted-foreground text-xs">
-									{form.frequency} · {form.depth} · {form.modelTier}
-								</p>
-							</div>
-							<Switch
-								checked={form.enabled}
-								disabled={isBusy}
-								label="Enabled"
-								onCheckedChange={(value) =>
-									setForm((current) => ({
-										...current,
-										enabled: Boolean(value),
-									}))
-								}
-							/>
-						</div>
-
-						<ControlGroup icon={<CalendarDotsIcon />} title="Cadence">
-							<OptionRow
-								disabled={isBusy}
-								onChange={(value) =>
-									setForm((current) => ({
-										...current,
-										frequency: value as Frequency,
-									}))
-								}
-								options={FREQUENCY_OPTIONS}
-								value={form.frequency}
-							/>
-							{form.frequency === "custom" && (
-								<Field>
-									<Field.Label>Cron</Field.Label>
-									<Input
-										disabled={isBusy}
-										onChange={(event) =>
-											setForm((current) => ({
-												...current,
-												cron: event.target.value,
-											}))
-										}
-										placeholder="0 9 * * 1"
-										value={form.cron}
-									/>
-								</Field>
-							)}
-							<Field>
-								<Field.Label>Timezone</Field.Label>
-								<Input
+								<Switch
+									checked={form.enabled}
 									disabled={isBusy}
-									onChange={(event) =>
-										setForm((current) => ({
-											...current,
-											timezone: event.target.value,
-										}))
+									onCheckedChange={(value) =>
+										setForm((c) => ({ ...c, enabled: Boolean(value) }))
 									}
-									value={form.timezone}
-								/>
-							</Field>
-						</ControlGroup>
-
-						<ControlGroup icon={<BrainIcon />} title="Reasoning">
-							<OptionRow
-								disabled={isBusy}
-								onChange={(value) =>
-									setForm((current) => ({
-										...current,
-										depth: value as Depth,
-									}))
-								}
-								options={DEPTH_OPTIONS}
-								value={form.depth}
-							/>
-							<OptionRow
-								disabled={isBusy}
-								onChange={(value) =>
-									setForm((current) => ({
-										...current,
-										modelTier: value as ModelTier,
-									}))
-								}
-								options={MODEL_OPTIONS}
-								value={form.modelTier}
-							/>
-						</ControlGroup>
-
-						<ControlGroup icon={<TargetIcon />} title="Budget">
-							<div className="grid grid-cols-2 gap-2">
-								<NumberField
-									disabled={isBusy}
-									label="Lookback"
-									max={90}
-									min={1}
-									onChange={(value) =>
-										setForm((current) => ({
-											...current,
-											lookbackDays: value,
-										}))
-									}
-									suffix="days"
-									value={form.lookbackDays}
-								/>
-								<NumberField
-									disabled={isBusy}
-									label="Cards"
-									max={10}
-									min={1}
-									onChange={(value) =>
-										setForm((current) => ({
-											...current,
-											maxInsightsPerWebsite: value,
-										}))
-									}
-									suffix="site"
-									value={form.maxInsightsPerWebsite}
-								/>
-								<NumberField
-									disabled={isBusy}
-									label="Steps"
-									max={64}
-									min={1}
-									onChange={(value) =>
-										setForm((current) => ({ ...current, maxSteps: value }))
-									}
-									value={form.maxSteps}
-								/>
-								<NumberField
-									disabled={isBusy}
-									label="Tools"
-									max={64}
-									min={1}
-									onChange={(value) =>
-										setForm((current) => ({
-											...current,
-											maxToolCalls: value,
-										}))
-									}
-									value={form.maxToolCalls}
 								/>
 							</div>
-							<NumberField
-								disabled={isBusy}
-								label="Cooldown"
-								max={168}
-								min={1}
-								onChange={(value) =>
-									setForm((current) => ({ ...current, cooldownHours: value }))
-								}
-								suffix="hours"
-								value={form.cooldownHours}
-							/>
-						</ControlGroup>
 
-						<ControlGroup icon={<GlobeSimpleIcon />} title="Signals">
-							<div className="grid gap-2">
-								{TOOL_OPTIONS.map((tool) => (
-									<div
-										className="rounded-md border border-border/60 bg-background/50 p-2.5"
-										key={tool.value}
-									>
-										<Checkbox
-											checked={form.allowedTools.includes(tool.value)}
-											disabled={isBusy || tool.value === "web_metrics"}
-											label={tool.label}
-											onCheckedChange={(checked) =>
-												setForm((current) => ({
-													...current,
-													allowedTools: toggleTool(
-														current.allowedTools,
-														tool.value,
-														Boolean(checked)
-													),
+							<div className="space-y-2">
+								<p className="font-medium text-sm">Frequency</p>
+								<div className="flex gap-1.5">
+									{FREQUENCY_OPTIONS.map((opt) => (
+										<Button
+											className="flex-1 justify-center"
+											disabled={isBusy}
+											key={opt.value}
+											onClick={() =>
+												setForm((c) => ({ ...c, frequency: opt.value }))
+											}
+											size="sm"
+											type="button"
+											variant={
+												form.frequency === opt.value ? "primary" : "secondary"
+											}
+										>
+											{opt.label}
+										</Button>
+									))}
+								</div>
+							</div>
+
+							<div className="space-y-2">
+								<p className="font-medium text-sm">Quality</p>
+								<div className="flex gap-1.5">
+									{QUALITY_PRESETS.map((preset) => (
+										<Button
+											className="flex-1 justify-center"
+											disabled={isBusy}
+											key={preset.label}
+											onClick={() =>
+												setForm((c) => ({
+													...c,
+													depth: preset.depth,
+													modelTier: preset.modelTier,
 												}))
 											}
-										/>
-										<p className="mt-1 pl-6 text-[11px] text-muted-foreground">
-											{tool.description}
-										</p>
-									</div>
-								))}
+											size="sm"
+											type="button"
+											variant={
+												activeQuality === preset ? "primary" : "secondary"
+											}
+										>
+											{preset.label}
+										</Button>
+									))}
+								</div>
 							</div>
-						</ControlGroup>
-					</>
-				)}
-			</Card.Content>
 
-			<Card.Footer className="justify-between">
-				<div className="flex items-center gap-1.5 text-muted-foreground text-xs">
-					<TimerIcon aria-hidden className="size-3.5" weight="duotone" />
-					{form.lookbackDays}d lookback
-				</div>
-				<div className="flex items-center gap-2">
+							<Accordion>
+								<Accordion.Trigger className="flex w-full items-center gap-2 py-2 text-muted-foreground text-xs hover:text-foreground">
+									<GearIcon aria-hidden className="size-3.5" weight="duotone" />
+									Advanced
+								</Accordion.Trigger>
+								<Accordion.Content>
+									<div className="space-y-4 pt-2">
+										<Field>
+											<Field.Label>Timezone</Field.Label>
+											<TimezonePicker
+												disabled={isBusy}
+												onChange={(tz) =>
+													setForm((c) => ({ ...c, timezone: tz }))
+												}
+												value={form.timezone}
+											/>
+										</Field>
+										<div className="grid grid-cols-2 gap-3">
+											<Field>
+												<Field.Label>Lookback (days)</Field.Label>
+												<Input
+													disabled={isBusy}
+													max={90}
+													min={1}
+													onChange={(e) =>
+														setForm((c) => ({
+															...c,
+															lookbackDays: e.target.value,
+														}))
+													}
+													type="number"
+													value={form.lookbackDays}
+												/>
+											</Field>
+											<Field>
+												<Field.Label>Cooldown (hours)</Field.Label>
+												<Input
+													disabled={isBusy}
+													max={168}
+													min={1}
+													onChange={(e) =>
+														setForm((c) => ({
+															...c,
+															cooldownHours: e.target.value,
+														}))
+													}
+													type="number"
+													value={form.cooldownHours}
+												/>
+											</Field>
+											<Field>
+												<Field.Label>Max insights/site</Field.Label>
+												<Input
+													disabled={isBusy}
+													max={10}
+													min={1}
+													onChange={(e) =>
+														setForm((c) => ({
+															...c,
+															maxInsightsPerWebsite: e.target.value,
+														}))
+													}
+													type="number"
+													value={form.maxInsightsPerWebsite}
+												/>
+											</Field>
+											<Field>
+												<Field.Label>Max steps</Field.Label>
+												<Input
+													disabled={isBusy}
+													max={64}
+													min={1}
+													onChange={(e) =>
+														setForm((c) => ({
+															...c,
+															maxSteps: e.target.value,
+														}))
+													}
+													type="number"
+													value={form.maxSteps}
+												/>
+											</Field>
+											<Field>
+												<Field.Label>Max tool calls</Field.Label>
+												<Input
+													disabled={isBusy}
+													max={64}
+													min={1}
+													onChange={(e) =>
+														setForm((c) => ({
+															...c,
+															maxToolCalls: e.target.value,
+														}))
+													}
+													type="number"
+													value={form.maxToolCalls}
+												/>
+											</Field>
+										</div>
+										<div className="space-y-2">
+											<p className="font-medium text-xs">Signals</p>
+											<div className="flex flex-wrap gap-2">
+												{TOOL_OPTIONS.map((tool) => {
+													const selected = form.allowedTools.includes(
+														tool.value
+													);
+													return (
+														<Button
+															aria-pressed={selected}
+															className="h-7 rounded-full px-2.5 text-[10px]"
+															disabled={isBusy || tool.value === "web_metrics"}
+															key={tool.value}
+															onClick={() => {
+																if (isBusy || tool.value === "web_metrics") {
+																	return;
+																}
+																setForm((c) => ({
+																	...c,
+																	allowedTools: toggleTool(
+																		c.allowedTools,
+																		tool.value,
+																		!c.allowedTools.includes(tool.value)
+																	),
+																}));
+															}}
+															size="sm"
+															type="button"
+															variant={selected ? "primary" : "secondary"}
+														>
+															{tool.label}
+														</Button>
+													);
+												})}
+											</div>
+										</div>
+									</div>
+								</Accordion.Content>
+							</Accordion>
+						</>
+					)}
+				</Sheet.Body>
+
+				<Sheet.Footer className="flex items-center justify-between gap-3">
 					<Button
 						disabled={!organizationId || isBusy}
-						onClick={() => saveMutation.mutate(patch())}
+						onClick={handleRun}
 						size="sm"
 						type="button"
 						variant="secondary"
 					>
-						<FloppyDiskIcon className="size-4" />
-						Save
+						<MediaPlayIcon className="size-4" />
+						Run now
 					</Button>
 					<Button
 						disabled={!organizationId || isBusy}
-						onClick={() =>
-							triggerMutation.mutate({
-								...formToPatch(form),
-								force: true,
-								organizationId,
-								websiteIds: websiteId ? [websiteId] : undefined,
-							})
-						}
+						onClick={handleSave}
 						size="sm"
 						type="button"
 					>
-						<MediaPlayIcon className="size-4" />
-						Run
+						<FloppyDiskIcon className="size-4" />
+						Save
 					</Button>
-				</div>
-			</Card.Footer>
-		</Card>
-	);
-}
-
-function ControlGroup({
-	children,
-	icon,
-	title,
-}: {
-	children: ReactNode;
-	icon: ReactElement<{
-		"aria-hidden"?: boolean;
-		className?: string;
-		weight?: string;
-	}>;
-	title: string;
-}) {
-	return (
-		<section className="space-y-2">
-			<div className="flex items-center gap-2 font-medium text-foreground text-xs">
-				{cloneElement(icon, {
-					"aria-hidden": true,
-					className: cn("size-3.5 text-muted-foreground", icon.props.className),
-					weight: icon.props.weight ?? "duotone",
-				})}
-				{title}
-			</div>
-			<div className="space-y-2">{children}</div>
-		</section>
-	);
-}
-
-function OptionRow<T extends string>({
-	disabled,
-	onChange,
-	options,
-	value,
-}: {
-	disabled: boolean;
-	onChange: (value: T) => void;
-	options: { label: string; value: T }[];
-	value: T;
-}) {
-	return (
-		<div className="grid grid-cols-2 gap-1.5 sm:grid-cols-4 lg:grid-cols-2 xl:grid-cols-4">
-			{options.map((option) => (
-				<Button
-					aria-pressed={value === option.value}
-					className={cn(
-						"h-8 justify-center px-2 text-xs",
-						value === option.value && "bg-primary text-primary-foreground"
-					)}
-					disabled={disabled}
-					key={option.value}
-					onClick={() => onChange(option.value)}
-					size="sm"
-					type="button"
-					variant={value === option.value ? "primary" : "secondary"}
-				>
-					{option.label}
-				</Button>
-			))}
-		</div>
-	);
-}
-
-function NumberField({
-	disabled,
-	label,
-	max,
-	min,
-	onChange,
-	suffix,
-	value,
-}: {
-	disabled: boolean;
-	label: string;
-	max: number;
-	min: number;
-	onChange: (value: string) => void;
-	suffix?: string;
-	value: string;
-}) {
-	return (
-		<Field>
-			<Field.Label>{label}</Field.Label>
-			<Input
-				disabled={disabled}
-				max={max}
-				min={min}
-				onChange={(event) => onChange(event.target.value)}
-				suffix={suffix}
-				type="number"
-				value={value}
-			/>
-		</Field>
+				</Sheet.Footer>
+			</Sheet.Content>
+		</Sheet>
 	);
 }
 
 function normalizeTools(tools: ToolName[]): ToolName[] {
 	const unique = new Set<ToolName>(tools);
 	unique.add("web_metrics");
-	return TOOL_OPTIONS.map((tool) => tool.value).filter((tool) =>
-		unique.has(tool)
-	);
+	return TOOL_OPTIONS.map((t) => t.value).filter((t) => unique.has(t));
+}
+
+function normalizeFrequency(frequency: string): Frequency {
+	return frequency === "hourly" || frequency === "daily" ? frequency : "weekly";
 }
 
 function toggleTool(
@@ -636,7 +489,7 @@ function formToPatch(form: ConfigFormState) {
 	return {
 		allowedTools: normalizeTools(form.allowedTools),
 		cooldownHours: boundedInt(form.cooldownHours, 6, 1, 168),
-		cron: form.frequency === "custom" ? form.cron.trim() || null : null,
+		cron: null,
 		depth: form.depth,
 		enabled: form.enabled,
 		frequency: form.frequency,
@@ -662,4 +515,62 @@ async function invalidateInsightGenerationQueries(
 				})
 			: Promise.resolve(),
 	]);
+}
+
+const TIMEZONES: string[] = Intl.supportedValuesOf("timeZone");
+
+function TimezonePicker({
+	disabled,
+	onChange,
+	value,
+}: {
+	disabled: boolean;
+	onChange: (tz: string) => void;
+	value: string;
+}) {
+	const [open, setOpen] = useState(false);
+
+	return (
+		<Popover onOpenChange={setOpen} open={open}>
+			<Popover.Trigger
+				disabled={disabled}
+				render={
+					<Button
+						className="w-full justify-between font-medium"
+						disabled={disabled}
+						size="sm"
+						type="button"
+						variant="secondary"
+					>
+						<span
+							className={value ? "text-foreground" : "text-muted-foreground"}
+						>
+							{value || guessTimezone()}
+						</span>
+						<CaretUpDownIcon className="size-3.5 text-muted-foreground" />
+					</Button>
+				}
+			/>
+			<Popover.Content align="start" className="w-[280px] p-0">
+				<SearchList>
+					<SearchList.Input autoFocus placeholder="Search timezones…" />
+					<SearchList.List>
+						<SearchList.Empty>No timezone found.</SearchList.Empty>
+						{TIMEZONES.map((tz) => (
+							<SearchList.Item
+								key={tz}
+								onSelect={() => {
+									onChange(tz);
+									setOpen(false);
+								}}
+								value={tz}
+							>
+								{tz.replace(/_/g, " ")}
+							</SearchList.Item>
+						))}
+					</SearchList.List>
+				</SearchList>
+			</Popover.Content>
+		</Popover>
+	);
 }
