@@ -5,7 +5,7 @@ import { useAtom, useSetAtom } from "jotai";
 import Link from "next/link";
 import { useParams, usePathname } from "next/navigation";
 import { parseAsBoolean, parseAsString, useQueryState } from "nuqs";
-import { useCallback, useEffect, useMemo, useRef } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import { toast } from "sonner";
 import { NoticeBanner } from "@/app/(main)/websites/_components/notice-banner";
 import { LiveUserIndicator } from "@/components/analytics";
@@ -115,26 +115,17 @@ export default function WebsiteLayout({ children }: WebsiteLayoutProps) {
 		parseAsString
 	);
 	const [, addFilter] = useAtom(addDynamicFilterAtom);
-	const lastSyncedFiltersParam = useRef<string | null | undefined>(undefined);
 	const skipNextFilterUrlSync = useRef(false);
-	const serializedDynamicFilters = useMemo(
-		() =>
-			dynamicFilters.length > 0
-				? serializeDashboardFilters(dynamicFilters)
-				: null,
-		[dynamicFilters]
-	);
+	const serializedDynamicFilters =
+		dynamicFilters.length > 0
+			? serializeDashboardFilters(dynamicFilters)
+			: null;
 
 	useEffect(() => {
 		setCurrentFilterWebsiteId(websiteId);
 	}, [websiteId, setCurrentFilterWebsiteId]);
 
 	useEffect(() => {
-		if (lastSyncedFiltersParam.current === filtersParam) {
-			return;
-		}
-		lastSyncedFiltersParam.current = filtersParam;
-
 		const parsedFilters = parseDashboardFiltersParam(filtersParam);
 		if (parsedFilters === null) {
 			if (filtersParam === null) {
@@ -155,10 +146,8 @@ export default function WebsiteLayout({ children }: WebsiteLayoutProps) {
 		}
 
 		if (serializedDynamicFilters === filtersParam) {
-			lastSyncedFiltersParam.current = filtersParam;
 			return;
 		}
-		lastSyncedFiltersParam.current = serializedDynamicFilters;
 		setFiltersParam(serializedDynamicFilters);
 	}, [filtersParam, serializedDynamicFilters, setFiltersParam]);
 
