@@ -450,6 +450,7 @@ export async function queueInsightGenerationRun(
 		input.organizationId,
 		input.websiteIds
 	);
+	const runId = randomUUIDv7();
 	const items = await Promise.all(
 		targetWebsites.map(async (website) => {
 			const websiteConfig = await getEffectiveConfig(
@@ -470,7 +471,6 @@ export async function queueInsightGenerationRun(
 		})
 	);
 	const queueItems = items.filter((item) => item !== null);
-	const runId = randomUUIDv7();
 	const requestedByUserId = input.requestedByUserId ?? null;
 	const now = new Date();
 
