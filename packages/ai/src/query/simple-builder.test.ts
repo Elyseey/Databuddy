@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { QueryBuilders } from "./builders";
-import { SimpleQueryBuilder } from "./simple-builder";
+import {
+	getClickHouseQuerySettings,
+	SimpleQueryBuilder,
+} from "./simple-builder";
 import type { Filter, QueryRequest, SimpleQueryConfig } from "./types";
 import { applyPlugins } from "./utils";
 
@@ -844,5 +847,22 @@ describe("SimpleQueryBuilder.compile", () => {
 	it("applies offset", () => {
 		const { sql } = compile({}, { offset: 50 });
 		expect(sql).toContain("OFFSET 50");
+	});
+});
+
+describe("getClickHouseQuerySettings", () => {
+	it("ignores nondeterministic functions when query cache is enabled", () => {
+		expect(getClickHouseQuerySettings()).toMatchObject({
+			allow_experimental_analyzer: 1,
+			query_cache_nondeterministic_function_handling: "ignore",
+			use_query_cache: 1,
+		});
+	});
+
+	it("does not set nondeterministic cache handling when cache is disabled", () => {
+		expect(getClickHouseQuerySettings(true)).toEqual({
+			allow_experimental_analyzer: 1,
+			use_query_cache: 0,
+		});
 	});
 });

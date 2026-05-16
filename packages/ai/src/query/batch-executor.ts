@@ -1,7 +1,10 @@
 import { chQuery } from "@databuddy/db/clickhouse";
 import { captureError, mergeWideEvent, record } from "../lib/tracing";
 import { QueryBuilders } from "./builders";
-import { SimpleQueryBuilder } from "./simple-builder";
+import {
+	getClickHouseQuerySettings,
+	SimpleQueryBuilder,
+} from "./simple-builder";
 import type { QueryRequest, SimpleQueryConfig } from "./types";
 import { applyPlugins } from "./utils";
 
@@ -383,13 +386,9 @@ export function executeBatch(
 					({ req }) => QueryBuilders[req.type]?.noCache
 				);
 				const rawRows = await record("chUnionQuery", () =>
-					chQuery(
-						sql,
-						params,
-						groupNoCache
-							? { clickhouse_settings: { use_query_cache: 0 } }
-							: undefined
-					)
+					chQuery(sql, params, {
+						clickhouse_settings: getClickHouseQuerySettings(groupNoCache),
+					})
 				);
 
 				mergeWideEvent({

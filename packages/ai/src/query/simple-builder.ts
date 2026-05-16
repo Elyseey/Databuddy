@@ -25,6 +25,18 @@ import type {
 import { FilterOperators } from "./types";
 import { applyPlugins } from "./utils";
 
+export function getClickHouseQuerySettings(
+	noCache?: boolean
+): Record<string, string | number> {
+	return {
+		use_query_cache: noCache ? 0 : 1,
+		allow_experimental_analyzer: 1,
+		...(noCache
+			? {}
+			: { query_cache_nondeterministic_function_handling: "ignore" }),
+	};
+}
+
 const FIELD_ALIAS_PATTERN = /\s+as\s+([A-Za-z_][A-Za-z0-9_]*)\s*$/i;
 const SIMPLE_FIELD_PATTERN = /^[A-Za-z_][A-Za-z0-9_.]*$/;
 
@@ -1085,10 +1097,7 @@ export class SimpleQueryBuilder {
 	async execute(): Promise<Record<string, unknown>[]> {
 		const { sql, params } = this.compile();
 		const rawData = await chQuery<Record<string, unknown>>(sql, params, {
-			clickhouse_settings: {
-				use_query_cache: this.config.noCache ? 0 : 1,
-				allow_experimental_analyzer: 1,
-			},
+			clickhouse_settings: getClickHouseQuerySettings(this.config.noCache),
 		});
 		return applyPlugins(rawData, this.config, this.websiteDomain);
 	}
