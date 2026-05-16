@@ -37,6 +37,14 @@ interface TooltipState {
 	top: number;
 }
 
+interface TooltipPlacementInput {
+	itemCount: number;
+	pointerX: number;
+	rect: DOMRect;
+	viewportHeight: number;
+	viewportWidth: number;
+}
+
 const TOOLTIP_WIDTH = 224;
 const TOOLTIP_GUTTER = 12;
 const TOOLTIP_HIDE_MS = 120;
@@ -240,6 +248,41 @@ function getActiveSegmentOffset(segment: UptimeSegment, activeIndex: number) {
 	return ((activeIndex + 1 - segment.start) / segment.length) * 100;
 }
 
+function getHoveredIndex(rect: DOMRect, pointerX: number, itemCount: number) {
+	const cellWidth = rect.width / itemCount;
+
+	return clamp(
+		Math.floor((pointerX - rect.left) / cellWidth),
+		0,
+		itemCount - 1
+	);
+}
+
+function getTooltipPlacement({
+	itemCount,
+	pointerX,
+	rect,
+	viewportHeight,
+	viewportWidth,
+}: TooltipPlacementInput): TooltipState {
+	const index = getHoveredIndex(rect, pointerX, itemCount);
+	const cellWidth = rect.width / itemCount;
+	const tooltipHalfWidth = TOOLTIP_WIDTH / 2;
+	const left = clamp(
+		rect.left + (index + 0.5) * cellWidth,
+		tooltipHalfWidth + TOOLTIP_GUTTER,
+		viewportWidth - tooltipHalfWidth - TOOLTIP_GUTTER
+	);
+	const above = viewportHeight - rect.bottom < 260 && rect.top > 180;
+
+	return {
+		above,
+		index,
+		left,
+		top: above ? rect.top - 10 : rect.bottom + 10,
+	};
+}
+
 export function UptimeHistory({ dailyData, days }: UptimeHistoryProps) {
 	const gridRef = useRef<HTMLDivElement>(null);
 	const hideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -260,11 +303,12 @@ export function UptimeHistory({ dailyData, days }: UptimeHistoryProps) {
 	}, []);
 
 	const hideTooltip = useCallback(() => {
+		clearHideTimer();
 		setIsTooltipVisible(false);
 		hideTimerRef.current = setTimeout(() => {
 			setTooltip(null);
 		}, TOOLTIP_HIDE_MS);
-	}, []);
+	}, [clearHideTimer]);
 
 	const handlePointerMove = useCallback(
 		(event: ReactPointerEvent<HTMLDivElement>) => {
@@ -276,27 +320,15 @@ export function UptimeHistory({ dailyData, days }: UptimeHistoryProps) {
 
 			clearHideTimer();
 
-			const rect = grid.getBoundingClientRect();
-			const cellWidth = rect.width / heatmapData.length;
-			const index = clamp(
-				Math.floor((event.clientX - rect.left) / cellWidth),
-				0,
-				heatmapData.length - 1
+			setTooltip(
+				getTooltipPlacement({
+					itemCount: heatmapData.length,
+					pointerX: event.clientX,
+					rect: grid.getBoundingClientRect(),
+					viewportHeight: window.innerHeight,
+					viewportWidth: window.innerWidth,
+				})
 			);
-			const tooltipHalfWidth = TOOLTIP_WIDTH / 2;
-			const left = clamp(
-				rect.left + (index + 0.5) * cellWidth,
-				tooltipHalfWidth + TOOLTIP_GUTTER,
-				window.innerWidth - tooltipHalfWidth - TOOLTIP_GUTTER
-			);
-			const above = window.innerHeight - rect.bottom < 260 && rect.top > 180;
-
-			setTooltip({
-				above,
-				index,
-				left,
-				top: above ? rect.top - 10 : rect.bottom + 10,
-			});
 			setIsTooltipVisible(true);
 		},
 		[clearHideTimer, heatmapData]

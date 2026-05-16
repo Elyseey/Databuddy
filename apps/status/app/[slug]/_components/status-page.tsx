@@ -14,7 +14,6 @@ import { MonitorCardInteractive } from "./monitor-card-interactive";
 type StatusPageData = NonNullable<
 	Awaited<ReturnType<RouterClient<AppRouter>["statusPage"]["getBySlug"]>>
 >;
-type Monitor = StatusPageData["monitors"][number];
 type Incident = StatusPageData["incidents"][number];
 
 function StatusRoot({
@@ -74,7 +73,6 @@ function pluralize(count: number, singular: string, plural = `${singular}s`) {
 
 interface StatusHeaderProps {
 	activeIncidentCount: number;
-	children?: ReactNode;
 	className?: string;
 	description?: string;
 	status: "operational" | "degraded" | "outage";
@@ -84,7 +82,6 @@ function StatusHeader({
 	activeIncidentCount,
 	description,
 	status,
-	children,
 	className,
 }: StatusHeaderProps) {
 	const config = STATUS_CONFIG[status];
@@ -116,7 +113,6 @@ function StatusHeader({
 							{config.shortLabel}
 						</span>
 					</div>
-					{children}
 				</div>
 
 				<div className="flex gap-3 px-4 py-3 sm:py-5 sm:pl-[25px]">
@@ -151,36 +147,6 @@ function StatusMonitorList({
 		>
 			{children}
 		</div>
-	);
-}
-
-function StatusMonitorCard({
-	id,
-	anchorId,
-	name,
-	domain,
-	uptimePercentage,
-	dailyData,
-	days,
-}: {
-	anchorId: string;
-	dailyData: Monitor["dailyData"];
-	days: number;
-	domain?: string;
-	id: string;
-	name: string;
-	uptimePercentage?: number;
-}) {
-	return (
-		<MonitorCardInteractive
-			anchorId={anchorId}
-			dailyData={dailyData}
-			days={days}
-			domain={domain}
-			id={id}
-			name={name}
-			uptimePercentage={uptimePercentage}
-		/>
 	);
 }
 
@@ -363,12 +329,12 @@ export const Status: typeof StatusRoot & {
 	Footer: typeof StatusFooter;
 	Header: typeof StatusHeader;
 	IncidentList: typeof StatusIncidentList;
-	MonitorCard: typeof StatusMonitorCard;
+	MonitorCard: typeof MonitorCardInteractive;
 	MonitorList: typeof StatusMonitorList;
 } = Object.assign(StatusRoot, {
 	Footer: StatusFooter,
 	Header: StatusHeader,
 	IncidentList: StatusIncidentList,
-	MonitorCard: StatusMonitorCard,
+	MonitorCard: MonitorCardInteractive,
 	MonitorList: StatusMonitorList,
 });
