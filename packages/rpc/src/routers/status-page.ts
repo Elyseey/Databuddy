@@ -105,8 +105,6 @@ const statusPageCustomizationSchema = z.object({
 	websiteUrl: z.string().nullable(),
 	supportUrl: z.string().nullable(),
 	theme: z.enum(["system", "light", "dark"]).nullable(),
-	hideBranding: z.boolean(),
-	customCss: z.string().nullable(),
 });
 
 const incidentStatus = z.enum([
@@ -185,26 +183,27 @@ async function listPublicStatusPageSitemapEntries() {
 
 function deriveOverallStatus(
 	monitors: { currentStatus: "up" | "down" | "degraded" | "unknown" }[],
-	activeIncidents: {
+	incidents: {
+		status: string;
 		severity: string;
 		affectedMonitors: { impact: string }[];
 	}[] = []
 ): "operational" | "degraded" | "outage" {
-	const activeUnresolved = activeIncidents.filter(
-		(i) => !("resolvedAt" in i && (i as { resolvedAt: unknown }).resolvedAt)
+	const activeIncidents = incidents.filter(
+		(incident) => incident.status !== "resolved"
 	);
 
-	if (activeUnresolved.some((i) => i.severity === "critical")) {
+	if (activeIncidents.some((i) => i.severity === "critical")) {
 		return "outage";
 	}
 	if (
-		activeUnresolved.some((i) =>
+		activeIncidents.some((i) =>
 			i.affectedMonitors.some((m) => m.impact === "down")
 		)
 	) {
 		return "outage";
 	}
-	if (activeUnresolved.length > 0) {
+	if (activeIncidents.length > 0) {
 		return "degraded";
 	}
 
@@ -250,15 +249,20 @@ function getDateRange(days: number) {
 	const start = new Date(today);
 	start.setDate(start.getDate() - (days - 1));
 	return {
-		startDate: start.toISOString().split("T").at(0) ?? "",
-		endDate: today.toISOString().split("T").at(0) ?? "",
+		startDate: start.toISOString().slice(0, 10),
+		endDate: today.toISOString().slice(0, 10),
 	};
 }
 
 function groupDailyRows(rows: DailyRow[]): Map<string, DailyRow[]> {
 	const grouped = new Map<string, DailyRow[]>();
 	for (const row of rows) {
-		grouped.set(row.site_id, [...(grouped.get(row.site_id) ?? []), row]);
+		const siteRows = grouped.get(row.site_id);
+		if (siteRows) {
+			siteRows.push(row);
+		} else {
+			grouped.set(row.site_id, [row]);
+		}
 	}
 	return grouped;
 }
@@ -269,39 +273,20 @@ function indexLatestChecks(
 	return new Map(rows.map((row) => [row.site_id, row]));
 }
 
-function buildStatusPageInfo(row: {
-	customCss: string | null;
-	faviconUrl: string | null;
-	hideBranding: boolean;
-	logoUrl: string | null;
-	statusPageDescription: string | null;
-	statusPageName: string;
-	supportUrl: string | null;
-	theme: "system" | "light" | "dark" | null;
-	websiteUrl: string | null;
-}) {
-	return {
-		name: row.statusPageName,
-		description: row.statusPageDescription,
-		logoUrl: row.logoUrl,
-		faviconUrl: row.faviconUrl,
-		websiteUrl: row.websiteUrl,
-		supportUrl: row.supportUrl,
-		theme: row.theme,
-		hideBranding: row.hideBranding,
-		customCss: row.customCss,
-	};
-}
-
 function applyIncidentImpacts(
 	monitors: z.infer<typeof monitorSchema>[],
 	activeIncidents: z.infer<typeof incidentSchema>[],
 	rows: Array<{ scheduleId: string | null; statusPageMonitorId: string | null }>
 ) {
 	const spmToScheduleId = new Map(
-		rows
-			.filter((row) => row.scheduleId)
-			.map((row) => [row.statusPageMonitorId, row.scheduleId] as const)
+		rows.flatMap((row) =>
+			row.statusPageMonitorId && row.scheduleId
+				? [[row.statusPageMonitorId, row.scheduleId] as const]
+				: []
+		)
+	);
+	const monitorsById = new Map(
+		monitors.map((monitor) => [monitor.id, monitor])
 	);
 
 	for (const incident of activeIncidents) {
@@ -309,9 +294,7 @@ function applyIncidentImpacts(
 			const scheduleId = spmToScheduleId.get(
 				affectedMonitor.statusPageMonitorId
 			);
-			const monitor = scheduleId
-				? monitors.find((candidate) => candidate.id === scheduleId)
-				: null;
+			const monitor = scheduleId ? monitorsById.get(scheduleId) : null;
 			if (!monitor) {
 				continue;
 			}
@@ -340,8 +323,6 @@ async function _fetchStatusPageData(
 			websiteUrl: statusPages.websiteUrl,
 			supportUrl: statusPages.supportUrl,
 			theme: statusPages.theme,
-			hideBranding: statusPages.hideBranding,
-			customCss: statusPages.customCss,
 			statusPageMonitorId: statusPageMonitors.id,
 			scheduleId: uptimeSchedules.id,
 			websiteId: uptimeSchedules.websiteId,
@@ -377,28 +358,45 @@ async function _fetchStatusPageData(
 		logo: rows[0].orgLogo,
 	};
 
-	const statusPageInfo = buildStatusPageInfo(rows[0]);
+	const statusPageInfo = {
+		name: rows[0].statusPageName,
+		description: rows[0].statusPageDescription,
+		logoUrl: rows[0].logoUrl,
+		faviconUrl: rows[0].faviconUrl,
+		websiteUrl: rows[0].websiteUrl,
+		supportUrl: rows[0].supportUrl,
+		theme: rows[0].theme,
+	};
 
-	const schedules = rows
-		.filter((r) => r.scheduleId)
-		.map((r) => ({
-			id: r.scheduleId as string,
-			websiteId: r.websiteId,
-			displayName: r.monitorDisplayName,
-			name: r.scheduleName,
-			url: r.scheduleUrl as string,
-			hideUrl: r.hideUrl,
-			hideUptimePercentage: r.hideUptimePercentage,
-			hideLatency: r.hideLatency,
-		}));
+	const schedules = rows.flatMap((r) => {
+		if (!(r.scheduleId && r.scheduleUrl)) {
+			return [];
+		}
+		return [
+			{
+				id: r.scheduleId,
+				websiteId: r.websiteId,
+				displayName: r.monitorDisplayName,
+				name: r.scheduleName,
+				url: r.scheduleUrl,
+				hideUrl: r.hideUrl ?? false,
+				hideUptimePercentage: r.hideUptimePercentage ?? false,
+				hideLatency: r.hideLatency ?? false,
+			},
+		];
+	});
 
 	const { startDate, endDate } = getDateRange(days);
 
-	const websiteIds = schedules
-		.map((s) => s.websiteId)
-		.filter((id): id is string => id !== null);
+	const websiteIds = [
+		...new Set(
+			schedules
+				.map((s) => s.websiteId)
+				.filter((id): id is string => id !== null)
+		),
+	];
 
-	const siteIds = schedules.map((s) => s.websiteId ?? s.id);
+	const siteIds = [...new Set(schedules.map((s) => s.websiteId ?? s.id))];
 
 	const ninetyDaysAgoDate = new Date();
 	ninetyDaysAgoDate.setDate(ninetyDaysAgoDate.getDate() - 90);
@@ -712,8 +710,6 @@ export const statusPageRouter = {
 				websiteUrl: z.string().url().nullish(),
 				supportUrl: z.string().url().nullish(),
 				theme: z.enum(["system", "light", "dark"]).optional(),
-				hideBranding: z.boolean().optional(),
-				customCss: z.string().nullish(),
 			})
 		)
 		.handler(async ({ context, input }) => {
@@ -745,8 +741,6 @@ export const statusPageRouter = {
 				websiteUrl: input.websiteUrl ?? null,
 				supportUrl: input.supportUrl ?? null,
 				theme: input.theme ?? "system",
-				hideBranding: input.hideBranding ?? false,
-				customCss: input.customCss ?? null,
 			});
 
 			return db.query.statusPages.findFirst({
@@ -772,8 +766,6 @@ export const statusPageRouter = {
 				websiteUrl: z.string().url().nullish(),
 				supportUrl: z.string().url().nullish(),
 				theme: z.enum(["system", "light", "dark"]).optional(),
-				hideBranding: z.boolean().optional(),
-				customCss: z.string().nullish(),
 			})
 		)
 		.handler(async ({ context, input }) => {
@@ -820,10 +812,6 @@ export const statusPageRouter = {
 						supportUrl: input.supportUrl,
 					}),
 					...(input.theme !== undefined && { theme: input.theme }),
-					...(input.hideBranding !== undefined && {
-						hideBranding: input.hideBranding,
-					}),
-					...(input.customCss !== undefined && { customCss: input.customCss }),
 					updatedAt: new Date(),
 				})
 				.where(eq(statusPages.id, input.statusPageId));
