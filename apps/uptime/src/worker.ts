@@ -47,7 +47,7 @@ async function defaultReapOrphanScheduler(scheduleId: string): Promise<void> {
 }
 
 class SchedulePaused extends Data.TaggedError("SchedulePaused")<
-	Record<keyof any, never>
+	Record<string, never>
 > {}
 
 class CheckFailed extends Data.TaggedError("CheckFailed")<{

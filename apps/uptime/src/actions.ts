@@ -333,7 +333,9 @@ const getProbeMetadata = Effect.tryPromise({
 					const data = await res.json();
 					cachedProbeIp = typeof data?.ip === "string" ? data.ip : "unknown";
 				}
-			} catch {}
+			} catch {
+				// Probe metadata is best-effort; uptime checks should continue without it.
+			}
 			cachedProbeIp ??= "unknown";
 		}
 		return { ip: cachedProbeIp, region: PROBE_REGION };
