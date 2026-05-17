@@ -45,6 +45,7 @@ Keep additions **minimal**: one bullet, a new `rg` hint, or a routing note—eno
 - `apps/links`: redirect/link service
 - `apps/uptime`: uptime monitoring service
 - `apps/uptime` BullMQ worker concurrency defaults high for Bun async I/O; do not lower it just because `10_000` looks large. Verify downstream saturation or lock/timeout evidence first.
+- Public status pages render from `apps/status`; `apps/dashboard` owns status-page management/config UI only. When cleaning public status UX, update shared `@databuddy/ui/uptime` pieces or `apps/status` wrappers instead of redesigning dashboard-only route remnants.
 - `packages/db`: Drizzle Postgres schema, client, and ClickHouse helpers
 - `packages/rpc`: shared oRPC router, procedures, auth-aware server context
 - `packages/auth`: Better Auth setup, permissions, organization access
