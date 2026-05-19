@@ -36,24 +36,13 @@ import {
 	validateExportDateRange,
 } from "../services/export-service";
 import { mergeWebsiteSecuritySettings } from "./website-settings";
-
-interface MiniChartDataPoint {
-	date: string;
-	value: number;
-}
-
-interface ProcessedMiniChartData {
-	data: MiniChartDataPoint[];
-	hasAnyData: boolean;
-	totalViews: number;
-	trend: {
-		type: "up" | "down" | "neutral";
-		value: number;
-	} | null;
-}
+import {
+	type ChartDataRow,
+	type ProcessedMiniChartData,
+	processChartData,
+} from "./websites-chart";
 
 const websiteService = new WebsiteService(db);
-const TREND_THRESHOLD = 5;
 
 function handleServiceError(error: unknown): never {
 	if (error instanceof ValidationError) {
@@ -293,18 +282,6 @@ const buildStatusMessage = (
 	return "Tracking not set up. Please install the script tag.";
 };
 
-interface ChartDataRow {
-	date: string;
-	hasAnyData: number;
-	value: number;
-	websiteId: string;
-}
-
-const calculateAverage = (values: { value: number }[]) =>
-	values.length > 0
-		? values.reduce((sum, item) => sum + item.value, 0) / values.length
-		: 0;
-
 const websiteStatusOutputSchema = z.enum([
 	"ACTIVE",
 	"HEALTHY",
@@ -355,6 +332,7 @@ const processedMiniChartDataSchema = z.object({
 	),
 	totalViews: z.number(),
 	hasAnyData: z.boolean(),
+	hasHistoricalData: z.boolean(),
 	trend: z
 		.object({
 			type: z.enum(["up", "down", "neutral"]),
@@ -393,36 +371,6 @@ const trackingSetupOutputSchema = z.object({
 });
 
 export type WebsiteOutput = z.infer<typeof websiteOutputSchema>;
-
-const calculateTrend = (dataPoints: { date: string; value: number }[]) => {
-	if (!dataPoints?.length || dataPoints.length < 4) {
-		return null;
-	}
-
-	const midPoint = Math.floor(dataPoints.length / 2);
-	const firstHalf = dataPoints.slice(0, midPoint);
-	const secondHalf = dataPoints.slice(midPoint);
-
-	const previousAverage = calculateAverage(firstHalf);
-	const currentAverage = calculateAverage(secondHalf);
-
-	if (previousAverage === 0) {
-		return currentAverage > 0
-			? { type: "up" as const, value: 100 }
-			: { type: "neutral" as const, value: 0 };
-	}
-
-	const percentageChange =
-		((currentAverage - previousAverage) / previousAverage) * 100;
-
-	if (percentageChange > TREND_THRESHOLD) {
-		return { type: "up" as const, value: Math.abs(percentageChange) };
-	}
-	if (percentageChange < -TREND_THRESHOLD) {
-		return { type: "down" as const, value: Math.abs(percentageChange) };
-	}
-	return { type: "neutral" as const, value: Math.abs(percentageChange) };
-};
 
 interface ActiveUsersRow {
 	activeUsers: number;
@@ -473,76 +421,47 @@ const _fetchChartData = async (
 		return {};
 	}
 
-	const queryResults = await chQuery<ChartDataRow>(
-		`WITH
-			date_range AS (
-				SELECT arrayJoin(arrayMap(d -> toDate(today()) - d, range(7))) AS date
-			),
-			aggregated AS (
-				SELECT
-					client_id,
-					date,
-					sum(pageviews) AS pageviews,
-					1 AS hasData
-				FROM analytics.daily_pageviews
-				WHERE client_id IN {websiteIds:Array(String)}
-					AND date >= (today() - 6)
-				GROUP BY client_id, date
-			)
-		SELECT
-			all_websites.website_id AS websiteId,
-			toString(date_range.date) AS date,
-			COALESCE(aggregated.pageviews, 0) AS value,
-			COALESCE(aggregated.hasData, 0) AS hasAnyData
-		FROM
-			(SELECT arrayJoin({websiteIds:Array(String)}) AS website_id) AS all_websites
-		CROSS JOIN date_range
-		LEFT JOIN aggregated
-			ON all_websites.website_id = aggregated.client_id
-			AND date_range.date = aggregated.date
-		WHERE date_range.date >= (today() - 6)
-		ORDER BY websiteId, date ASC`,
-		{ websiteIds }
-	);
+	const [queryResults, historicalRows] = await Promise.all([
+		chQuery<ChartDataRow>(
+			`WITH
+				date_range AS (
+					SELECT arrayJoin(arrayMap(d -> toDate(today()) - d, range(7))) AS date
+				),
+				aggregated AS (
+					SELECT
+						client_id,
+						date,
+						sum(pageviews) AS pageviews,
+						1 AS hasData
+					FROM analytics.daily_pageviews
+					WHERE client_id IN {websiteIds:Array(String)}
+						AND date >= (today() - 6)
+					GROUP BY client_id, date
+				)
+			SELECT
+				all_websites.website_id AS websiteId,
+				toString(date_range.date) AS date,
+				COALESCE(aggregated.pageviews, 0) AS value,
+				COALESCE(aggregated.hasData, 0) AS hasAnyData
+			FROM
+				(SELECT arrayJoin({websiteIds:Array(String)}) AS website_id) AS all_websites
+			CROSS JOIN date_range
+			LEFT JOIN aggregated
+				ON all_websites.website_id = aggregated.client_id
+				AND date_range.date = aggregated.date
+			WHERE date_range.date >= (today() - 6)
+			ORDER BY websiteId, date ASC`,
+			{ websiteIds }
+		),
+		chQuery<{ websiteId: string }>(
+			`SELECT DISTINCT client_id AS websiteId
+			FROM analytics.daily_pageviews
+			WHERE client_id IN {websiteIds:Array(String)}`,
+			{ websiteIds }
+		),
+	]);
 
-	const groupedData = websiteIds.reduce(
-		(acc, id) => {
-			acc[id] = { points: [], hasAnyData: false };
-			return acc;
-		},
-		{} as Record<
-			string,
-			{ points: { date: string; value: number }[]; hasAnyData: boolean }
-		>
-	);
-
-	for (const row of queryResults) {
-		if (groupedData[row.websiteId]) {
-			groupedData[row.websiteId].points.push({
-				date: row.date,
-				value: row.value,
-			});
-			if (row.hasAnyData === 1) {
-				groupedData[row.websiteId].hasAnyData = true;
-			}
-		}
-	}
-
-	const processedData: Record<string, ProcessedMiniChartData> = {};
-
-	for (const websiteId of websiteIds) {
-		const { points, hasAnyData } = groupedData[websiteId];
-		const totalViews = points.reduce((sum, point) => sum + point.value, 0);
-
-		processedData[websiteId] = {
-			data: points,
-			totalViews,
-			hasAnyData,
-			trend: calculateTrend(points),
-		};
-	}
-
-	return processedData;
+	return processChartData(websiteIds, queryResults, historicalRows);
 };
 
 const fetchChartData = cacheable(_fetchChartData, {
