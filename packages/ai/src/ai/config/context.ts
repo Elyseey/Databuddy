@@ -1,5 +1,10 @@
 export type AppMutationMode = "allow" | "dry-run";
 
+export interface ServiceAuth {
+	organizationId: string;
+	scopes: string[];
+}
+
 export interface AppContext {
 	billingCustomerId?: string | null;
 	chatId: string;
@@ -7,6 +12,7 @@ export interface AppContext {
 	mutationMode?: AppMutationMode;
 	organizationId?: string | null;
 	requestHeaders?: Headers;
+	serviceAuth?: ServiceAuth;
 	timezone: string;
 	userId: string;
 	websiteDomain: string;

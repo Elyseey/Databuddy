@@ -1,4 +1,5 @@
 import { ORPCError } from "@orpc/server";
+import { createServiceAuth } from "@databuddy/rpc";
 import { getServerRPCClient } from "../../../lib/orpc-server";
 import type { AppContext } from "../../config/context";
 import { createToolLogger } from "./logger";
@@ -7,10 +8,6 @@ const logger = createToolLogger("RPC");
 const MUTATION_METHOD_RE =
 	/^(add|archive|bulk|create|delete|pause|publish|remove|reset|restore|resume|revoke|rotate|send|set|trigger|unarchive|update|upsert)/i;
 
-/**
- * Generic RPC procedure caller for AI tools.
- * Handles error mapping and logging consistently across all tools.
- */
 export async function callRPCProcedure(
 	routerName: string,
 	method: string,
@@ -28,7 +25,13 @@ export async function callRPCProcedure(
 		}
 
 		const headers = context.requestHeaders ?? new Headers();
-		const client = await getServerRPCClient(headers);
+		const preResolved = context.serviceAuth
+			? createServiceAuth(
+					context.serviceAuth.organizationId,
+					context.serviceAuth.scopes
+				)
+			: undefined;
+		const client = await getServerRPCClient(headers, preResolved);
 
 		const router = client[routerName as keyof typeof client] as
 			| Record<string, (input: unknown) => Promise<unknown>>

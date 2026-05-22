@@ -13,7 +13,9 @@ export {
 export { setTrackProperties, setTrackingFn } from "./middleware/track-mutation";
 export {
 	type Context,
+	type PreResolvedAuth,
 	createRPCContext,
+	createServiceAuth,
 	sessionProcedure,
 	trackedProcedure,
 	trackedSessionProcedure,

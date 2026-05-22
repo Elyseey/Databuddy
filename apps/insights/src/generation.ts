@@ -675,6 +675,10 @@ ${orgContext}${annotationContext}${recentInsightsBlock}`;
 			timezone: params.config.timezone,
 			currentDateTime: new Date().toISOString(),
 			chatId: `insights:${params.organizationId}:${params.websiteId}`,
+			serviceAuth: {
+				organizationId: params.organizationId,
+				scopes: ["read:data"],
+			},
 		};
 		let toolCallCount = 0;
 		let executedToolCallCount = 0;

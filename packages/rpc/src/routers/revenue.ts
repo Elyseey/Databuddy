@@ -3,7 +3,7 @@ import { eq } from "@databuddy/db";
 import { revenueConfig } from "@databuddy/db/schema";
 import { z } from "zod";
 import { rpcError } from "../errors";
-import { sessionProcedure } from "../orpc";
+import { protectedProcedure, sessionProcedure } from "../orpc";
 import { withWorkspace } from "../procedures/with-workspace";
 
 function generateHash(): string {
@@ -16,7 +16,7 @@ function generateHash(): string {
 const revenueOutputSchema = z.record(z.string(), z.unknown());
 
 export const revenueRouter = {
-	get: sessionProcedure
+	get: protectedProcedure
 		.route({
 			description:
 				"Returns revenue config for website or org. Requires configure permission.",
