@@ -493,21 +493,18 @@ ${signalBlocks}
 
 The segment analysis above shows WHAT changed. Your job is to figure out WHY.
 
-INVESTIGATE each signal by querying deeper data. You MUST make at least 2 tool calls before concluding. Choose what to dig into based on the signal:
-- Errors or reliability: query recent_errors (stack traces + paths), errors_by_page, error_types
-- Engagement or session changes: query sessions_by_browser, sessions_by_device, entry_pages, exit_pages, page_time_analysis, session_metrics
-- Traffic or referrer shifts: query utm_campaigns, utm_sources, traffic_sources
-- Performance: query web_vitals_by_page, web_vitals_by_browser, web_vitals_by_country
-- Revenue: query revenue_overview, revenue_by_referrer, revenue_by_entry_page, recent_transactions
-- Product behavior: query custom_events_discovery, custom_events_trends
-- Geographic: query region for sub-country breakdown
-${githubInstruction}
+You have 134 query types available via web_metrics and raw SQL via execute_sql. You MUST make at least 2 tool calls before concluding.
 
-When your first query reveals something interesting, FOLLOW THE LEAD. If sessions_by_browser shows LinkedIn dropped 74%, check what happened to LinkedIn as a referrer. If recent_errors shows a specific error on /editor, check errors_by_page for other affected pages. Each follow-up query should narrow the root cause.
+INVESTIGATE by following leads:
+1. Start with the most relevant deep-dive query for the signal type (recent_errors for error signals, sessions_by_browser for engagement, entry_pages for traffic shifts, etc.)
+2. When you find something interesting, DIG DEEPER. If a browser dropped, filter by that browser. If an error is on /editor, query errors_by_page to check spread. If a country spiked, query region to see which cities.
+3. You can filter any web_metrics query by path, country, device_type, browser_name, os_name, referrer, utm_source, utm_medium, utm_campaign.
+4. For cross-table analysis that web_metrics can't do (e.g. "do users who hit this error have shorter sessions?" or "what path did users take before hitting this error?"), use execute_sql with raw ClickHouse SQL. Prefer web_metrics for standard queries — execute_sql is for joins and complex analysis only.
+${githubInstruction}
 
 After investigating, DROP signals that are noise. For signals worth reporting:
 - Explain the root cause with specific evidence from your queries
-- Cite specific numbers, paths, error messages, deploy IDs from the data
+- Cite specific numbers, paths, error messages, deploy IDs, session counts
 - Write a title a founder can scan in 2 seconds
 - Suggest one concrete action naming the exact page, error, or component to fix
 
@@ -755,7 +752,8 @@ ${orgContext}${annotationContext}${recentInsightsBlock}`;
 		Object.entries(allTools).filter(
 			([name]) =>
 				allowedTools.includes(name as InsightGenerationTool) ||
-				name.startsWith("github_")
+				name.startsWith("github_") ||
+				name === "execute_sql"
 		)
 	) as typeof allTools;
 	const activeToolNames = Object.keys(availableTools) as (keyof typeof availableTools)[];

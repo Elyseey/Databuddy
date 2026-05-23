@@ -13,6 +13,7 @@ import {
 	PRODUCT_INSIGHT_QUERY_TYPES,
 } from "../insights/product-context";
 import { getAppContext } from "./utils";
+import { executeAgentSqlForWebsite } from "./execute-sql-query";
 import { executeQuery } from "../../query";
 import { QueryBuilders } from "../../query/builders";
 import type { QueryRequest } from "../../query/types";
@@ -27,52 +28,14 @@ const DEFAULT_LIMIT = 10;
  * Curated allowlist — only query types safe for automated insight generation
  * (no arbitrary SQL, no cross-website access).
  */
-const INSIGHTS_AGENT_QUERY_TYPES = [
-	"summary_metrics",
-	"top_pages",
-	"entry_pages",
-	"exit_pages",
-	"page_time_analysis",
-	"error_summary",
-	"recent_errors",
-	"errors_by_page",
-	"error_types",
-	"top_referrers",
-	"traffic_sources",
-	"utm_sources",
-	"utm_mediums",
-	"utm_campaigns",
-	"country",
-	"region",
-	"browser_name",
-	"os_name",
-	"device_types",
-	"vitals_overview",
-	"web_vitals_by_page",
-	"web_vitals_by_browser",
-	"web_vitals_by_country",
-	"custom_events_discovery",
-	"custom_events_summary",
-	"custom_events_trends",
-	"session_metrics",
-	"sessions_by_device",
-	"sessions_by_browser",
-	"revenue_overview",
-	"revenue_by_referrer",
-	"revenue_by_entry_page",
-	"recent_transactions",
-] as const;
-
-const INSIGHTS_TYPE_LIST = INSIGHTS_AGENT_QUERY_TYPES.join(", ");
+const ALL_QUERY_TYPES = Object.keys(QueryBuilders);
+const QUERY_TYPE_LIST = ALL_QUERY_TYPES.join(", ");
 const BUSINESS_INSIGHTS_TYPE_LIST = BUSINESS_INSIGHT_QUERY_TYPES.join(", ");
 const OPS_INSIGHTS_TYPE_LIST = OPS_INSIGHT_QUERY_TYPES.join(", ");
 const PRODUCT_INSIGHTS_TYPE_LIST = PRODUCT_INSIGHT_QUERY_TYPES.join(", ");
 
-function isAllowedQueryType(type: string): boolean {
-	return (
-		(INSIGHTS_AGENT_QUERY_TYPES as readonly string[]).includes(type) &&
-		type in QueryBuilders
-	);
+function isValidQueryType(type: string): boolean {
+	return type in QueryBuilders;
 }
 
 function runQueryWithTimeout<T>(
@@ -109,27 +72,32 @@ export function createInsightsAgentTools(
 	const singleQuerySchema = z.object({
 		type: z
 			.string()
-			.describe(`Analytics query type. Allowed: ${INSIGHTS_TYPE_LIST}`)
-			.refine(isAllowedQueryType, "Unknown or disallowed query type"),
+			.describe(`Any query type from the analytics engine. ${ALL_QUERY_TYPES.length} types available.`)
+			.refine(isValidQueryType, "Unknown query type"),
 		limit: z
 			.number()
 			.min(1)
 			.max(50)
 			.optional()
-			.describe(
-				"Row limit for list-style queries (top_pages, referrers, etc.)"
-			),
+			.describe("Row limit"),
+		filters: z
+			.array(
+				z.object({
+					field: z.string().describe("Filter field: path, country, device_type, browser_name, os_name, referrer, utm_source, utm_medium, utm_campaign"),
+					value: z.string().describe("Filter value"),
+				})
+			)
+			.optional()
+			.describe("Optional filters to segment the data"),
 	});
 
 	const webMetricsTool = tool({
 		description:
-			"Query analytics data for the current or previous period. Batch up to 8 query types per call. Available types: summary_metrics, top_pages, entry_pages, exit_pages, page_time_analysis, error_summary, recent_errors (with stack traces), errors_by_page, error_types, top_referrers, traffic_sources, utm_sources, utm_mediums, utm_campaigns, country, region, browser_name, os_name, device_types, vitals_overview, web_vitals_by_page, web_vitals_by_browser, web_vitals_by_country, custom_events_discovery, custom_events_summary, custom_events_trends, session_metrics, sessions_by_device, sessions_by_browser, revenue_overview, revenue_by_referrer, revenue_by_entry_page, recent_transactions. Use this to dig deeper into anomalies — e.g. if mobile traffic dropped, query device_types and sessions_by_device. If errors spiked, query recent_errors for stack traces and errors_by_page for affected pages.",
+			`Query any analytics data for the current or previous period. Batch up to 8 queries per call. ${ALL_QUERY_TYPES.length} query types available including: summary_metrics, top_pages, entry_pages, exit_pages, recent_errors (stack traces), errors_by_page, error_types, session_flow, session_list, interesting_sessions, sessions_by_device, sessions_by_browser, web_vitals_by_page, web_vitals_by_browser, revenue_overview, revenue_by_referrer, custom_events_discovery, custom_events_trends, country, region, city, utm_campaigns, device_types, and many more. You can filter any query by path, country, device_type, browser_name, os_name, referrer, utm_source, utm_medium, utm_campaign to segment the data.`,
 		inputSchema: z.object({
 			period: z
 				.enum(["current", "previous"])
-				.describe(
-					"Which WoW window: current week vs previous week (same calendar alignment as smart insights)."
-				),
+				.describe("Which period to query"),
 			queries: z.array(singleQuerySchema).min(1).max(MAX_QUERIES_PER_CALL),
 		}),
 		execute: async ({ period, queries }) => {
@@ -145,23 +113,25 @@ export function createInsightsAgentTools(
 			}> = [];
 
 			for (const q of queries) {
-				if (!isAllowedQueryType(q.type)) {
-					results.push({
-						type: q.type,
-						rowCount: 0,
-						data: [],
-					});
+				if (!isValidQueryType(q.type)) {
+					results.push({ type: q.type, rowCount: 0, data: [] });
 					continue;
 				}
 
-				const limit = q.limit ?? (q.type === "top_pages" ? 10 : DEFAULT_LIMIT);
+				const limit = q.limit ?? DEFAULT_LIMIT;
+				const filters = q.filters?.map((f) => ({
+					field: f.field,
+					operator: "equals" as const,
+					value: f.value,
+				}));
 				const req: QueryRequest = {
 					projectId: params.websiteId,
 					type: q.type,
 					from: range.from,
 					to: range.to,
 					timezone: params.timezone,
-					limit: q.type === "vitals_overview" ? undefined : limit,
+					limit,
+					filters,
 				};
 
 				try {
@@ -296,9 +266,28 @@ export function createInsightsAgentTools(
 		},
 	});
 
+	const sqlTool = tool({
+		description:
+			`Run read-only ClickHouse SQL for analysis that query builders can't do: session-level joins, path analysis, cross-table correlations, filtered aggregations. Must use {websiteId:String} in WHERE clause. Tables: analytics.events (client_id, session_id, time, path, referrer, browser_name, os_name, device_type, country, region, utm_source, event_name='screen_view' for pageviews), analytics.error_spans (client_id, session_id, timestamp, path, message, stack, error_type), analytics.web_vitals_spans (client_id, timestamp, path, metric_name, metric_value), analytics.custom_events (owner_id, event_name, timestamp, properties, session_id). Use {paramName:Type} placeholders, never string interpolation.`,
+		inputSchema: z.object({
+			sql: z.string().describe("Read-only ClickHouse SQL with {websiteId:String} filter"),
+			params: z.record(z.string(), z.unknown()).optional(),
+		}),
+		execute: async ({ sql, params: sqlParams }) => {
+			const result = await executeAgentSqlForWebsite({
+				websiteId: params.websiteId,
+				websiteDomain: params.domain,
+				sql,
+				params: sqlParams,
+			});
+			return truncatePayload(result);
+		},
+	});
+
 	return {
 		tools: {
 			business_context: businessContextTool,
+			execute_sql: sqlTool,
 			ops_context: opsContextTool,
 			product_metrics: productMetricsTool,
 			web_metrics: webMetricsTool,

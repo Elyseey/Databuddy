@@ -75,8 +75,8 @@ export const insightGenerationConfigs = pgTable(
 			.notNull(),
 		cron: text(),
 		depth: text().$type<InsightGenerationDepth>().default("standard").notNull(),
-		maxSteps: integer("max_steps").default(12).notNull(),
-		maxToolCalls: integer("max_tool_calls").default(8).notNull(),
+		maxSteps: integer("max_steps").default(15).notNull(),
+		maxToolCalls: integer("max_tool_calls").default(12).notNull(),
 		maxInsightsPerWebsite: integer("max_insights_per_website")
 			.default(2)
 			.notNull(),
