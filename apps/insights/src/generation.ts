@@ -49,7 +49,6 @@ import {
 	setInsightsLog,
 } from "./lib/evlog-insights";
 
-const AGENT_TIMEOUT_MS = 180_000;
 const RECENT_INSIGHTS_PROMPT_LIMIT = 12;
 const DEFAULT_MAX_INSIGHTS = 2;
 const TOOL_NAMES = [
@@ -435,7 +434,6 @@ async function validateOrRepairInsights(
 			],
 			temperature: 0,
 			maxOutputTokens: 4096,
-			abortSignal: AbortSignal.timeout(30_000),
 			experimental_telemetry: {
 				isEnabled: true,
 				functionId: "databuddy.insights.worker.repair",
@@ -680,7 +678,6 @@ ${orgContext}${annotationContext}${recentInsightsBlock}`;
 
 		const result = await agent.generate({
 			messages: [{ role: "user", content: userPrompt }],
-			abortSignal: AbortSignal.timeout(AGENT_TIMEOUT_MS),
 		});
 
 		if (result.output?.insights?.length) {
