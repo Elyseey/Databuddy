@@ -1,0 +1,456 @@
+import { executeQuery } from "@databuddy/ai/query";
+import { and, between, db, eq, isNull } from "@databuddy/db";
+import { annotations } from "@databuddy/db/schema";
+import dayjs from "dayjs";
+import {
+	safeDeltaPercent,
+	type DetectedSignal,
+	type QueryFn,
+} from "./detection";
+
+export interface SegmentMover {
+	delta: number;
+	deltaPercent: number;
+	name: string;
+}
+
+export interface SegmentBreakdown {
+	dimension: "pages" | "countries" | "browsers" | "referrers";
+	topMovers: SegmentMover[];
+}
+
+export interface ErrorContext {
+	deltaPercent: number;
+	topNewErrors: string[];
+	topSpikedErrors: string[];
+	totalErrorsCurrent: number;
+	totalErrorsPrevious: number;
+}
+
+export interface AnnotationContext {
+	date: string;
+	id: string;
+	tags: string[];
+	title: string;
+}
+
+export interface GitHubContext {
+	commits: { sha: string; message: string; author: string; date: string }[];
+	recentPRs: { number: number; title: string; mergedAt: string; author: string }[];
+	repo: string;
+}
+
+export interface EnrichedSignal extends DetectedSignal {
+	annotations: AnnotationContext[];
+	errorContext?: ErrorContext;
+	githubContext?: GitHubContext;
+	segments: SegmentBreakdown[];
+}
+
+export interface EnrichSignalsParams {
+	githubRepo?: { owner: string; repo: string };
+	githubToken?: string | null;
+	lookbackDays: number;
+	timezone: string;
+	websiteId: string;
+}
+
+interface DimensionRow {
+	name?: unknown;
+	visitors?: unknown;
+}
+
+interface ErrorSummaryRow {
+	totalErrors?: unknown;
+}
+
+interface ErrorTypeRow {
+	count?: unknown;
+	name?: unknown;
+}
+
+interface SignalWindow {
+	currentFrom: string;
+	currentTo: string;
+	previousFrom: string;
+	previousTo: string;
+}
+
+const DIMENSION_CONFIGS: {
+	dimension: SegmentBreakdown["dimension"];
+	queryType: string;
+}[] = [
+	{ dimension: "pages", queryType: "top_pages" },
+	{ dimension: "countries", queryType: "country" },
+	{ dimension: "browsers", queryType: "browser_name" },
+	{ dimension: "referrers", queryType: "top_referrers" },
+];
+
+const SEGMENT_MIN_DELTA_PERCENT = 10;
+const SEGMENT_TOP_MOVERS = 3;
+const SEGMENT_FETCH_LIMIT = 100;
+const ERROR_MIN_DELTA_PERCENT = 20;
+const ERROR_TOP_LIMIT = 5;
+
+function computeWindow(
+	signal: DetectedSignal,
+	lookbackDays: number
+): SignalWindow {
+	const detectedDay = dayjs(signal.detectedAt);
+
+	if (signal.method === "zscore") {
+		return {
+			currentFrom: detectedDay.format("YYYY-MM-DD"),
+			currentTo: detectedDay.format("YYYY-MM-DD"),
+			previousFrom: detectedDay
+				.subtract(lookbackDays - 1, "day")
+				.format("YYYY-MM-DD"),
+			previousTo: detectedDay.subtract(1, "day").format("YYYY-MM-DD"),
+		};
+	}
+
+	const windowDays = Math.max(3, Math.floor(lookbackDays / 2));
+	return {
+		currentFrom: detectedDay
+			.subtract(windowDays - 1, "day")
+			.format("YYYY-MM-DD"),
+		currentTo: detectedDay.format("YYYY-MM-DD"),
+		previousFrom: detectedDay
+			.subtract(windowDays * 2 - 1, "day")
+			.format("YYYY-MM-DD"),
+		previousTo: detectedDay.subtract(windowDays, "day").format("YYYY-MM-DD"),
+	};
+}
+
+function computeSegmentMovers(
+	currentRows: DimensionRow[],
+	previousRows: DimensionRow[]
+): SegmentMover[] {
+	const merged = new Map<
+		string,
+		{ name: string; current: number; previous: number }
+	>();
+
+	for (const r of currentRows) {
+		const name = String(r.name ?? "").trim();
+		if (!name) {
+			continue;
+		}
+		const value = Number(r.visitors ?? 0);
+		merged.set(name, { name, current: value, previous: 0 });
+	}
+
+	for (const r of previousRows) {
+		const name = String(r.name ?? "").trim();
+		if (!name) {
+			continue;
+		}
+		const value = Number(r.visitors ?? 0);
+		const existing = merged.get(name);
+		if (existing) {
+			existing.previous = value;
+		} else {
+			merged.set(name, { name, current: 0, previous: value });
+		}
+	}
+
+	return [...merged.values()]
+		.filter((m) => m.current !== 0 || m.previous !== 0)
+		.map((m) => ({
+			name: m.name,
+			delta: Number((m.current - m.previous).toFixed(2)),
+			deltaPercent: Number(safeDeltaPercent(m.current, m.previous).toFixed(2)),
+		}))
+		.filter((m) => Math.abs(m.deltaPercent) >= SEGMENT_MIN_DELTA_PERCENT)
+		.sort((a, b) => Math.abs(b.delta) - Math.abs(a.delta))
+		.slice(0, SEGMENT_TOP_MOVERS);
+}
+
+async function enrichSegments(
+	websiteId: string,
+	timezone: string,
+	window: SignalWindow,
+	queryFn: QueryFn
+): Promise<SegmentBreakdown[]> {
+	const results = await Promise.all(
+		DIMENSION_CONFIGS.map(async ({ dimension, queryType }) => {
+			const [currentRows, previousRows] = await Promise.all([
+				queryFn(
+					{
+						projectId: websiteId,
+						type: queryType,
+						from: window.currentFrom,
+						to: window.currentTo,
+						timezone,
+						limit: SEGMENT_FETCH_LIMIT,
+					},
+					undefined,
+					timezone
+				),
+				queryFn(
+					{
+						projectId: websiteId,
+						type: queryType,
+						from: window.previousFrom,
+						to: window.previousTo,
+						timezone,
+						limit: SEGMENT_FETCH_LIMIT,
+					},
+					undefined,
+					timezone
+				),
+			]);
+
+			const topMovers = computeSegmentMovers(
+				currentRows as DimensionRow[],
+				previousRows as DimensionRow[]
+			);
+
+			return { dimension, topMovers };
+		})
+	);
+
+	return results.filter((r) => r.topMovers.length > 0);
+}
+
+async function enrichErrors(
+	websiteId: string,
+	timezone: string,
+	window: SignalWindow,
+	queryFn: QueryFn
+): Promise<ErrorContext | undefined> {
+	const [currentSummary, previousSummary, currentTypes, previousTypes] =
+		await Promise.all([
+			queryFn(
+				{
+					projectId: websiteId,
+					type: "error_summary",
+					from: window.currentFrom,
+					to: window.currentTo,
+					timezone,
+				},
+				undefined,
+				timezone
+			),
+			queryFn(
+				{
+					projectId: websiteId,
+					type: "error_summary",
+					from: window.previousFrom,
+					to: window.previousTo,
+					timezone,
+				},
+				undefined,
+				timezone
+			),
+			queryFn(
+				{
+					projectId: websiteId,
+					type: "error_types",
+					from: window.currentFrom,
+					to: window.currentTo,
+					timezone,
+					limit: SEGMENT_FETCH_LIMIT,
+				},
+				undefined,
+				timezone
+			),
+			queryFn(
+				{
+					projectId: websiteId,
+					type: "error_types",
+					from: window.previousFrom,
+					to: window.previousTo,
+					timezone,
+					limit: SEGMENT_FETCH_LIMIT,
+				},
+				undefined,
+				timezone
+			),
+		]);
+
+	const currentRow = (currentSummary[0] ?? {}) as ErrorSummaryRow;
+	const previousRow = (previousSummary[0] ?? {}) as ErrorSummaryRow;
+	const totalCurrent = Number(currentRow.totalErrors ?? 0);
+	const totalPrevious = Number(previousRow.totalErrors ?? 0);
+
+	const deltaPercent = safeDeltaPercent(totalCurrent, totalPrevious);
+	if (Math.abs(deltaPercent) < ERROR_MIN_DELTA_PERCENT) {
+		return;
+	}
+
+	const previousErrorNames = new Set(
+		(previousTypes as ErrorTypeRow[])
+			.map((r) => String(r.name ?? "").trim())
+			.filter(Boolean)
+	);
+
+	const currentTyped = (currentTypes as ErrorTypeRow[]).map((r) => ({
+		name: String(r.name ?? "").trim(),
+		count: Number(r.count ?? 0),
+	}));
+
+	const previousTypedMap = new Map(
+		(previousTypes as ErrorTypeRow[]).map((r) => [
+			String(r.name ?? "").trim(),
+			Number(r.count ?? 0),
+		])
+	);
+
+	const topNewErrors = currentTyped
+		.filter((r) => r.name && !previousErrorNames.has(r.name))
+		.sort((a, b) => b.count - a.count)
+		.slice(0, ERROR_TOP_LIMIT)
+		.map((r) => r.name);
+
+	const topSpikedErrors = currentTyped
+		.filter((r) => r.name && previousErrorNames.has(r.name))
+		.map((r) => ({
+			name: r.name,
+			increase: r.count - (previousTypedMap.get(r.name) ?? 0),
+		}))
+		.filter((r) => r.increase > 0)
+		.sort((a, b) => b.increase - a.increase)
+		.slice(0, ERROR_TOP_LIMIT)
+		.map((r) => r.name);
+
+	return {
+		totalErrorsCurrent: totalCurrent,
+		totalErrorsPrevious: totalPrevious,
+		deltaPercent: Number(deltaPercent.toFixed(2)),
+		topNewErrors,
+		topSpikedErrors,
+	};
+}
+
+export type AnnotationQueryFn = (
+	websiteId: string,
+	from: Date,
+	to: Date
+) => Promise<AnnotationContext[]>;
+
+async function defaultAnnotationQuery(
+	websiteId: string,
+	from: Date,
+	to: Date
+): Promise<AnnotationContext[]> {
+	const rows = await db
+		.select({
+			id: annotations.id,
+			title: annotations.text,
+			date: annotations.xValue,
+			tags: annotations.tags,
+		})
+		.from(annotations)
+		.where(
+			and(
+				eq(annotations.websiteId, websiteId),
+				between(annotations.xValue, from, to),
+				isNull(annotations.deletedAt)
+			)
+		);
+
+	return rows.map((r) => ({
+		id: r.id,
+		title: r.title,
+		date: dayjs(r.date).format("YYYY-MM-DD"),
+		tags: r.tags ?? [],
+	}));
+}
+
+async function enrichAnnotations(
+	websiteId: string,
+	window: SignalWindow,
+	annotationQueryFn: AnnotationQueryFn
+): Promise<AnnotationContext[]> {
+	const from = dayjs(window.previousFrom).startOf("day").toDate();
+	const to = dayjs(window.currentTo).endOf("day").toDate();
+	return await annotationQueryFn(websiteId, from, to);
+}
+
+async function enrichGitHub(
+	repo: { owner: string; repo: string },
+	token: string,
+	window: SignalWindow
+): Promise<GitHubContext | undefined> {
+	const { githubFetch } = await import("@databuddy/ai/tools/github-tools");
+
+	try {
+		const [commitsData, prsData] = await Promise.all([
+			githubFetch(
+				`/repos/${repo.owner}/${repo.repo}/commits?since=${window.previousFrom}T00:00:00Z&until=${window.currentTo}T23:59:59Z&per_page=10`,
+				token
+			),
+			githubFetch(
+				`/repos/${repo.owner}/${repo.repo}/pulls?state=closed&sort=updated&direction=desc&per_page=10`,
+				token
+			),
+		]);
+
+		if (!Array.isArray(commitsData) || !Array.isArray(prsData)) return undefined;
+
+		const commits = commitsData.map((c: any) => ({
+			sha: String(c.sha ?? "").slice(0, 7),
+			message: String(c.commit?.message ?? "").split("\n")[0].slice(0, 120),
+			author: String(c.commit?.author?.name ?? ""),
+			date: String(c.commit?.author?.date ?? ""),
+		}));
+
+		const recentPRs = prsData
+			.filter((pr: any) => pr.merged_at)
+			.map((pr: any) => ({
+				number: Number(pr.number),
+				title: String(pr.title ?? "").slice(0, 120),
+				mergedAt: String(pr.merged_at),
+				author: String(pr.user?.login ?? ""),
+			}));
+
+		return {
+			repo: `${repo.owner}/${repo.repo}`,
+			commits,
+			recentPRs,
+		};
+	} catch {
+		return undefined;
+	}
+}
+
+export async function enrichSignals(
+	signals: DetectedSignal[],
+	params: EnrichSignalsParams,
+	queryFn: QueryFn = executeQuery,
+	annotationQueryFn: AnnotationQueryFn = defaultAnnotationQuery
+): Promise<EnrichedSignal[]> {
+	if (signals.length === 0) {
+		return [];
+	}
+
+	const { websiteId, timezone, lookbackDays } = params;
+
+	const firstWindow = computeWindow(signals[0], lookbackDays);
+
+	const sharedGitHub =
+		params.githubRepo && params.githubToken
+			? await enrichGitHub(params.githubRepo, params.githubToken, firstWindow)
+			: undefined;
+
+	return await Promise.all(
+		signals.map(async (signal) => {
+			const window = computeWindow(signal, lookbackDays);
+
+			const [segments, errorContext, signalAnnotations] = await Promise.all([
+				enrichSegments(websiteId, timezone, window, queryFn),
+				enrichErrors(websiteId, timezone, window, queryFn),
+				enrichAnnotations(websiteId, window, annotationQueryFn),
+			]);
+
+			return {
+				...signal,
+				segments,
+				errorContext,
+				annotations: signalAnnotations,
+				githubContext: sharedGitHub,
+			};
+		})
+	);
+}

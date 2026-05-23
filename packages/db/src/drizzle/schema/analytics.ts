@@ -64,6 +64,11 @@ export interface AnalyticsInsightMetric {
 	previous?: number;
 }
 
+export interface AnalyticsInsightEvidence {
+	description: string;
+	type: "segment" | "error" | "annotation" | "temporal" | "metric";
+}
+
 export type AnalyticsInsightSource = "web" | "product" | "ops" | "business";
 
 export const funnelDefinitions = pgTable(
@@ -212,6 +217,11 @@ export const analyticsInsights = pgTable(
 		confidence: doublePrecision().notNull().default(0),
 		impactSummary: text("impact_summary"),
 		metrics: jsonb().$type<AnalyticsInsightMetric[]>(),
+		rootCause: text("root_cause"),
+		evidence: jsonb("evidence").$type<AnalyticsInsightEvidence[]>(),
+		investigationDepth: text("investigation_depth").$type<
+			"surface" | "investigated" | "deep"
+		>(),
 		timezone: text().notNull().default("UTC"),
 		currentPeriodFrom: text("current_period_from").notNull(),
 		currentPeriodTo: text("current_period_to").notNull(),

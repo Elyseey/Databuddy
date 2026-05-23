@@ -30,20 +30,37 @@ const DEFAULT_LIMIT = 10;
 const INSIGHTS_AGENT_QUERY_TYPES = [
 	"summary_metrics",
 	"top_pages",
-	"error_summary",
-	"top_referrers",
-	"country",
-	"browser_name",
-	"os_name",
-	"vitals_overview",
 	"entry_pages",
 	"exit_pages",
 	"page_time_analysis",
+	"error_summary",
+	"recent_errors",
+	"errors_by_page",
+	"error_types",
+	"top_referrers",
 	"traffic_sources",
 	"utm_sources",
 	"utm_mediums",
+	"utm_campaigns",
+	"country",
+	"region",
+	"browser_name",
+	"os_name",
+	"device_types",
+	"vitals_overview",
+	"web_vitals_by_page",
+	"web_vitals_by_browser",
+	"web_vitals_by_country",
 	"custom_events_discovery",
 	"custom_events_summary",
+	"custom_events_trends",
+	"session_metrics",
+	"sessions_by_device",
+	"sessions_by_browser",
+	"revenue_overview",
+	"revenue_by_referrer",
+	"revenue_by_entry_page",
+	"recent_transactions",
 ] as const;
 
 const INSIGHTS_TYPE_LIST = INSIGHTS_AGENT_QUERY_TYPES.join(", ");
@@ -106,7 +123,7 @@ export function createInsightsAgentTools(
 
 	const webMetricsTool = tool({
 		description:
-			"Fetch analytics data for the current or previous week-over-week period. Batch multiple query types in one call (up to 8). Goal: gather enough breadth for 3 concise, non-duplicate insight cards. Start with summary_metrics for both periods, then add top_pages, errors, referrers, geo, browsers, vitals, or custom events only when they sharpen actionability.",
+			"Query analytics data for the current or previous period. Batch up to 8 query types per call. Available types: summary_metrics, top_pages, entry_pages, exit_pages, page_time_analysis, error_summary, recent_errors (with stack traces), errors_by_page, error_types, top_referrers, traffic_sources, utm_sources, utm_mediums, utm_campaigns, country, region, browser_name, os_name, device_types, vitals_overview, web_vitals_by_page, web_vitals_by_browser, web_vitals_by_country, custom_events_discovery, custom_events_summary, custom_events_trends, session_metrics, sessions_by_device, sessions_by_browser, revenue_overview, revenue_by_referrer, revenue_by_entry_page, recent_transactions. Use this to dig deeper into anomalies — e.g. if mobile traffic dropped, query device_types and sessions_by_device. If errors spiked, query recent_errors for stack traces and errors_by_page for affected pages.",
 		inputSchema: z.object({
 			period: z
 				.enum(["current", "previous"])

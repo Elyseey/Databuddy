@@ -43,7 +43,9 @@ const SIGNED_UP_NUMBER = /(^|\s)\+\s?\d/;
 const ACTION_VERB_PATTERN =
 	/\b(inspect|review|compare|segment|drill|open|fix|audit|trace|check|verify|validate|filter|investigate|rollback|hotfix|profile|diagnose)\b/i;
 const GENERIC_MONITORING_PATTERN =
-	/\b(monitor|keep an eye|watch this|track closely|continue tracking)\b/i;
+	/\b(monitor|keep an eye|watch this|track closely|continue tracking|worth watching|worth monitoring)\b/i;
+const HEDGING_TITLE_PATTERN =
+	/\b(softened|concerning|slightly|somewhat|may be|could be|appears to|seems to|shows signs|worth watching|potentially)\b/i;
 const HARD_CAUSALITY_PATTERN = /\b(caused by|because of|due to|driven by)\b/i;
 const ATTRIBUTION_CONTEXT_PATTERN =
 	/\b(referrer|source|utm|campaign|channel|twitter|google|bing|toolfolio)\b/i;
@@ -52,8 +54,8 @@ const BUSINESS_CLAIM_PATTERN =
 const TECHNICAL_TITLE_JARGON_PATTERN = /\b(INP|LCP|FCP|TTFB|CLS|p75)\b/i;
 
 const MAX_TITLE_CHARS = 80;
-const MAX_DESCRIPTION_CHARS = 320;
-const MAX_SUGGESTION_CHARS = 260;
+const MAX_DESCRIPTION_CHARS = 480;
+const MAX_SUGGESTION_CHARS = 400;
 
 function roundPercent(value: number): number {
 	return Math.round(value * 10) / 10;
@@ -218,6 +220,16 @@ export function validateInsight(input: ParsedInsight): InsightValidationResult {
 		};
 	}
 
+	if (HEDGING_TITLE_PATTERN.test(insight.title)) {
+		return {
+			insight: null,
+			warnings: [
+				...warnings,
+				`${insight.title}: dropped because title uses hedging language`,
+			],
+		};
+	}
+
 	if (
 		insight.title.length > MAX_TITLE_CHARS ||
 		insight.description.length > MAX_DESCRIPTION_CHARS ||
@@ -271,6 +283,23 @@ export function validateInsight(input: ParsedInsight): InsightValidationResult {
 				`${insight.title}: dropped because business impact claim lacks business data source`,
 			],
 		};
+	}
+
+	if (insight.rootCause !== undefined && insight.confidence <= 0.5) {
+		warnings.push(
+			`${insight.title}: stripped rootCause because confidence is ${insight.confidence}`
+		);
+		insight = { ...insight, rootCause: undefined };
+	}
+
+	if (
+		insight.type === "deploy_correlation" &&
+		insight.evidence &&
+		!insight.evidence.some((e) => e.type === "temporal")
+	) {
+		warnings.push(
+			`${insight.title}: deploy_correlation insight lacks temporal evidence`
+		);
 	}
 
 	return { insight, warnings };

@@ -1,11 +1,7 @@
 import type { AppContext } from "@databuddy/ai/config/context";
 import { ANTHROPIC_CACHE_1H, models } from "@databuddy/ai/config/models";
 import { insightDedupeKey } from "@databuddy/ai/insights/dedupe";
-import {
-	fetchWebPeriodData,
-	hasWebInsightData,
-} from "@databuddy/ai/insights/fetch-context";
-import { formatLegacyWebDataForPrompt } from "@databuddy/ai/insights/normalize";
+import { hasWebInsightData } from "@databuddy/ai/insights/fetch-context";
 import type {
 	InsightMetricRow,
 	WeekOverWeekPeriod,
@@ -28,10 +24,12 @@ import {
 	sql,
 } from "@databuddy/db";
 import {
+	account,
 	analyticsInsights,
 	annotations,
 	type InsightGenerationConfigSnapshot,
 	type InsightGenerationTool,
+	member,
 	websites,
 } from "@databuddy/db/schema";
 import {
@@ -41,16 +39,19 @@ import {
 import { generateText, Output, stepCountIs, ToolLoopAgent } from "ai";
 import { randomUUIDv7 } from "bun";
 import dayjs from "dayjs";
+import { createGitHubTools } from "@databuddy/ai/tools/github-tools";
+import { detectSignals, safeDeltaPercent } from "./detection";
+import { enrichSignals } from "./enrichment";
+import type { EnrichedSignal } from "./enrichment";
 import {
 	captureInsightsError,
 	emitInsightsEvent,
 	setInsightsLog,
 } from "./lib/evlog-insights";
 
-const LEGACY_TIMEOUT_MS = 60_000;
-const AGENT_TIMEOUT_MS = 120_000;
+const AGENT_TIMEOUT_MS = 90_000;
 const RECENT_INSIGHTS_PROMPT_LIMIT = 12;
-const DEFAULT_MAX_INSIGHTS = 3;
+const DEFAULT_MAX_INSIGHTS = 2;
 const TOOL_NAMES = [
 	"web_metrics",
 	"product_metrics",
@@ -307,7 +308,10 @@ ${lines.join("\n")}
 `;
 }
 
-function buildSystemPrompt(config: InsightGenerationConfigSnapshot): string {
+function buildSystemPrompt(
+	config: InsightGenerationConfigSnapshot,
+	options?: { investigationMode?: boolean }
+): string {
 	const targetCount = maxInsights(config);
 	const depthInstruction =
 		config.depth === "light"
@@ -329,10 +333,12 @@ You are Databuddy's analytics insights worker. Return up to ${targetCount} perio
 </configured_run>
 
 <selection_rules>
-- Write for a founder/operator, not an analytics engineer. Translate technical metrics into plain outcomes: "interactions got slower", "pages feel slower", "setup is leaking users", "one source now dominates traffic".
-- Prefer reliability, conversion/product impact, engagement quality, broken instrumentation, and meaningful behavior changes over vanity traffic spikes.
-- Score actionability times impact, not raw percentage magnitude. Reserve priority 8-10 for likely user, revenue, or operational impact.
-- Prefer fewer, sharper insights over broad coverage. Return only signals a user can act on this period.
+- Write for a founder who skims Slack in 10 seconds. Every insight must answer: "should I care, and what should I do?"
+- Titles must be direct and scannable. Lead with the outcome, not the metric. Good: "Checkout errors tripled after Tuesday's deploy". Bad: "Error rate shows concerning upward trend". Bad: "Session engagement softened".
+- Only surface signals that would change what someone does today. If the answer is "monitor it" or "keep watching", it's not worth reporting.
+- Prefer reliability risks, conversion impact, and customer health over vanity traffic changes. A 200% traffic spike from bots is noise. A 5% drop in checkout completion is a crisis.
+- Skip errors that are known, expected, or low-impact. Only flag errors that are NEW this period and affecting user-facing flows.
+- Prefer 1-2 high-signal insights over 3-5 mediocre ones. Silence is better than noise.
 - Avoid repeating recently reported narratives unless the signal materially changed.
 </selection_rules>
 
@@ -345,26 +351,167 @@ You are Databuddy's analytics insights worker. Return up to ${targetCount} perio
 </data_rules>
 
 <output_rules>
-- Return no more than ${targetCount} concise insights: reliability/product risk first, then engagement/acquisition opportunity. Do not make near-duplicates.
+- Return no more than ${targetCount} insights. Fewer is better. Do not pad to fill the count.
 - Each insight must be one clear signal with 1-5 metrics; primary metric first.
-- Metrics array owns the numbers. Description/suggestion should reference metric labels, not restate values.
-- Keep title under 80 chars, description under 320 chars, suggestion under 260 chars.
-- Titles must be plain English and user-facing. Do not put raw metric jargon like INP, LCP, FCP, TTFB, CLS, or p75 in titles; put technical metric names only in the metrics array.
-- Keep description 1-2 concise sentences: what changed, why it matters, and whether cause is evidence or hypothesis.
-- Suggestion must be a specific next action with an operational verb such as inspect, review, compare, segment, drill into, fix, audit, trace, or verify. Never use generic monitoring advice.
-- Suggestion must name the exact product surface to inspect next: funnel step, goal, referrer segment, page path, error class, session stream, web vital, flag rollout, or agent diagnostic prompt.
-- subjectKey must be stable; sources must include only evidence domains used; confidence 0-1 should reflect evidence strength.
-- impactSummary is optional, one sentence under 220 characters.
+- Title: under 80 chars. Start with what happened, not what metric moved. Use active voice. Include direction and magnitude when it fits. Examples: "Google traffic doubled, now 80% of all visitors", "Three new JS errors appeared after traffic surge", "Checkout page lost 25% of visitors this week". Never use hedging words like "concerning", "softened", "worth watching", "shows signs of". Never use raw metric jargon (INP, LCP, FCP, TTFB, CLS, p75) in titles.
+- Description: 1-2 sentences, under 480 chars. Say what changed and why it matters to the business. Do not restate numbers from the metrics array.
+- Suggestion: one specific action, under 400 chars. Name the exact surface to check (page, funnel step, referrer, error class). Never say "monitor", "watch", "keep an eye on", or "track closely".
+- Metrics array owns the numbers. Description references labels, not values.
+- subjectKey must be stable; sources must include only evidence domains used; confidence 0-1 reflects evidence strength.
 </output_rules>
 
 <quality_examples>
-Good: Error Rate rose while Sessions stayed stable -> reliability issue; suggest reviewing affected page/errors first.
-Good: INP p75 rose -> title "Interactions got slower"; metrics can still include "INP p75".
-Good: Onboarding step 2 drop-off is 80% -> title "Onboarding is leaking at step 2".
-Bad: Pricing Visitors rose -> "revenue opportunity" without business data.
-Bad: Twitter rose and Bounce Rate worsened -> "Twitter caused the drop" without segmented engagement data.
-Bad: "INP p75 still rising" as a title; users should not need to know web-vitals acronyms.
-</quality_examples>`;
+Good title: "Google traffic doubled, now drives 80% of all visits"
+Good title: "Three new JS errors appeared after this week's traffic spike"
+Good title: "Checkout page lost 25% of visitors since Tuesday"
+Good title: "/pricing page traffic dropped 16% while rest of site grew"
+Bad title: "Session engagement softened" (ambivalent, not scannable)
+Bad title: "Error rate shows concerning upward trend" (hedging, vague)
+Bad title: "Traffic changes worth monitoring" (not actionable)
+Bad title: "INP p75 still rising" (jargon)
+Bad title: "Bounce rate increased slightly" (who cares?)
+Bad: Reporting known/recurring errors as if they're new.
+Bad: "Monitor this" or "keep watching" as a suggestion.
+Bad: Flagging a traffic spike without checking if it's real users or bots.
+</quality_examples>${
+		options?.investigationMode
+			? `
+
+<investigation_rules>
+- Investigate the pre-computed signals. Do not generate additional observations unless they directly explain a detected signal.
+- Drop any signal that, after investigation, turns out to be noise (low absolute impact, known pattern, bot traffic, or no actionable root cause). Return fewer insights rather than padding with noise.
+- Cite statistical evidence for causal claims. Confidence above 0.7 requires temporal proximity, segment isolation, or corroborating signals.
+- Use rootCause to state the hypothesis concisely. Use evidence array for supporting data points.
+- Set investigationDepth to "investigated" when you used tools to validate, "surface" when reporting pre-computed data only.
+- If GitHub tools are available (github_repos, github_commits, github_deploys, github_pull_requests): check for code changes in the anomaly time window. Start with github_repos to find the repo, then github_commits with the since/until dates matching the anomaly window. If a commit correlates temporally, check github_pull_requests for context on what shipped.
+- When a metric change correlates with a deploy or merged PR, cite the specific commit SHA and PR title in the evidence array with type "temporal".
+</investigation_rules>`
+			: ""
+	}`;
+}
+
+function formatSignalBlock(signal: EnrichedSignal, index: number): string {
+	const method =
+		signal.method === "zscore"
+			? `z-score: ${signal.zScore}, severity: ${signal.severity}`
+			: `WoW, severity: ${signal.severity}`;
+	const header = `Signal ${index + 1}: ${signal.label} ${signal.direction === "up" ? "increased" : "dropped"} ${Math.abs(signal.deltaPercent).toFixed(1)}% (${method})`;
+	const baseline = `  Current: ${signal.current.toLocaleString()} | Baseline: ${signal.baseline.toLocaleString()}`;
+	const detected = `  Detected: ${signal.detectedAt}`;
+	const parts = [header, baseline, detected];
+
+	if (signal.segments.length > 0) {
+		parts.push("");
+		parts.push("  Segment analysis:");
+		for (const seg of signal.segments) {
+			const movers = seg.topMovers
+				.map(
+					(m) =>
+						`${m.name} ${m.deltaPercent > 0 ? "increased" : "dropped"} ${Math.abs(m.deltaPercent).toFixed(1)}%`
+				)
+				.join(", ");
+			parts.push(`  - ${seg.dimension}: ${movers}`);
+		}
+	}
+
+	if (signal.errorContext) {
+		const ec = signal.errorContext;
+		parts.push("");
+		parts.push(
+			`  Error context: Errors ${ec.deltaPercent > 0 ? "increased" : "decreased"} ${Math.abs(ec.deltaPercent).toFixed(0)}% (${ec.totalErrorsPrevious.toLocaleString()} -> ${ec.totalErrorsCurrent.toLocaleString()})`
+		);
+		if (ec.topNewErrors.length > 0) {
+			parts.push(`  - New errors: ${ec.topNewErrors.join(", ")}`);
+		}
+		if (ec.topSpikedErrors.length > 0) {
+			parts.push(`  - Spiked errors: ${ec.topSpikedErrors.join(", ")}`);
+		}
+	}
+
+	if (signal.annotations.length > 0) {
+		parts.push("");
+		parts.push("  Annotations in window:");
+		for (const annotation of signal.annotations) {
+			const tags =
+				annotation.tags.length > 0 ? ` [${annotation.tags.join(", ")}]` : "";
+			parts.push(`  - [${annotation.date}] "${annotation.title}"${tags}`);
+		}
+	}
+
+	if (signal.githubContext) {
+		const gc = signal.githubContext;
+		parts.push("");
+		parts.push(`  GitHub (${gc.repo}):`);
+		if (gc.commits.length > 0) {
+			parts.push(`  Recent commits (${gc.commits.length}):`);
+			for (const c of gc.commits.slice(0, 5)) {
+				parts.push(`  - [${c.date?.slice(0, 10)}] ${c.sha} ${c.message}`);
+			}
+		}
+		if (gc.recentPRs.length > 0) {
+			parts.push(`  Merged PRs (${gc.recentPRs.length}):`);
+			for (const pr of gc.recentPRs.slice(0, 5)) {
+				parts.push(
+					`  - #${pr.number} ${pr.title} (merged ${pr.mergedAt?.slice(0, 10)})`
+				);
+			}
+		}
+	}
+
+	return parts.join("\n");
+}
+
+function buildInvestigationPrompt(
+	enrichedSignals: EnrichedSignal[],
+	params: {
+		annotationContext: string;
+		config: InsightGenerationConfigSnapshot;
+		domain: string;
+		githubRepo?: { owner: string; repo: string };
+		orgContext: string;
+		period: WeekOverWeekPeriod;
+		recentInsightsBlock: string;
+		timezone: string;
+	}
+): string {
+	const { domain, period, timezone } = params;
+	const signalBlocks = enrichedSignals
+		.map((signal, i) => formatSignalBlock(signal, i))
+		.join("\n\n");
+
+	const githubInstruction = params.githubRepo
+		? `2. Call github_commits for ${params.githubRepo.owner}/${params.githubRepo.repo} with since/until dates matching the anomaly window. If commits correlate temporally with a metric change, check github_pull_requests for what shipped.`
+		: "2. If GitHub tools are available, call github_repos first, then github_commits with since/until dates matching the anomaly window.";
+
+	return `Investigating ${enrichedSignals.length} statistical anomalies detected on ${domain}.
+Period: ${period.current.from} to ${period.current.to} vs ${period.previous.from} to ${period.previous.to}
+Timezone: ${timezone}
+
+DETECTED SIGNALS (statistical evidence):
+
+${signalBlocks}
+
+The segment analysis above shows WHAT changed. Your job is to figure out WHY.
+
+INVESTIGATE each signal by querying deeper data. You MUST make at least 2 tool calls before concluding. Choose what to dig into based on the signal:
+- Errors or reliability: query recent_errors (stack traces + paths), errors_by_page, error_types
+- Engagement or session changes: query sessions_by_browser, sessions_by_device, entry_pages, exit_pages, page_time_analysis, session_metrics
+- Traffic or referrer shifts: query utm_campaigns, utm_sources, traffic_sources
+- Performance: query web_vitals_by_page, web_vitals_by_browser, web_vitals_by_country
+- Revenue: query revenue_overview, revenue_by_referrer, revenue_by_entry_page, recent_transactions
+- Product behavior: query custom_events_discovery, custom_events_trends
+- Geographic: query region for sub-country breakdown
+${githubInstruction}
+
+When your first query reveals something interesting, FOLLOW THE LEAD. If sessions_by_browser shows LinkedIn dropped 74%, check what happened to LinkedIn as a referrer. If recent_errors shows a specific error on /editor, check errors_by_page for other affected pages. Each follow-up query should narrow the root cause.
+
+After investigating, DROP signals that are noise. For signals worth reporting:
+- Explain the root cause with specific evidence from your queries
+- Cite specific numbers, paths, error messages, deploy IDs from the data
+- Write a title a founder can scan in 2 seconds
+- Suggest one concrete action naming the exact page, error, or component to fix
+
+${params.orgContext}${params.annotationContext}${params.recentInsightsBlock}`;
 }
 
 async function validateOrRepairInsights(
@@ -372,7 +519,6 @@ async function validateOrRepairInsights(
 	context: {
 		config: InsightGenerationConfigSnapshot;
 		domain: string;
-		mode: "agent" | "legacy";
 		organizationId: string;
 		websiteId: string;
 	}
@@ -382,7 +528,7 @@ async function validateOrRepairInsights(
 		emitInsightsEvent("warn", "generation.validation_warnings", {
 			organization_id: context.organizationId,
 			website_id: context.websiteId,
-			mode: context.mode,
+			
 			input_count: insights.length,
 			output_count: validated.insights.length,
 			warning_count: validated.warnings.length,
@@ -428,7 +574,7 @@ async function validateOrRepairInsights(
 				metadata: {
 					source: "insights_worker",
 					feature: "smart_insights",
-					mode: context.mode,
+					
 					organizationId: context.organizationId,
 					websiteId: context.websiteId,
 					websiteDomain: context.domain,
@@ -442,7 +588,7 @@ async function validateOrRepairInsights(
 			emitInsightsEvent("warn", "generation.repair.validation_warnings", {
 				organization_id: context.organizationId,
 				website_id: context.websiteId,
-				mode: context.mode,
+				
 				input_count: repairedOutput.length,
 				output_count: repaired.insights.length,
 				warning_count: repaired.warnings.length,
@@ -454,7 +600,7 @@ async function validateOrRepairInsights(
 			emitInsightsEvent("info", "generation.repair.completed", {
 				organization_id: context.organizationId,
 				website_id: context.websiteId,
-				mode: context.mode,
+				
 				duration_ms: Math.round(performance.now() - repairStartedAt),
 				input_count: insights.length,
 				output_count: repaired.insights.length,
@@ -465,7 +611,7 @@ async function validateOrRepairInsights(
 		captureInsightsError(error, "generation.repair.failed", {
 			organization_id: context.organizationId,
 			website_id: context.websiteId,
-			mode: context.mode,
+			
 			duration_ms: Math.round(performance.now() - repairStartedAt),
 			input_count: insights.length,
 			target_count: targetCount,
@@ -475,123 +621,10 @@ async function validateOrRepairInsights(
 	return validated.insights.slice(0, targetCount);
 }
 
-async function analyzeWebsiteLegacy(params: {
-	config: InsightGenerationConfigSnapshot;
-	domain: string;
-	organizationId: string;
-	orgSites: OrgWebsiteRow[];
-	period: WeekOverWeekPeriod;
-	recentInsightsBlock: string;
-	annotationContext: string;
-	userId: string;
-	websiteId: string;
-}): Promise<ParsedInsight[]> {
-	const startedAt = performance.now();
-	const currentRange = params.period.current;
-	const previousRange = params.period.previous;
-	const [current, previous] = await Promise.all([
-		fetchWebPeriodData(
-			params.websiteId,
-			params.domain,
-			currentRange.from,
-			currentRange.to,
-			params.config.timezone
-		),
-		fetchWebPeriodData(
-			params.websiteId,
-			params.domain,
-			previousRange.from,
-			previousRange.to,
-			params.config.timezone
-		),
-	]);
-
-	if (current.summary.length === 0 && current.topPages.length === 0) {
-		emitInsightsEvent("info", "generation.legacy.skipped_no_data", {
-			organization_id: params.organizationId,
-			website_id: params.websiteId,
-			duration_ms: Math.round(performance.now() - startedAt),
-		});
-		return [];
-	}
-
-	const dataSection = formatLegacyWebDataForPrompt(
-		current,
-		previous,
-		currentRange,
-		previousRange
-	);
-	const orgContext = formatOrgWebsitesContext(
-		params.orgSites,
-		params.websiteId
-	);
-	const prompt = `Analyze this website's period-over-period data and return insights.
-
-${orgContext}${dataSection}${params.annotationContext}${params.recentInsightsBlock}`;
-
-	try {
-		const ai = getAILogger();
-		const result = await generateText({
-			model: ai.wrap(modelForTier(params.config.modelTier)),
-			output: Output.object({ schema: insightsOutputSchema }),
-			messages: [
-				{
-					role: "system",
-					content: buildSystemPrompt(params.config),
-					providerOptions: ANTHROPIC_CACHE_1H,
-				},
-				{ role: "user", content: prompt },
-			],
-			temperature: 0.2,
-			maxOutputTokens: 8192,
-			abortSignal: AbortSignal.timeout(LEGACY_TIMEOUT_MS),
-			experimental_telemetry: {
-				isEnabled: true,
-				functionId: "databuddy.insights.worker.analyze_website",
-				metadata: {
-					source: "insights_worker",
-					feature: "smart_insights",
-					mode: "legacy_fallback",
-					organizationId: params.organizationId,
-					userId: params.userId,
-					websiteId: params.websiteId,
-					websiteDomain: params.domain,
-					timezone: params.config.timezone,
-				},
-			},
-		});
-
-		const validated = await validateOrRepairInsights(
-			result.output?.insights ?? [],
-			{
-				config: params.config,
-				domain: params.domain,
-				mode: "legacy",
-				organizationId: params.organizationId,
-				websiteId: params.websiteId,
-			}
-		);
-		emitInsightsEvent("info", "generation.legacy.completed", {
-			organization_id: params.organizationId,
-			website_id: params.websiteId,
-			duration_ms: Math.round(performance.now() - startedAt),
-			raw_output_count: result.output?.insights?.length ?? 0,
-			output_count: validated.length,
-		});
-		return validated;
-	} catch (error) {
-		captureInsightsError(error, "generation.legacy.failed", {
-			organization_id: params.organizationId,
-			website_id: params.websiteId,
-			duration_ms: Math.round(performance.now() - startedAt),
-		});
-		return [];
-	}
-}
-
 async function analyzeWebsite(params: {
 	config: InsightGenerationConfigSnapshot;
 	domain: string;
+	githubRepo?: { owner: string; repo: string };
 	organizationId: string;
 	orgSites: OrgWebsiteRow[];
 	period: WeekOverWeekPeriod;
@@ -626,6 +659,46 @@ async function analyzeWebsite(params: {
 		return [];
 	}
 
+	let enrichedSignals: EnrichedSignal[] = [];
+	try {
+		const signals = await detectSignals({
+			websiteId: params.websiteId,
+			lookbackDays: params.config.lookbackDays,
+			timezone: params.config.timezone,
+		});
+		if (signals.length > 0) {
+			let githubToken: string | null = null;
+			if (params.githubRepo) {
+				const [ghAccount] = await db
+					.select({ accessToken: account.accessToken })
+					.from(account)
+					.innerJoin(member, eq(member.userId, account.userId))
+					.where(
+						and(
+							eq(member.organizationId, params.organizationId),
+							eq(account.providerId, "github")
+						)
+					)
+					.limit(1);
+				githubToken = ghAccount?.accessToken ?? null;
+			}
+
+			enrichedSignals = await enrichSignals(signals, {
+				websiteId: params.websiteId,
+				timezone: params.config.timezone,
+				lookbackDays: params.config.lookbackDays,
+				githubRepo: params.githubRepo,
+				githubToken,
+			});
+		}
+	} catch (err) {
+		emitInsightsEvent("warn", "generation.detection_failed", {
+			error: String(err),
+		});
+	}
+
+	const investigationMode = enrichedSignals.length > 0;
+
 	const [annotationContext, recentInsightsBlock] = await Promise.all([
 		fetchRecentAnnotations(params.websiteId, params.config),
 		fetchRecentInsightsForPrompt(
@@ -640,7 +713,18 @@ async function analyzeWebsite(params: {
 		params.orgSites,
 		params.websiteId
 	);
-	const userPrompt = `Analyze this website's period-over-period data and produce insights.
+	const userPrompt = investigationMode
+		? buildInvestigationPrompt(enrichedSignals, {
+				domain: params.domain,
+				githubRepo: params.githubRepo,
+				period: params.period,
+				config: params.config,
+				timezone: params.config.timezone,
+				recentInsightsBlock,
+				annotationContext,
+				orgContext,
+			})
+		: `Analyze this website's period-over-period data and produce insights.
 
 **Current period:** ${currentRange.from} to ${currentRange.to}
 **Previous period:** ${previousRange.from} to ${previousRange.to}
@@ -653,18 +737,28 @@ Only call these enabled tools: ${allowedTools.join(", ")}.
 
 ${orgContext}${annotationContext}${recentInsightsBlock}`;
 
-	const { tools: allTools } = createInsightsAgentTools({
+	const { tools: analyticsTools } = createInsightsAgentTools({
 		websiteId: params.websiteId,
 		domain: params.domain,
 		timezone: params.config.timezone,
 		periodBounds: { current: currentRange, previous: previousRange },
 	});
+	const githubTools = investigationMode
+		? createGitHubTools({
+				organizationId: params.organizationId,
+				userId: params.userId,
+			})
+		: {};
+	const hasGitHub = investigationMode;
+	const allTools = { ...analyticsTools, ...githubTools };
 	const availableTools = Object.fromEntries(
-		Object.entries(allTools).filter(([name]) =>
-			allowedTools.includes(name as InsightGenerationTool)
+		Object.entries(allTools).filter(
+			([name]) =>
+				allowedTools.includes(name as InsightGenerationTool) ||
+				name.startsWith("github_")
 		)
-	) as Partial<typeof allTools>;
-	const activeToolNames = allowedTools.filter((name) => name in availableTools);
+	) as typeof allTools;
+	const activeToolNames = Object.keys(availableTools) as (keyof typeof availableTools)[];
 
 	try {
 		const appContext: AppContext = {
@@ -682,7 +776,7 @@ ${orgContext}${annotationContext}${recentInsightsBlock}`;
 		};
 		let toolCallCount = 0;
 		let executedToolCallCount = 0;
-		const maxToolCalls = Math.max(1, params.config.maxToolCalls);
+		const maxToolCalls = Math.max(1, params.config.maxToolCalls) + (hasGitHub ? 3 : 0);
 		const tools = withToolCallBudget(availableTools, (toolName) => {
 			if (executedToolCallCount >= maxToolCalls) {
 				throw new Error(
@@ -696,7 +790,7 @@ ${orgContext}${annotationContext}${recentInsightsBlock}`;
 			model: ai.wrap(modelForTier(params.config.modelTier)),
 			instructions: {
 				role: "system",
-				content: buildSystemPrompt(params.config),
+				content: buildSystemPrompt(params.config, { investigationMode }),
 				providerOptions: ANTHROPIC_CACHE_1H,
 			},
 			output: Output.object({ schema: insightsOutputSchema }),
@@ -743,7 +837,7 @@ ${orgContext}${annotationContext}${recentInsightsBlock}`;
 				metadata: {
 					source: "insights_worker",
 					feature: "smart_insights",
-					mode: "agent",
+					
 					organizationId: params.organizationId,
 					userId: params.userId,
 					websiteId: params.websiteId,
@@ -764,7 +858,7 @@ ${orgContext}${annotationContext}${recentInsightsBlock}`;
 			const validated = await validateOrRepairInsights(result.output.insights, {
 				config: params.config,
 				domain: params.domain,
-				mode: "agent",
+				
 				organizationId: params.organizationId,
 				websiteId: params.websiteId,
 			});
@@ -790,19 +884,16 @@ ${orgContext}${annotationContext}${recentInsightsBlock}`;
 			duration_ms: Math.round(performance.now() - startedAt),
 			tool_call_count: toolCallCount,
 		});
+		return [];
 	} catch (error) {
-		captureInsightsError(error, "generation.agent.failed_using_legacy", {
+		captureInsightsError(error, "generation.agent.failed", {
 			organization_id: params.organizationId,
 			website_id: params.websiteId,
 			duration_ms: Math.round(performance.now() - startedAt),
+			error_type: (error as Error).constructor?.name,
 		});
+		return [];
 	}
-
-	return analyzeWebsiteLegacy({
-		...params,
-		annotationContext,
-		recentInsightsBlock,
-	});
 }
 
 async function persistWebsiteInsights(params: {
@@ -881,6 +972,9 @@ async function persistWebsiteInsights(params: {
 			sources: insight.sources,
 			confidence: insight.confidence,
 			impactSummary: insight.impactSummary ?? null,
+			rootCause: insight.rootCause ?? null,
+			evidence: insight.evidence ?? null,
+			investigationDepth: insight.investigationDepth ?? null,
 			metrics:
 				insight.metrics.length > 0
 					? (insight.metrics as InsightMetricRow[])
@@ -924,6 +1018,9 @@ async function persistWebsiteInsights(params: {
 					sources: sql.raw("excluded.sources"),
 					confidence: sql.raw("excluded.confidence"),
 					impactSummary: sql.raw("excluded.impact_summary"),
+					rootCause: sql.raw("excluded.root_cause"),
+					evidence: sql.raw("excluded.evidence"),
+					investigationDepth: sql.raw("excluded.investigation_depth"),
 					metrics: sql.raw("excluded.metrics"),
 				},
 			});
@@ -947,6 +1044,9 @@ async function persistWebsiteInsights(params: {
 					sources: insight.sources,
 					confidence: insight.confidence,
 					impactSummary: insight.impactSummary ?? null,
+					rootCause: insight.rootCause ?? null,
+					evidence: insight.evidence ?? null,
+					investigationDepth: insight.investigationDepth ?? null,
 					metrics:
 						insight.metrics.length > 0
 							? (insight.metrics as InsightMetricRow[])
@@ -1040,7 +1140,12 @@ export async function generateWebsiteInsights(
 ): Promise<GenerateWebsiteInsightsResult> {
 	const startedAt = performance.now();
 	const [site] = await db
-		.select({ id: websites.id, name: websites.name, domain: websites.domain })
+		.select({
+			id: websites.id,
+			name: websites.name,
+			domain: websites.domain,
+			integrations: websites.integrations,
+		})
 		.from(websites)
 		.where(
 			and(
@@ -1083,9 +1188,14 @@ export async function generateWebsiteInsights(
 
 	const period = getComparisonPeriod(input.config.lookbackDays);
 	const userId = input.requestedByUserId ?? "insights-worker";
+	const ghIntegration = site.integrations?.github as
+		| { owner: string; repo: string }
+		| undefined;
+
 	const insights = await analyzeWebsite({
 		config: input.config,
 		domain: site.domain,
+		githubRepo: ghIntegration,
 		organizationId: input.organizationId,
 		orgSites,
 		period,
