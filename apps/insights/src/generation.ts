@@ -302,7 +302,8 @@ RULES:
 - Never use hedging words in titles (concerning, softened, slightly, worth watching).
 - Never say "monitor" or "watch" in suggestions. Name the exact page, error, or component to fix.
 - Do not invent causality. Cite evidence. Confidence > 0.7 requires segment isolation or temporal correlation.
-- Call emit_insight for each finding. Include rootCause, evidence array, and investigationDepth.${
+- Call emit_insight for each finding. Include rootCause, evidence array, and investigationDepth.
+- When you suspect a code change caused an issue, use github_search_code to check if the relevant code exists, github_commit_diff to see what changed, or github_read_file to inspect the current state.${
 		options?.investigationMode
 			? "\n- Investigate the detected signals using tools. Call emit_insight for each real finding. Drop noise."
 			: ""
