@@ -295,139 +295,51 @@ function buildSystemPrompt(
 				? "Actively cross-check web, product, ops, and business context when those tools are enabled. Prefer a fuller ranked set, but only when signals are distinct and data-backed."
 				: "Explore enough context to produce concise, distinct, high-confidence insights without over-querying.";
 
-	return `<role>
-You are Databuddy's analytics insights worker. Return up to ${targetCount} period-over-period insights when that many distinct data-backed signals exist. Rank by actionability and user/business impact.
-</role>
+	return `You are an analytics investigator. Return up to ${targetCount} insights ranked by business impact. ${depthInstruction}
 
-<configured_run>
-- Depth: ${config.depth}. ${depthInstruction}
-- Lookback period length: ${config.lookbackDays} day(s)
-- Take as many tool calls as you need to investigate thoroughly.
-</configured_run>
-
-<selection_rules>
-- Write for a founder who skims Slack in 10 seconds. Every insight must answer: "should I care, and what should I do?"
-- Titles must be direct and scannable. Lead with the outcome, not the metric. Good: "Checkout errors tripled after Tuesday's deploy". Bad: "Error rate shows concerning upward trend". Bad: "Session engagement softened".
-- Only surface signals that would change what someone does today. If the answer is "monitor it" or "keep watching", it's not worth reporting.
-- Prefer reliability risks, conversion impact, and customer health over vanity traffic changes. A 200% traffic spike from bots is noise. A 5% drop in checkout completion is a crisis.
-- Skip errors that are known, expected, or low-impact. Only flag errors that are NEW this period and affecting user-facing flows.
-- Prefer 1-2 high-signal insights over 3-5 mediocre ones. Silence is better than noise.
-- Avoid repeating recently reported narratives unless the signal materially changed.
-</selection_rules>
-
-<data_rules>
-- Use only provided data, tool results, annotations, and recent-insight context.
-- Do not invent revenue, signups, retention, funnel conversion, causality, root causes, or business impact.
-- If multiple org websites are listed, keep properties separate; cross-domain referrers are cross-property traffic, not generic referrals.
-- Use cautious language for correlations unless segment-level evidence directly proves the cause.
-- Do not punt, apologize, or say you cannot produce insights when any useful metrics exist. If one query is sparse, use stronger available evidence and lower confidence.
-</data_rules>
-
-<output_rules>
-- Return no more than ${targetCount} insights. Fewer is better. Do not pad to fill the count.
-- Each insight must be one clear signal with 1-5 metrics; primary metric first.
-- Title: under 80 chars. Start with what happened, not what metric moved. Use active voice. Include direction and magnitude when it fits. Examples: "Google traffic doubled, now 80% of all visitors", "Three new JS errors appeared after traffic surge", "Checkout page lost 25% of visitors this week". Never use hedging words like "concerning", "softened", "worth watching", "shows signs of". Never use raw metric jargon (INP, LCP, FCP, TTFB, CLS, p75) in titles.
-- Description: 1-2 sentences, under 480 chars. Say what changed and why it matters to the business. Do not restate numbers from the metrics array.
-- Suggestion: one specific action, under 400 chars. Name the exact surface to check (page, funnel step, referrer, error class). Never say "monitor", "watch", "keep an eye on", or "track closely".
-- Metrics array owns the numbers. Description references labels, not values.
-- subjectKey must be stable; sources must include only evidence domains used; confidence 0-1 reflects evidence strength.
-</output_rules>
-
-<quality_examples>
-Good title: "Google traffic doubled, now drives 80% of all visits"
-Good title: "Three new JS errors appeared after this week's traffic spike"
-Good title: "Checkout page lost 25% of visitors since Tuesday"
-Good title: "/pricing page traffic dropped 16% while rest of site grew"
-Bad title: "Session engagement softened" (ambivalent, not scannable)
-Bad title: "Error rate shows concerning upward trend" (hedging, vague)
-Bad title: "Traffic changes worth monitoring" (not actionable)
-Bad title: "INP p75 still rising" (jargon)
-Bad title: "Bounce rate increased slightly" (who cares?)
-Bad: Reporting known/recurring errors as if they're new.
-Bad: "Monitor this" or "keep watching" as a suggestion.
-Bad: Flagging a traffic spike without checking if it's real users or bots.
-</quality_examples>${
+RULES:
+- Write titles a founder can scan in 2 seconds. Lead with the outcome: "Checkout errors tripled after deploy" not "Error rate shows concerning trend".
+- Only report signals that would change what someone does today. Silence over noise.
+- Never use hedging words in titles (concerning, softened, slightly, worth watching).
+- Never say "monitor" or "watch" in suggestions. Name the exact page, error, or component to fix.
+- Do not invent causality. Cite evidence. Confidence > 0.7 requires segment isolation or temporal correlation.
+- Use rootCause for the hypothesis, evidence array for supporting data, investigationDepth for how deep you went.${
 		options?.investigationMode
-			? `
-
-<investigation_rules>
-- Investigate the pre-computed signals. Do not generate additional observations unless they directly explain a detected signal.
-- Drop any signal that, after investigation, turns out to be noise (low absolute impact, known pattern, bot traffic, or no actionable root cause). Return fewer insights rather than padding with noise.
-- Cite statistical evidence for causal claims. Confidence above 0.7 requires temporal proximity, segment isolation, or corroborating signals.
-- Use rootCause to state the hypothesis concisely. Use evidence array for supporting data points.
-- Set investigationDepth to "investigated" when you used tools to validate, "surface" when reporting pre-computed data only.
-- If GitHub tools are available (github_repos, github_commits, github_deploys, github_pull_requests): check for code changes in the anomaly time window. Start with github_repos to find the repo, then github_commits with the since/until dates matching the anomaly window. If a commit correlates temporally, check github_pull_requests for context on what shipped.
-- When a metric change correlates with a deploy or merged PR, cite the specific commit SHA and PR title in the evidence array with type "temporal".
-</investigation_rules>`
+			? "\n- Investigate the detected signals using tools. Drop noise after investigating. Fewer insights is better."
 			: ""
 	}`;
 }
 
 function formatSignalBlock(signal: EnrichedSignal, index: number): string {
-	const method =
-		signal.method === "zscore"
-			? `z-score: ${signal.zScore}, severity: ${signal.severity}`
-			: `WoW, severity: ${signal.severity}`;
-	const header = `Signal ${index + 1}: ${signal.label} ${signal.direction === "up" ? "increased" : "dropped"} ${Math.abs(signal.deltaPercent).toFixed(1)}% (${method})`;
-	const baseline = `  Current: ${signal.current.toLocaleString()} | Baseline: ${signal.baseline.toLocaleString()}`;
-	const detected = `  Detected: ${signal.detectedAt}`;
-	const parts = [header, baseline, detected];
+	const dir = signal.direction === "up" ? "+" : "-";
+	const method = signal.method === "zscore" ? `z=${signal.zScore}` : "WoW";
+	const parts = [
+		`${index + 1}. ${signal.label} ${dir}${Math.abs(signal.deltaPercent).toFixed(0)}% (${method}, ${signal.severity}) — ${signal.current.toLocaleString()} vs ${signal.baseline.toLocaleString()}`,
+	];
 
-	if (signal.segments.length > 0) {
-		parts.push("");
-		parts.push("  Segment analysis:");
-		for (const seg of signal.segments) {
-			const movers = seg.topMovers
-				.map(
-					(m) =>
-						`${m.name} ${m.deltaPercent > 0 ? "increased" : "dropped"} ${Math.abs(m.deltaPercent).toFixed(1)}%`
-				)
-				.join(", ");
-			parts.push(`  - ${seg.dimension}: ${movers}`);
-		}
+	for (const seg of signal.segments) {
+		parts.push(
+			`  ${seg.dimension}: ${seg.topMovers.map((m) => `${m.name} ${m.deltaPercent > 0 ? "+" : ""}${m.deltaPercent}%`).join(", ")}`
+		);
 	}
 
 	if (signal.errorContext) {
 		const ec = signal.errorContext;
-		parts.push("");
-		parts.push(
-			`  Error context: Errors ${ec.deltaPercent > 0 ? "increased" : "decreased"} ${Math.abs(ec.deltaPercent).toFixed(0)}% (${ec.totalErrorsPrevious.toLocaleString()} -> ${ec.totalErrorsCurrent.toLocaleString()})`
-		);
-		if (ec.topNewErrors.length > 0) {
-			parts.push(`  - New errors: ${ec.topNewErrors.join(", ")}`);
-		}
-		if (ec.topSpikedErrors.length > 0) {
-			parts.push(`  - Spiked errors: ${ec.topSpikedErrors.join(", ")}`);
-		}
+		parts.push(`  errors: ${ec.totalErrorsPrevious}->${ec.totalErrorsCurrent} (${ec.deltaPercent > 0 ? "+" : ""}${ec.deltaPercent}%)`);
+		if (ec.topNewErrors.length > 0) parts.push(`  new: ${ec.topNewErrors.join(", ")}`);
 	}
 
-	if (signal.annotations.length > 0) {
-		parts.push("");
-		parts.push("  Annotations in window:");
-		for (const annotation of signal.annotations) {
-			const tags =
-				annotation.tags.length > 0 ? ` [${annotation.tags.join(", ")}]` : "";
-			parts.push(`  - [${annotation.date}] "${annotation.title}"${tags}`);
-		}
+	for (const a of signal.annotations) {
+		parts.push(`  [${a.date}] ${a.title}`);
 	}
 
 	if (signal.githubContext) {
 		const gc = signal.githubContext;
-		parts.push("");
-		parts.push(`  GitHub (${gc.repo}):`);
-		if (gc.commits.length > 0) {
-			parts.push(`  Recent commits (${gc.commits.length}):`);
-			for (const c of gc.commits.slice(0, 5)) {
-				parts.push(`  - [${c.date?.slice(0, 10)}] ${c.sha} ${c.message}`);
-			}
+		for (const c of gc.commits.slice(0, 3)) {
+			parts.push(`  ${c.sha} ${c.message} (${c.date?.slice(0, 10)})`);
 		}
-		if (gc.recentPRs.length > 0) {
-			parts.push(`  Merged PRs (${gc.recentPRs.length}):`);
-			for (const pr of gc.recentPRs.slice(0, 5)) {
-				parts.push(
-					`  - #${pr.number} ${pr.title} (merged ${pr.mergedAt?.slice(0, 10)})`
-				);
-			}
+		for (const pr of gc.recentPRs.slice(0, 3)) {
+			parts.push(`  PR#${pr.number} ${pr.title} (${pr.mergedAt?.slice(0, 10)})`);
 		}
 	}
 
@@ -460,31 +372,13 @@ function buildInvestigationPrompt(
 Period: ${period.current.from} to ${period.current.to} vs ${period.previous.from} to ${period.previous.to}
 Timezone: ${timezone}
 
-DETECTED SIGNALS (statistical evidence):
+SIGNALS:
 
 ${signalBlocks}
 
-The segment analysis above shows WHAT changed. Your job is to figure out WHY. Take as many tool calls as you need. Do not stop until you have a root cause or have exhausted your leads.
+Segments show WHAT changed. Figure out WHY using web_metrics (use period="both" to compare) and execute_sql for cross-table analysis. Follow leads: if a browser dropped, check vitals for that browser. If errors spiked, get stack traces. ${githubInstruction}
 
-TOOLS:
-- web_metrics: 134 query types (summary_metrics, recent_errors, session_flow, interesting_sessions, web_vitals_by_page, revenue_by_referrer, custom_events_trends, and many more). Supports filters: path, country, device_type, browser_name, os_name, referrer, utm_source, utm_medium, utm_campaign.
-- execute_sql: Raw read-only ClickHouse SQL. Use for cross-table joins, session-level analysis, and anything web_metrics can't express. Tables: analytics.events (client_id, session_id, time, path, referrer, browser_name, device_type, country, region, event_name, scroll_depth, time_on_page), analytics.error_spans (client_id, session_id, timestamp, path, message, stack, error_type), analytics.web_vitals_spans (client_id, timestamp, path, metric_name, metric_value), analytics.custom_events (owner_id, event_name, timestamp, properties, session_id). Always filter by client_id = {websiteId:String}. Use {paramName:Type} placeholders. ClickHouse syntax: use quantileTDigest(0.5) not PERCENTILE, use uniq() not COUNT(DISTINCT), use toDate(time) for dates.
-${githubInstruction}
-
-INVESTIGATION STRATEGY:
-1. Start with web_metrics to understand the broad picture (summary_metrics, entry_pages, recent_errors, etc.)
-2. When you find a lead, DIG DEEPER with filtered queries or SQL. Examples:
-   - "Mobile bounce rate is 3x desktop" → query web_vitals_by_browser filtered to Mobile Chrome to check if performance is the cause
-   - "Error on /editor affects 42 users" → SQL: SELECT session_id, count() as errors, min(timestamp) as first_error FROM analytics.error_spans WHERE client_id = {websiteId:String} AND message LIKE '%disposed%' GROUP BY session_id ORDER BY errors DESC LIMIT 5
-   - "Traffic from Google doubled" → query utm_campaigns to see which campaigns, then SQL to check if those visitors convert differently
-3. Keep following leads until you can explain WHY, not just WHAT
-
-After investigating, DROP signals that are noise. For signals worth reporting:
-- Explain the root cause with specific evidence
-- Cite specific numbers, paths, error messages, deploy IDs, session counts
-- Write a title a founder can scan in 2 seconds
-- Suggest one concrete action naming the exact page, error, or component to fix
-
+Drop noise. Cite specific evidence.
 ${params.orgContext}${params.annotationContext}${params.recentInsightsBlock}`;
 }
 
@@ -698,17 +592,7 @@ async function analyzeWebsite(params: {
 				annotationContext,
 				orgContext,
 			})
-		: `Analyze this website's period-over-period data and produce insights.
-
-**Current period:** ${currentRange.from} to ${currentRange.to}
-**Previous period:** ${previousRange.from} to ${previousRange.to}
-**Timezone:** ${params.config.timezone}
-**Domain:** ${params.domain}
-
-Use web_metrics to pull metrics for both current and previous periods before inferring trends. Start with summary_metrics for both periods, then add top_pages, error_summary, top_referrers, country, browser_name, vitals_overview, or custom_events queries only when they sharpen the narrative. Use product_metrics for goals, funnels, retention, and custom event behavior when a traffic change may have downstream product impact. Use ops_context for page-level errors, uptime, anomaly signals, and recent flag rollouts when reliability or product changes may explain the trend. Use business_context for revenue totals, attribution, and product mix when commercial impact matters.
-
-Only call these enabled tools: ${allowedTools.join(", ")}.
-
+		: `Analyze ${params.domain} (${currentRange.from} to ${currentRange.to} vs ${previousRange.from} to ${previousRange.to}, ${params.config.timezone}). Use web_metrics with period="both" to compare periods efficiently.
 ${orgContext}${annotationContext}${recentInsightsBlock}`;
 
 	const { tools: analyticsTools } = createInsightsAgentTools({
