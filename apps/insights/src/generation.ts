@@ -10,7 +10,10 @@ import { validateInsights } from "@databuddy/ai/insights/validate";
 import { getAILogger } from "@databuddy/ai/lib/ai-logger";
 import { storeAnalyticsSummary } from "@databuddy/ai/lib/supermemory";
 import type { ParsedInsight } from "@databuddy/ai/schemas/smart-insights-output";
-import { insightsOutputSchema } from "@databuddy/ai/schemas/smart-insights-output";
+import {
+	insightSchema,
+	insightsOutputSchema,
+} from "@databuddy/ai/schemas/smart-insights-output";
 import { createInsightsAgentTools } from "@databuddy/ai/tools/insights-agent-tools";
 import {
 	and,
@@ -36,7 +39,7 @@ import {
 	invalidateAgentContextSnapshotsForWebsite,
 	invalidateInsightsCachesForOrganization,
 } from "@databuddy/redis";
-import { generateText, Output, stepCountIs, ToolLoopAgent } from "ai";
+import { generateText, Output, stepCountIs, tool, ToolLoopAgent } from "ai";
 import { randomUUIDv7 } from "bun";
 import dayjs from "dayjs";
 import { createGitHubTools } from "@databuddy/ai/tools/github-tools";
@@ -302,9 +305,9 @@ RULES:
 - Never use hedging words in titles (concerning, softened, slightly, worth watching).
 - Never say "monitor" or "watch" in suggestions. Name the exact page, error, or component to fix.
 - Do not invent causality. Cite evidence. Confidence > 0.7 requires segment isolation or temporal correlation.
-- Use rootCause for the hypothesis, evidence array for supporting data, investigationDepth for how deep you went.${
+- Call emit_insight for each finding. Include rootCause, evidence array, and investigationDepth.${
 		options?.investigationMode
-			? "\n- Investigate the detected signals using tools. Drop noise after investigating. Fewer insights is better."
+			? "\n- Investigate the detected signals using tools. Call emit_insight for each real finding. Drop noise."
 			: ""
 	}`;
 }
@@ -631,8 +634,21 @@ ${orgContext}${annotationContext}${recentInsightsBlock}`;
 				scopes: ["read:data"],
 			},
 		};
+
+		const collected: ParsedInsight[] = [];
+		const emitInsightTool = tool({
+			description:
+				"Call this when you have a finding worth reporting. Each call produces one insight. Call multiple times for multiple findings.",
+			inputSchema: insightSchema,
+			execute: async (insight) => {
+				collected.push(insight);
+				return `Insight recorded: "${insight.title}"`;
+			},
+		});
+
 		let toolCallCount = 0;
 		const ai = getAILogger();
+		const allToolsWithEmit = { ...availableTools, emit_insight: emitInsightTool };
 		const agent = new ToolLoopAgent({
 			model: ai.wrap(modelForTier(params.config.modelTier)),
 			instructions: {
@@ -640,8 +656,7 @@ ${orgContext}${annotationContext}${recentInsightsBlock}`;
 				content: buildSystemPrompt(params.config, { investigationMode }),
 				providerOptions: ANTHROPIC_CACHE_1H,
 			},
-			output: Output.object({ schema: insightsOutputSchema }),
-			tools: availableTools,
+			tools: allToolsWithEmit,
 			stopWhen: stepCountIs(params.config.maxSteps),
 			onStepFinish: ({ usage, finishReason, toolCalls }) => {
 				toolCallCount += toolCalls.length;
@@ -664,7 +679,6 @@ ${orgContext}${annotationContext}${recentInsightsBlock}`;
 				metadata: {
 					source: "insights_worker",
 					feature: "smart_insights",
-					
 					organizationId: params.organizationId,
 					userId: params.userId,
 					websiteId: params.websiteId,
@@ -676,15 +690,14 @@ ${orgContext}${annotationContext}${recentInsightsBlock}`;
 			},
 		});
 
-		const result = await agent.generate({
+		await agent.generate({
 			messages: [{ role: "user", content: userPrompt }],
 		});
 
-		if (result.output?.insights?.length) {
-			const validated = await validateOrRepairInsights(result.output.insights, {
+		if (collected.length > 0) {
+			const validated = await validateOrRepairInsights(collected, {
 				config: params.config,
 				domain: params.domain,
-				
 				organizationId: params.organizationId,
 				websiteId: params.websiteId,
 			});
@@ -692,7 +705,7 @@ ${orgContext}${annotationContext}${recentInsightsBlock}`;
 				organization_id: params.organizationId,
 				website_id: params.websiteId,
 				duration_ms: Math.round(performance.now() - startedAt),
-				raw_output_count: result.output.insights.length,
+				raw_output_count: collected.length,
 				output_count: validated.length,
 				tool_call_count: toolCallCount,
 			});

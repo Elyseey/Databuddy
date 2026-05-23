@@ -288,10 +288,126 @@ export function createGitHubTools(params: GitHubToolsParams) {
 		},
 	});
 
+	const readFileTool = tool({
+		description:
+			"Read a file from a GitHub repo. Use to inspect source code when investigating a bug or tracking issue. Returns the file content as text.",
+		inputSchema: z.object({
+			owner: z.string(),
+			repo: z.string(),
+			path: z.string().describe("File path in the repo (e.g. 'src/components/navbar.tsx')"),
+			ref: z.string().optional().describe("Branch, tag, or commit SHA. Defaults to the default branch."),
+		}),
+		execute: async ({ owner, repo, path, ref }) => {
+			const token = await getToken();
+			if (!token) return { error: "No GitHub account connected" };
+
+			const refParam = ref ? `?ref=${encodeURIComponent(ref)}` : "";
+			const data = await githubFetch(
+				`/repos/${owner}/${repo}/contents/${path}${refParam}`,
+				token
+			);
+
+			if (data && typeof data === "object" && "error" in data) return data;
+
+			const file = data as { content?: string; encoding?: string; size?: number; name?: string };
+			if (!file.content || file.encoding !== "base64") {
+				return { error: "File not found or not a regular file" };
+			}
+
+			const decoded = Buffer.from(file.content, "base64").toString("utf-8");
+			return {
+				path,
+				size: file.size,
+				content: decoded.length > 15000 ? `${decoded.slice(0, 15000)}\n…[truncated at 15KB]` : decoded,
+			};
+		},
+	});
+
+	const getCommitDiffTool = tool({
+		description:
+			"Get the diff for a specific commit. Use to see exactly what code changed. Returns the list of changed files with their patches.",
+		inputSchema: z.object({
+			owner: z.string(),
+			repo: z.string(),
+			sha: z.string().describe("Commit SHA (full or short)"),
+		}),
+		execute: async ({ owner, repo, sha }) => {
+			const token = await getToken();
+			if (!token) return { error: "No GitHub account connected" };
+
+			const data = await githubFetch(
+				`/repos/${owner}/${repo}/commits/${sha}`,
+				token
+			);
+
+			if (data && typeof data === "object" && "error" in data) return data;
+
+			const commit = data as {
+				sha: string;
+				commit: { message: string; author: { name: string; date: string } | null };
+				files?: Array<{ filename: string; status: string; additions: number; deletions: number; patch?: string }>;
+			};
+
+			const files = (commit.files ?? []).map((f) => ({
+				file: f.filename,
+				status: f.status,
+				additions: f.additions,
+				deletions: f.deletions,
+				patch: f.patch?.slice(0, 3000),
+			}));
+
+			return {
+				sha: commit.sha.slice(0, 7),
+				message: commit.commit.message.split("\n")[0],
+				author: commit.commit.author?.name,
+				date: commit.commit.author?.date,
+				filesChanged: files.length,
+				files,
+			};
+		},
+	});
+
+	const searchCodeTool = tool({
+		description:
+			"Search for code in a GitHub repo. Use to find where a function, event name, or component is defined or used.",
+		inputSchema: z.object({
+			owner: z.string(),
+			repo: z.string(),
+			query: z.string().describe("Search query (e.g. 'navbar-nav-click' or 'function handleCheckout')"),
+		}),
+		execute: async ({ owner, repo, query }) => {
+			const token = await getToken();
+			if (!token) return { error: "No GitHub account connected" };
+
+			const data = await githubFetch(
+				`/search/code?q=${encodeURIComponent(query)}+repo:${owner}/${repo}&per_page=10`,
+				token
+			);
+
+			if (data && typeof data === "object" && "error" in data) return data;
+
+			const result = data as {
+				total_count: number;
+				items: Array<{ name: string; path: string; html_url: string }>;
+			};
+
+			return {
+				totalResults: result.total_count,
+				matches: result.items.map((i) => ({
+					file: i.path,
+					name: i.name,
+				})),
+			};
+		},
+	});
+
 	return {
-		github_deploys: getRecentDeploysTool,
 		github_commits: getRecentCommitsTool,
+		github_commit_diff: getCommitDiffTool,
+		github_deploys: getRecentDeploysTool,
 		github_pull_requests: getRecentPullRequestsTool,
+		github_read_file: readFileTool,
 		github_repos: listReposTool,
+		github_search_code: searchCodeTool,
 	};
 }
