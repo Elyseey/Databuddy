@@ -290,7 +290,7 @@ Tables: analytics.events (client_id, session_id, time, path, referrer, browser_n
 
 ClickHouse rules: Use uniq(col) not COUNT(DISTINCT). quantileTDigest does NOT work on Decimal — cast first: quantileTDigest(0.5)(toFloat64(col)). Pageviews = event_name = 'screen_view'. Most tables use client_id = {websiteId:String}. Revenue and custom_events use owner_id = {websiteId:String} instead. Timestamps: time in events, timestamp in error_spans/vitals/custom_events. Use toDate(time) for grouping. No UNION/subqueries — use CTEs. Use {paramName:Type} placeholders only.
 
-Efficiency: include ALL dimensions you need in one query (path, country, referrer, device_type in one GROUP BY) instead of running separate queries per dimension. Use CTEs to compare periods in a single query. Example: WITH current AS (SELECT path, country, count() as pv FROM analytics.events WHERE client_id={websiteId:String} AND time >= {from:String} GROUP BY path, country), previous AS (...) SELECT ... to compare both periods at once.`,
+Efficiency: batch dimensions into one GROUP BY. Use CTEs for period comparison. Do NOT use aggregate functions in WHERE clauses. Do NOT use correlated subqueries in JOINs — flatten with CTEs. When joining events with custom_events, use session_id as the join key and remember custom_events uses owner_id not client_id.`,
 		inputSchema: z.object({
 			queries: z
 				.array(
