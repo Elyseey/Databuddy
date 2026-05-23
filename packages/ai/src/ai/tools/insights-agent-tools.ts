@@ -268,7 +268,11 @@ export function createInsightsAgentTools(
 
 	const sqlTool = tool({
 		description:
-			`Run read-only ClickHouse SQL for analysis that query builders can't do: session-level joins, path analysis, cross-table correlations, filtered aggregations. Must use {websiteId:String} in WHERE clause. Tables: analytics.events (client_id, session_id, time, path, referrer, browser_name, os_name, device_type, country, region, utm_source, event_name='screen_view' for pageviews), analytics.error_spans (client_id, session_id, timestamp, path, message, stack, error_type), analytics.web_vitals_spans (client_id, timestamp, path, metric_name, metric_value), analytics.custom_events (owner_id, event_name, timestamp, properties, session_id). Use {paramName:Type} placeholders, never string interpolation.`,
+			`Run read-only ClickHouse SQL for cross-table joins, session-level analysis, and queries web_metrics can't express. Use web_metrics first for standard queries — SQL is for complex analysis only.
+
+Tables: analytics.events (client_id, session_id, time, path, referrer, browser_name, device_type, country, region, event_name, time_on_page, scroll_depth), analytics.error_spans (client_id, session_id, timestamp, path, message, stack, error_type), analytics.web_vitals_spans (client_id, timestamp, path, metric_name, metric_value), analytics.custom_events (owner_id, event_name, timestamp, properties, session_id), analytics.revenue (owner_id, transaction_id, amount Decimal(18,4), currency, provider, type, customer_id, created).
+
+ClickHouse rules: Use uniq(col) not COUNT(DISTINCT). quantileTDigest does NOT work on Decimal — cast first: quantileTDigest(0.5)(toFloat64(col)). Pageviews = event_name = 'screen_view'. Website ID column = client_id (not website_id). Revenue uses owner_id not client_id. Timestamps: time in events, timestamp in error_spans/vitals. Use toDate(time) for grouping. No UNION/subqueries — use CTEs. Use {paramName:Type} placeholders only.`,
 		inputSchema: z.object({
 			sql: z.string().describe("Read-only ClickHouse SQL with {websiteId:String} filter"),
 			params: z.record(z.string(), z.unknown()).optional(),

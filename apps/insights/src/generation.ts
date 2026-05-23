@@ -49,7 +49,7 @@ import {
 	setInsightsLog,
 } from "./lib/evlog-insights";
 
-const AGENT_TIMEOUT_MS = 90_000;
+const AGENT_TIMEOUT_MS = 60_000;
 const RECENT_INSIGHTS_PROMPT_LIMIT = 12;
 const DEFAULT_MAX_INSIGHTS = 2;
 const TOOL_NAMES = [
@@ -58,31 +58,6 @@ const TOOL_NAMES = [
 	"ops_context",
 	"business_context",
 ] as const satisfies readonly InsightGenerationTool[];
-
-interface ExecutableTool {
-	execute?: (...args: never[]) => unknown;
-}
-
-function withToolCallBudget<T extends object>(
-	tools: T,
-	onExecute: (toolName: string) => void
-): T {
-	return Object.fromEntries(
-		Object.entries(tools).map(([name, tool]) => {
-			const executable = tool as ExecutableTool;
-			return [
-				name,
-				{
-					...(tool as object),
-					execute: (...args: never[]) => {
-						onExecute(name);
-						return executable.execute?.(...args);
-					},
-				},
-			];
-		})
-	) as T;
-}
 
 interface OrgWebsiteRow {
 	domain: string;
@@ -326,10 +301,8 @@ You are Databuddy's analytics insights worker. Return up to ${targetCount} perio
 
 <configured_run>
 - Depth: ${config.depth}. ${depthInstruction}
-- Max model/tool-loop steps: ${config.maxSteps}
-- Max requested tool calls: ${config.maxToolCalls}
 - Lookback period length: ${config.lookbackDays} day(s)
-- Enabled tools: ${normalizeAllowedTools(config.allowedTools).join(", ")}
+- Take as many tool calls as you need to investigate thoroughly.
 </configured_run>
 
 <selection_rules>
@@ -491,19 +464,25 @@ DETECTED SIGNALS (statistical evidence):
 
 ${signalBlocks}
 
-The segment analysis above shows WHAT changed. Your job is to figure out WHY.
+The segment analysis above shows WHAT changed. Your job is to figure out WHY. Take as many tool calls as you need. Do not stop until you have a root cause or have exhausted your leads.
 
-You have 134 query types available via web_metrics and raw SQL via execute_sql. You MUST make at least 2 tool calls before concluding.
-
-INVESTIGATE by following leads:
-1. Start with the most relevant deep-dive query for the signal type (recent_errors for error signals, sessions_by_browser for engagement, entry_pages for traffic shifts, etc.)
-2. When you find something interesting, DIG DEEPER. If a browser dropped, filter by that browser. If an error is on /editor, query errors_by_page to check spread. If a country spiked, query region to see which cities.
-3. You can filter any web_metrics query by path, country, device_type, browser_name, os_name, referrer, utm_source, utm_medium, utm_campaign.
-4. For cross-table analysis that web_metrics can't do (e.g. "do users who hit this error have shorter sessions?" or "what path did users take before hitting this error?"), use execute_sql with raw ClickHouse SQL. Prefer web_metrics for standard queries — execute_sql is for joins and complex analysis only.
+TOOLS:
+- web_metrics: 134 query types (summary_metrics, recent_errors, session_flow, interesting_sessions, web_vitals_by_page, revenue_by_referrer, custom_events_trends, and many more). Supports filters: path, country, device_type, browser_name, os_name, referrer, utm_source, utm_medium, utm_campaign.
+- execute_sql: Raw read-only ClickHouse SQL. Use for cross-table joins, session-level analysis, and anything web_metrics can't express. Tables: analytics.events (client_id, session_id, time, path, referrer, browser_name, device_type, country, region, event_name, scroll_depth, time_on_page), analytics.error_spans (client_id, session_id, timestamp, path, message, stack, error_type), analytics.web_vitals_spans (client_id, timestamp, path, metric_name, metric_value), analytics.custom_events (owner_id, event_name, timestamp, properties, session_id). Always filter by client_id = {websiteId:String}. Use {paramName:Type} placeholders. ClickHouse syntax: use quantileTDigest(0.5) not PERCENTILE, use uniq() not COUNT(DISTINCT), use toDate(time) for dates.
 ${githubInstruction}
 
+INVESTIGATION STRATEGY:
+1. Start with web_metrics to understand the broad picture (summary_metrics, entry_pages, recent_errors, etc.)
+2. When you find a lead, DIG DEEPER with filtered queries or SQL. Examples:
+   - "Mobile bounce rate is 3x desktop" → query web_vitals_by_browser filtered to Mobile Chrome to check if performance is the cause
+   - "Error on /editor affects 42 users" → SQL: SELECT session_id, count() as errors, min(timestamp) as first_error FROM analytics.error_spans WHERE client_id = {websiteId:String} AND message LIKE '%disposed%' GROUP BY session_id ORDER BY errors DESC LIMIT 5
+   - "Traffic from Google doubled" → query utm_campaigns to see which campaigns, then SQL to check if those visitors convert differently
+3. Keep following leads until you can explain WHY, not just WHAT
+
+When you have enough evidence to explain the root cause, STOP QUERYING and produce your findings. Do not keep running queries hoping for more data. 3-6 tool calls is usually enough for a thorough investigation.
+
 After investigating, DROP signals that are noise. For signals worth reporting:
-- Explain the root cause with specific evidence from your queries
+- Explain the root cause with specific evidence
 - Cite specific numbers, paths, error messages, deploy IDs, session counts
 - Write a title a founder can scan in 2 seconds
 - Suggest one concrete action naming the exact page, error, or component to fix
@@ -773,16 +752,6 @@ ${orgContext}${annotationContext}${recentInsightsBlock}`;
 			},
 		};
 		let toolCallCount = 0;
-		let executedToolCallCount = 0;
-		const maxToolCalls = Math.max(1, params.config.maxToolCalls) + (hasGitHub ? 3 : 0);
-		const tools = withToolCallBudget(availableTools, (toolName) => {
-			if (executedToolCallCount >= maxToolCalls) {
-				throw new Error(
-					`Insight generation tool-call budget exceeded before ${toolName}`
-				);
-			}
-			executedToolCallCount += 1;
-		});
 		const ai = getAILogger();
 		const agent = new ToolLoopAgent({
 			model: ai.wrap(modelForTier(params.config.modelTier)),
@@ -792,27 +761,8 @@ ${orgContext}${annotationContext}${recentInsightsBlock}`;
 				providerOptions: ANTHROPIC_CACHE_1H,
 			},
 			output: Output.object({ schema: insightsOutputSchema }),
-			tools,
-			stopWhen: stepCountIs(
-				Math.max(
-					1,
-					Math.min(params.config.maxSteps, params.config.maxToolCalls + 2)
-				)
-			),
-			prepareStep: ({ stepNumber }) => {
-				const remainingToolCalls = maxToolCalls - executedToolCallCount;
-				if (remainingToolCalls <= 0) {
-					return { activeTools: [] };
-				}
-				const activeTools = activeToolNames.slice(0, remainingToolCalls);
-				if (stepNumber === 0 && activeTools.includes("web_metrics")) {
-					return {
-						activeTools: ["web_metrics"],
-						toolChoice: { type: "tool", toolName: "web_metrics" },
-					};
-				}
-				return { activeTools };
-			},
+			tools: availableTools,
+			stopWhen: stepCountIs(params.config.maxSteps),
 			onStepFinish: ({ usage, finishReason, toolCalls }) => {
 				toolCallCount += toolCalls.length;
 				emitInsightsEvent("info", "generation.agent.step_finished", {
@@ -824,7 +774,6 @@ ${orgContext}${annotationContext}${recentInsightsBlock}`;
 					),
 					total_tokens: usage?.totalTokens,
 					tool_call_count: toolCallCount,
-					executed_tool_call_count: executedToolCallCount,
 				});
 			},
 			temperature: 0.2,
