@@ -93,66 +93,82 @@ export function createInsightsAgentTools(
 
 	const webMetricsTool = tool({
 		description:
-			`Query any analytics data for the current or previous period. Batch up to 8 queries per call. ${ALL_QUERY_TYPES.length} query types available including: summary_metrics, top_pages, entry_pages, exit_pages, recent_errors (stack traces), errors_by_page, error_types, session_flow, session_list, interesting_sessions, sessions_by_device, sessions_by_browser, web_vitals_by_page, web_vitals_by_browser, revenue_overview, revenue_by_referrer, custom_events_discovery, custom_events_trends, country, region, city, utm_campaigns, device_types, and many more. You can filter any query by path, country, device_type, browser_name, os_name, referrer, utm_source, utm_medium, utm_campaign to segment the data.`,
+			`Query analytics data. Batch up to 8 queries per call. Use period="both" to compare current vs previous in one call. ${ALL_QUERY_TYPES.length} query types available: summary_metrics, top_pages, entry_pages, exit_pages, recent_errors, errors_by_page, error_types, session_flow, interesting_sessions, sessions_by_device, sessions_by_browser, web_vitals_by_page, web_vitals_by_browser, revenue_overview, revenue_by_referrer, custom_events_discovery, custom_events_trends, country, region, city, utm_campaigns, device_types, and many more. Filter any query by path, country, device_type, browser_name, os_name, referrer, utm_source, utm_medium, utm_campaign.`,
 		inputSchema: z.object({
 			period: z
-				.enum(["current", "previous"])
-				.describe("Which period to query"),
+				.enum(["current", "previous", "both"])
+				.describe("Which period to query. Use 'both' to get current and previous in one call for comparison."),
 			queries: z.array(singleQuerySchema).min(1).max(MAX_QUERIES_PER_CALL),
 		}),
 		execute: async ({ period, queries }) => {
-			const range =
-				period === "current"
-					? params.periodBounds.current
-					: params.periodBounds.previous;
+			const periods =
+				period === "both"
+					? [
+							{ label: "current", range: params.periodBounds.current },
+							{ label: "previous", range: params.periodBounds.previous },
+						]
+					: [
+							{
+								label: period,
+								range:
+									period === "current"
+										? params.periodBounds.current
+										: params.periodBounds.previous,
+							},
+						];
 
 			const results: Array<{
+				period?: string;
 				type: string;
 				rowCount: number;
 				data: unknown[];
 			}> = [];
 
-			for (const q of queries) {
-				if (!isValidQueryType(q.type)) {
-					results.push({ type: q.type, rowCount: 0, data: [] });
-					continue;
-				}
+			for (const p of periods) {
+				for (const q of queries) {
+					if (!isValidQueryType(q.type)) {
+						results.push({ period: p.label, type: q.type, rowCount: 0, data: [] });
+						continue;
+					}
 
-				const limit = q.limit ?? DEFAULT_LIMIT;
-				const filters = q.filters?.map((f) => ({
-					field: f.field,
-					operator: "equals" as const,
-					value: f.value,
-				}));
-				const req: QueryRequest = {
-					projectId: params.websiteId,
-					type: q.type,
-					from: range.from,
-					to: range.to,
-					timezone: params.timezone,
-					limit,
-					filters,
-				};
+					const limit = q.limit ?? DEFAULT_LIMIT;
+					const filters = q.filters?.map((f) => ({
+						field: f.field,
+						operator: "equals" as const,
+						value: f.value,
+					}));
+					const req: QueryRequest = {
+						projectId: params.websiteId,
+						type: q.type,
+						from: p.range.from,
+						to: p.range.to,
+						timezone: params.timezone,
+						limit,
+						filters,
+					};
 
-				try {
-					const data = (await runQueryWithTimeout(`web_metrics:${q.type}`, () =>
-						executeQuery(req, params.domain, params.timezone)
-					)) as Record<string, unknown>[];
-					results.push({
-						type: q.type,
-						rowCount: Array.isArray(data) ? data.length : 0,
-						data: Array.isArray(data) ? data : [],
-					});
-				} catch {
-					results.push({
-						type: q.type,
-						rowCount: 0,
-						data: [],
-					});
+					try {
+						const data = (await runQueryWithTimeout(`web_metrics:${q.type}`, () =>
+							executeQuery(req, params.domain, params.timezone)
+						)) as Record<string, unknown>[];
+						results.push({
+							period: p.label,
+							type: q.type,
+							rowCount: Array.isArray(data) ? data.length : 0,
+							data: Array.isArray(data) ? data : [],
+						});
+					} catch {
+						results.push({
+							period: p.label,
+							type: q.type,
+							rowCount: 0,
+							data: [],
+						});
+					}
 				}
 			}
 
-			return truncatePayload({ period, range, results });
+			return truncatePayload({ period, results });
 		},
 	});
 
@@ -272,19 +288,43 @@ export function createInsightsAgentTools(
 
 Tables: analytics.events (client_id, session_id, time, path, referrer, browser_name, device_type, country, region, event_name, time_on_page, scroll_depth, utm_source, utm_medium, utm_campaign), analytics.error_spans (client_id, session_id, timestamp, path, message, stack, error_type), analytics.web_vitals_spans (client_id, timestamp, path, metric_name, metric_value), analytics.custom_events (owner_id, event_name, timestamp, properties JSON, session_id), analytics.revenue (owner_id, transaction_id, amount Decimal(18,4), currency, provider, type, customer_id, created), analytics.blocked_traffic (client_id, timestamp, block_reason, bot_name, path), analytics.outgoing_links (client_id, timestamp, path, href, text).
 
-ClickHouse rules: Use uniq(col) not COUNT(DISTINCT). quantileTDigest does NOT work on Decimal — cast first: quantileTDigest(0.5)(toFloat64(col)). Pageviews = event_name = 'screen_view'. Most tables use client_id = {websiteId:String}. Revenue and custom_events use owner_id = {websiteId:String} instead. Timestamps: time in events, timestamp in error_spans/vitals/custom_events. Use toDate(time) for grouping. No UNION/subqueries — use CTEs. Use {paramName:Type} placeholders only.`,
+ClickHouse rules: Use uniq(col) not COUNT(DISTINCT). quantileTDigest does NOT work on Decimal — cast first: quantileTDigest(0.5)(toFloat64(col)). Pageviews = event_name = 'screen_view'. Most tables use client_id = {websiteId:String}. Revenue and custom_events use owner_id = {websiteId:String} instead. Timestamps: time in events, timestamp in error_spans/vitals/custom_events. Use toDate(time) for grouping. No UNION/subqueries — use CTEs. Use {paramName:Type} placeholders only.
+
+Efficiency: include ALL dimensions you need in one query (path, country, referrer, device_type in one GROUP BY) instead of running separate queries per dimension. Use CTEs to compare periods in a single query. Example: WITH current AS (SELECT path, country, count() as pv FROM analytics.events WHERE client_id={websiteId:String} AND time >= {from:String} GROUP BY path, country), previous AS (...) SELECT ... to compare both periods at once.`,
 		inputSchema: z.object({
-			sql: z.string().describe("Read-only ClickHouse SQL with {websiteId:String} filter"),
-			params: z.record(z.string(), z.unknown()).optional(),
+			queries: z
+				.array(
+					z.object({
+						label: z.string().describe("Short label for this query (e.g. 'error_sessions', 'daily_traffic')"),
+						sql: z.string().describe("Read-only ClickHouse SQL"),
+						params: z.record(z.string(), z.unknown()).optional(),
+					})
+				)
+				.min(1)
+				.max(5)
+				.describe("One or more SQL queries to run in parallel. Batch related queries into one call."),
 		}),
-		execute: async ({ sql, params: sqlParams }) => {
-			const result = await executeAgentSqlForWebsite({
-				websiteId: params.websiteId,
-				websiteDomain: params.domain,
-				sql,
-				params: sqlParams,
-			});
-			return truncatePayload(result);
+		execute: async ({ queries }) => {
+			const results = await Promise.all(
+				queries.map(async (q) => {
+					try {
+						const result = await executeAgentSqlForWebsite({
+							websiteId: params.websiteId,
+							websiteDomain: params.domain,
+							sql: q.sql,
+							params: q.params,
+						});
+						return { label: q.label, ...result };
+					} catch (err: any) {
+						return {
+							label: q.label,
+							error: err.message?.slice(0, 200) ?? "Query failed",
+							data: [],
+						};
+					}
+				})
+			);
+			return truncatePayload(results);
 		},
 	});
 
