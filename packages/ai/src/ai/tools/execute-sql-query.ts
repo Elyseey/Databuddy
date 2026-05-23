@@ -70,15 +70,19 @@ export async function executeAgentSqlForWebsite({
 }
 
 export const executeSqlQueryTool = tool({
-	description: `Use only for explicit analytics questions that cannot be answered by get_data query builders, such as session-level joins, ordered path analysis, or cross-table correlations. Do not use for greetings, thanks, acknowledgments, short reactions, clarification-only replies, frustration, or meta-conversation about the assistant/chat. Read-only ClickHouse SQL (SELECT/WITH only). Must use {paramName:Type} placeholders (no string interpolation) and filter by client_id = {websiteId:String} AND-ed at the top level of every WHERE clause. The current website is bound server-side; tool arguments named websiteId or websiteDomain are ignored. UNION, INTERSECT, EXCEPT, subqueries, and comma-joins are not allowed — use CTEs (WITH ... AS (...)) instead.
+	description: `Read-only ClickHouse SQL for session-level joins, path analysis, or cross-table correlations. Prefer get_data query builders for anything they cover. SELECT/WITH only, CTEs instead of subqueries/UNION.
 
-Canonical analytics.events schema: client_id, anonymous_id, session_id, time, path, referrer, browser_name, os_name, device_type, country, region, city, utm_source, utm_medium, utm_campaign, utm_term, utm_content, load_time, time_on_page, scroll_depth, properties, event_name.
+Tenant filter: every WHERE needs client_id = {websiteId:String} (for events, error_spans, vitals, blocked_traffic) or owner_id = {websiteId:String} (for custom_events, revenue). Use {paramName:Type} placeholders only.
 
-Critical schema footguns: website id column is client_id (not website_id); timestamp is time (not created_at); page URL path is path (not page_path); event discriminator is event_name (not event_type); pageviews are event_name = 'screen_view' (never 'pageview').
+Tables:
+- analytics.events: session_id, time, path, referrer, browser_name, os_name, device_type, country, region, city, utm_source, utm_medium, utm_campaign, time_on_page, scroll_depth, event_name
+- analytics.error_spans: session_id, timestamp, path, message, filename, lineno, stack, error_type
+- analytics.web_vitals_spans: timestamp, path, metric_name (FCP/LCP/CLS/INP/TTFB/FPS), metric_value
+- analytics.custom_events: event_name, timestamp, properties (JSON), session_id
+- analytics.revenue: transaction_id, amount Decimal(18,4), currency, provider, type, customer_id, created
+- analytics.outgoing_links: timestamp, path, href, text
 
-Other tables: analytics.error_spans (client_id, session_id, timestamp, path, message, filename, lineno, stack, error_type), analytics.web_vitals_spans (client_id, timestamp, path, metric_name FCP/LCP/CLS/INP/TTFB/FPS, metric_value), analytics.outgoing_links (client_id, timestamp, path, href, text). Custom events are in analytics.custom_events and are easy to query incorrectly — use get_data custom_events_* builders instead. Prefer get_data query builders for anything they cover.
-
-Aggregate function preferences: use quantileTDigest(p)(col) not quantile(p)(col) — the default quantile uses reservoir sampling and is ~10% off at p99. Use uniqCombined64(col) instead of uniqExact(col) for visitor/session/path distinct counts (same ~0.3% error as default uniq, ~6× less memory than uniqExact). Reserve uniqExact for cases where an exact count is required.`,
+Gotchas: timestamp column is "time" in events, "timestamp" elsewhere. Pageviews = event_name = 'screen_view'. Use uniq() not COUNT(DISTINCT). quantileTDigest on Decimal needs toFloat64() cast.`,
 	strict: true,
 	inputSchema: z.object({
 		sql: z

@@ -32,12 +32,11 @@ describe("validateAgentSQL", () => {
 		expect(result.reason).toContain("alias");
 	});
 
-	it("rejects analytics tables outside the agent allowlist", () => {
+	it("accepts custom_events with owner_id tenant filter", () => {
 		const result = validateAgentSQL(
-			`SELECT event_name, count() FROM analytics.custom_events ${TENANT}`
+			"SELECT event_name, count() FROM analytics.custom_events WHERE owner_id = {websiteId:String} GROUP BY event_name"
 		);
-		expect(result.valid).toBe(false);
-		expect(result.reason).toContain("not in the agent allowlist");
+		expect(result.valid).toBe(true);
 	});
 
 	it("rejects inline SETTINGS that could override server-side tenant filter", () => {
@@ -72,12 +71,14 @@ describe("validateAgentSQL", () => {
 		expect(out).toBe("{'analytics.events':'client_id=''O''''Brien'''}");
 	});
 
-	it("buildAdditionalTableFilters drops tables not in the allowlist", () => {
+	it("buildAdditionalTableFilters maps correct tenant columns and drops unknown tables", () => {
 		const out = buildAdditionalTableFilters(
 			["analytics.events", "analytics.custom_events", "analytics.unknown"],
 			"abc"
 		);
-		expect(out).toBe("{'analytics.events':'client_id=''abc'''}");
+		expect(out).toBe(
+			"{'analytics.events':'client_id=''abc''','analytics.custom_events':'owner_id=''abc'''}"
+		);
 	});
 
 	it("extractAllowlistedTables returns only allowlisted analytics tables", () => {
@@ -98,6 +99,10 @@ describe("validateAgentSQL", () => {
 			"analytics.error_spans": "client_id",
 			"analytics.web_vitals_spans": "client_id",
 			"analytics.outgoing_links": "client_id",
+			"analytics.custom_events": "owner_id",
+			"analytics.revenue": "owner_id",
+			"analytics.blocked_traffic": "client_id",
+			"analytics.link_visits": "client_id",
 		});
 	});
 

@@ -229,9 +229,15 @@ export function createInsightsAgentTools(
 	const sqlTool = tool({
 		description: `Raw ClickHouse SQL for cross-table joins and complex analysis. Use web_metrics first.
 
-Tables: analytics.events (client_id, session_id, time, path, referrer, browser_name, device_type, country, region, event_name, time_on_page, scroll_depth, utm_source, utm_medium, utm_campaign), analytics.error_spans (client_id, session_id, timestamp, path, message, stack, error_type), analytics.web_vitals_spans (client_id, timestamp, path, metric_name, metric_value), analytics.custom_events (owner_id, event_name, timestamp, properties JSON, session_id), analytics.revenue (owner_id, transaction_id, amount Decimal(18,4), currency, provider, type, customer_id, created), analytics.blocked_traffic (client_id, timestamp, block_reason, bot_name, path).
+Tables (all filtered by website automatically):
+- analytics.events: session_id, time, path, referrer, browser_name, device_type, country, region, event_name, time_on_page, scroll_depth, utm_source, utm_medium, utm_campaign
+- analytics.error_spans: session_id, timestamp, path, message, stack, error_type
+- analytics.web_vitals_spans: timestamp, path, metric_name, metric_value
+- analytics.custom_events: event_name, timestamp, properties (JSON), session_id
+- analytics.revenue: transaction_id, amount Decimal(18,4), currency, provider, type, customer_id, created
+- analytics.blocked_traffic: timestamp, block_reason, bot_name, path
 
-Rules: uniq() not COUNT(DISTINCT). quantileTDigest on Decimal requires toFloat64() cast. event_name='screen_view' for pageviews. client_id={websiteId:String} for most tables, owner_id={websiteId:String} for revenue/custom_events. time in events, timestamp in error_spans/vitals. No aggregates in WHERE. No correlated subqueries in JOINs — use CTEs. {paramName:Type} placeholders only.`,
+Every WHERE clause needs a tenant filter: use client_id = {websiteId:String} for events/error_spans/vitals/blocked_traffic, or owner_id = {websiteId:String} for custom_events/revenue. Use uniq() not COUNT(DISTINCT). quantileTDigest on Decimal needs toFloat64() cast. Pageviews = event_name = 'screen_view'. Timestamp column is "time" in events, "timestamp" in other tables. No aggregates in WHERE. No correlated subqueries — use CTEs. {paramName:Type} placeholders only.`,
 		inputSchema: z.object({
 			queries: z
 				.array(

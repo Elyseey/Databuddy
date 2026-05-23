@@ -49,9 +49,10 @@ const SELECT_OR_WITH_PATTERN = /^\s*(?:SELECT|WITH)\b/i;
 const CTE_PATTERN = /(?:\bWITH\b|,)\s*([a-zA-Z_][a-zA-Z0-9_]*)\s+AS\s*\(/gi;
 const RELATION_PATTERN =
 	/\b(?:FROM|JOIN)\s+(`[^`]+`|"[^"]+"|[a-zA-Z_][a-zA-Z0-9_.]*)(\s*\()?(?:\s+(?:AS\s+)?(?!ON\b|JOIN\b|LEFT\b|RIGHT\b|FULL\b|INNER\b|OUTER\b|CROSS\b|ASOF\b|ANY\b|ALL\b|SEMI\b|ANTI\b|ARRAY\b|FINAL\b|USING\b|WHERE\b|PREWHERE\b|GROUP\b|ORDER\b|HAVING\b|LIMIT\b|OFFSET\b|SETTINGS\b|WINDOW\b)([a-zA-Z_][a-zA-Z0-9_]*))?/gi;
-const TENANT_FILTER_PATTERN = /\bclient_id\s*=\s*\{websiteId\s*:\s*String\}/i;
+const TENANT_FILTER_PATTERN =
+	/\b(?:client_id|owner_id)\s*=\s*\{websiteId\s*:\s*String\}/i;
 const ALIASED_TENANT_FILTER_PATTERN =
-	/(?:\b([a-zA-Z_][a-zA-Z0-9_]*)\.)?\bclient_id\s*=\s*\{websiteId\s*:\s*String\}/gi;
+	/(?:\b([a-zA-Z_][a-zA-Z0-9_]*)\.)?\b(?:client_id|owner_id)\s*=\s*\{websiteId\s*:\s*String\}/gi;
 const SELECT_KEYWORD_PATTERN = /\bSELECT\b/gi;
 const FROM_KEYWORD_PATTERN = /\bFROM\b/gi;
 const WHERE_KEYWORD_PATTERN = /\bWHERE\b/gi;
@@ -406,7 +407,7 @@ export function validateAgentSQL(sql: string): {
 			return {
 				valid: false,
 				reason:
-					"Every WHERE must include `client_id = {websiteId:String}` AND-ed at the top level (not nested inside parentheses).",
+					"Every WHERE must include a tenant filter (`client_id = {websiteId:String}` or `owner_id = {websiteId:String}`) AND-ed at the top level.",
 			};
 		}
 		if (hasTopLevelOr(body)) {
