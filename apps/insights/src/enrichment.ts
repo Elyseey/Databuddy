@@ -368,21 +368,43 @@ async function enrichAnnotations(
 	return await annotationQueryFn(websiteId, from, to);
 }
 
+function extractSignalKeywords(signals: EnrichedSignal[]): string[] {
+	const keywords = new Set<string>();
+	for (const s of signals) {
+		keywords.add(s.metric);
+		for (const seg of s.segments) {
+			for (const m of seg.topMovers) {
+				const path = m.name.replace(/^\//, "").split("/")[0];
+				if (path && path.length > 2) keywords.add(path.toLowerCase());
+			}
+		}
+		if (s.errorContext) {
+			for (const err of s.errorContext.topNewErrors) {
+				const words = err.split(/[\s:()]+/).filter((w) => w.length > 3);
+				for (const w of words.slice(0, 3)) keywords.add(w.toLowerCase());
+			}
+		}
+	}
+	return [...keywords].slice(0, 10);
+}
+
 async function enrichGitHub(
 	repo: { owner: string; repo: string },
 	token: string,
-	window: SignalWindow
+	window: SignalWindow,
+	signalKeywords: string[]
 ): Promise<GitHubContext | undefined> {
 	const { githubFetch } = await import("@databuddy/ai/tools/github-tools");
+	const repoPath = `${repo.owner}/${repo.repo}`;
 
 	try {
 		const [commitsData, prsData] = await Promise.all([
 			githubFetch(
-				`/repos/${repo.owner}/${repo.repo}/commits?since=${window.previousFrom}T00:00:00Z&until=${window.currentTo}T23:59:59Z&per_page=10`,
+				`/repos/${repoPath}/commits?since=${window.previousFrom}T00:00:00Z&until=${window.currentTo}T23:59:59Z&per_page=15`,
 				token
 			),
 			githubFetch(
-				`/repos/${repo.owner}/${repo.repo}/pulls?state=closed&sort=updated&direction=desc&per_page=10`,
+				`/repos/${repoPath}/pulls?state=closed&sort=updated&direction=desc&per_page=10`,
 				token
 			),
 		]);
@@ -405,9 +427,27 @@ async function enrichGitHub(
 				author: String(pr.user?.login ?? ""),
 			}));
 
+		let relevantCommits: typeof commits = [];
+		if (signalKeywords.length > 0 && commits.length > 0) {
+			const detailFetches = commits.slice(0, 5).map(async (c) => {
+				const detail = await githubFetch(`/repos/${repoPath}/commits/${c.sha}`, token);
+				if (!detail || typeof detail !== "object" || "error" in detail) return null;
+				const files = ((detail as any).files ?? []) as Array<{ filename: string }>;
+				const changedFiles = files.map((f) => f.filename);
+				const relevant = signalKeywords.some((kw) =>
+					changedFiles.some((f) => f.toLowerCase().includes(kw)) ||
+					c.message.toLowerCase().includes(kw)
+				);
+				return relevant ? { ...c, changedFiles: changedFiles.slice(0, 10) } : null;
+			});
+
+			const results = await Promise.all(detailFetches);
+			relevantCommits = results.filter(Boolean) as typeof commits;
+		}
+
 		return {
-			repo: `${repo.owner}/${repo.repo}`,
-			commits,
+			repo: repoPath,
+			commits: relevantCommits.length > 0 ? relevantCommits : commits.slice(0, 5),
 			recentPRs,
 		};
 	} catch {
@@ -429,12 +469,7 @@ export async function enrichSignals(
 
 	const firstWindow = computeWindow(signals[0], lookbackDays);
 
-	const sharedGitHub =
-		params.githubRepo && params.githubToken
-			? await enrichGitHub(params.githubRepo, params.githubToken, firstWindow)
-			: undefined;
-
-	return await Promise.all(
+	const enrichedWithoutGitHub = await Promise.all(
 		signals.map(async (signal) => {
 			const window = computeWindow(signal, lookbackDays);
 
@@ -449,8 +484,23 @@ export async function enrichSignals(
 				segments,
 				errorContext,
 				annotations: signalAnnotations,
-				githubContext: sharedGitHub,
-			};
+			} as EnrichedSignal;
 		})
 	);
+
+	let sharedGitHub: GitHubContext | undefined;
+	if (params.githubRepo && params.githubToken) {
+		const keywords = extractSignalKeywords(enrichedWithoutGitHub);
+		sharedGitHub = await enrichGitHub(
+			params.githubRepo,
+			params.githubToken,
+			firstWindow,
+			keywords
+		);
+	}
+
+	return enrichedWithoutGitHub.map((signal) => ({
+		...signal,
+		githubContext: sharedGitHub,
+	}));
 }
