@@ -29,6 +29,7 @@
     "./mcp/http": "./src/mcp/http.ts",
     "./mcp/tools": "./src/ai/mcp/tools.ts",
     "./schemas/smart-insights-output": "./src/ai/schemas/smart-insights-output.ts",
+    "./tools/github-tools": "./src/ai/tools/github-tools.ts",
     "./tools/insights-agent-tools": "./src/ai/tools/insights-agent-tools.ts",
     "./tools/workspace": "./src/ai/tools/workspace.ts",
     "./query": "./src/query/index.ts",
