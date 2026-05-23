@@ -1,9 +1,19 @@
 import { and, desc, eq } from "@databuddy/db";
-import { slackChannelBindings, slackIntegrations } from "@databuddy/db/schema";
+import {
+	account,
+	slackChannelBindings,
+	slackIntegrations,
+	websites,
+} from "@databuddy/db/schema";
+import type { WebsiteIntegrations } from "@databuddy/db/schema";
 import { invalidateSlackIntegrationCache } from "@databuddy/redis";
 import { z } from "zod";
 import { rpcError } from "../errors";
-import { protectedProcedure, trackedProcedure } from "../orpc";
+import {
+	protectedProcedure,
+	sessionProcedure,
+	trackedProcedure,
+} from "../orpc";
 import { withWorkspace } from "../procedures/with-workspace";
 
 const slackChannelBindingOutputSchema = z.object({
@@ -172,6 +182,170 @@ export const integrationsRouter = {
 			}
 
 			return { success: true };
+		}),
+
+	setGitHubRepo: trackedProcedure
+		.route({
+			description: "Links a GitHub repo to a website for deploy correlation.",
+			method: "POST",
+			path: "/integrations/setGitHubRepo",
+			summary: "Set GitHub repo",
+			tags: ["Integrations"],
+		})
+		.input(
+			z.object({
+				websiteId: z.string().min(1),
+				owner: z.string().min(1).max(100).regex(/^[a-zA-Z0-9._-]+$/),
+				repo: z.string().min(1).max(100).regex(/^[a-zA-Z0-9._-]+$/),
+			})
+		)
+		.output(successOutputSchema)
+		.handler(async ({ context, input }) => {
+			const [website] = await context.db
+				.select({
+					id: websites.id,
+					organizationId: websites.organizationId,
+					integrations: websites.integrations,
+				})
+				.from(websites)
+				.where(eq(websites.id, input.websiteId))
+				.limit(1);
+
+			if (!website) {
+				throw rpcError.notFound("Website", input.websiteId);
+			}
+
+			await withWorkspace(context, {
+				organizationId: website.organizationId,
+				resource: "website",
+				permissions: ["update"],
+			});
+
+			const integrations: WebsiteIntegrations = {
+				...(website.integrations ?? {}),
+				github: { owner: input.owner, repo: input.repo },
+			};
+
+			await context.db
+				.update(websites)
+				.set({ integrations })
+				.where(eq(websites.id, input.websiteId));
+
+			return { success: true };
+		}),
+
+	removeGitHubRepo: trackedProcedure
+		.route({
+			description: "Unlinks a GitHub repo from a website.",
+			method: "POST",
+			path: "/integrations/removeGitHubRepo",
+			summary: "Remove GitHub repo",
+			tags: ["Integrations"],
+		})
+		.input(z.object({ websiteId: z.string().min(1) }))
+		.output(successOutputSchema)
+		.handler(async ({ context, input }) => {
+			const [website] = await context.db
+				.select({
+					id: websites.id,
+					organizationId: websites.organizationId,
+					integrations: websites.integrations,
+				})
+				.from(websites)
+				.where(eq(websites.id, input.websiteId))
+				.limit(1);
+
+			if (!website) {
+				throw rpcError.notFound("Website", input.websiteId);
+			}
+
+			await withWorkspace(context, {
+				organizationId: website.organizationId,
+				resource: "website",
+				permissions: ["update"],
+			});
+
+			const integrations = { ...(website.integrations ?? {}) };
+			delete integrations.github;
+
+			await context.db
+				.update(websites)
+				.set({ integrations })
+				.where(eq(websites.id, input.websiteId));
+
+			return { success: true };
+		}),
+
+	listGitHubRepos: sessionProcedure
+		.route({
+			description: "Lists GitHub repos accessible to the current user.",
+			method: "POST",
+			path: "/integrations/listGitHubRepos",
+			summary: "List GitHub repos",
+			tags: ["Integrations"],
+		})
+		.input(z.object({}))
+		.output(
+			z.object({
+				repos: z.array(
+					z.object({
+						fullName: z.string(),
+						private: z.boolean(),
+						defaultBranch: z.string(),
+					})
+				),
+			})
+		)
+		.handler(async ({ context }) => {
+			const [ghAccount] = await context.db
+				.select({ accessToken: account.accessToken })
+				.from(account)
+				.where(
+					and(
+						eq(account.userId, context.user.id),
+						eq(account.providerId, "github")
+					)
+				)
+				.limit(1);
+
+			if (!ghAccount?.accessToken) {
+				return { repos: [] };
+			}
+
+			const res = await fetch(
+				"https://api.github.com/user/repos?sort=pushed&direction=desc&per_page=50",
+				{
+					headers: {
+						Authorization: `Bearer ${ghAccount.accessToken}`,
+						Accept: "application/vnd.github+json",
+						"X-GitHub-Api-Version": "2022-11-28",
+					},
+					signal: AbortSignal.timeout(10000),
+				}
+			);
+
+			if (!res.ok) {
+				return { repos: [] };
+			}
+
+			const data = await res.json();
+			if (!Array.isArray(data)) {
+				return { repos: [] };
+			}
+
+			return {
+				repos: (
+					data as Array<{
+						full_name: string;
+						private: boolean;
+						default_branch: string;
+					}>
+				).map((r) => ({
+					fullName: r.full_name,
+					private: r.private,
+					defaultBranch: r.default_branch,
+				})),
+			};
 		}),
 };
 

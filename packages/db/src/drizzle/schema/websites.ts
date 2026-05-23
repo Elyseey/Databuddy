@@ -25,7 +25,13 @@ export interface WebsiteSettings {
 	trackingIssueWarningsDisabled?: boolean;
 }
 
+export interface GitHubIntegration {
+	owner: string;
+	repo: string;
+}
+
 export interface WebsiteIntegrations {
+	github?: GitHubIntegration;
 	[key: string]: unknown;
 }
 
