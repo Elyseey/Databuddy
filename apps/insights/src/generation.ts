@@ -303,6 +303,7 @@ RULES:
 - Never say "monitor" or "watch" in suggestions. Name the exact page, error, or component to fix.
 - Do not invent causality. Cite evidence. Confidence > 0.7 requires segment isolation or temporal correlation.
 - Call emit_insight for each finding. Include rootCause, evidence array, and investigationDepth.
+- Metrics array: only include numbers you queried and verified. The primary metric must be a real measured value, not estimated or extrapolated. If the metric is segment-specific (e.g. "Google sessions"), label it clearly — do not put segment values where total values are expected.
 - When you suspect a code change caused an issue, use github_search_code to check if the relevant code exists, github_commit_diff to see what changed, or github_read_file to inspect the current state.${
 		options?.investigationMode
 			? "\n- Investigate the detected signals using tools. Call emit_insight for each real finding. Drop noise."
@@ -378,7 +379,7 @@ ${signalBlocks}
 
 Segments show WHAT changed. Figure out WHY using web_metrics (use period="both" to compare) and execute_sql for cross-table analysis. Follow leads: if a browser dropped, check vitals for that browser. If errors spiked, get stack traces. ${githubInstruction}
 
-Drop noise. Cite specific evidence.
+When you emit_insight, verify the numbers first. Query summary_metrics with period="both" to confirm baseline values before citing them. Do not guess previous-period values — query them. Drop noise. Cite specific evidence.
 ${params.orgContext}${params.annotationContext}${params.recentInsightsBlock}`;
 }
 
