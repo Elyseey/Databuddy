@@ -195,8 +195,16 @@ export const integrationsRouter = {
 		.input(
 			z.object({
 				websiteId: z.string().min(1),
-				owner: z.string().min(1).max(100).regex(/^[a-zA-Z0-9._-]+$/),
-				repo: z.string().min(1).max(100).regex(/^[a-zA-Z0-9._-]+$/),
+				owner: z
+					.string()
+					.min(1)
+					.max(100)
+					.regex(/^[a-zA-Z0-9._-]+$/),
+				repo: z
+					.string()
+					.min(1)
+					.max(100)
+					.regex(/^[a-zA-Z0-9._-]+$/),
 			})
 		)
 		.output(successOutputSchema)
@@ -320,7 +328,7 @@ export const integrationsRouter = {
 						Accept: "application/vnd.github+json",
 						"X-GitHub-Api-Version": "2022-11-28",
 					},
-					signal: AbortSignal.timeout(10000),
+					signal: AbortSignal.timeout(10_000),
 				}
 			);
 

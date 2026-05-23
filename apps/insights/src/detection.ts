@@ -175,7 +175,9 @@ export async function detectSignals(
 			return absDelta >= 10;
 		}
 		const peak = Math.max(signal.current, signal.baseline);
-		if (peak < 80) return false;
+		if (peak < 80) {
+			return false;
+		}
 		return absDelta >= 50;
 	});
 
@@ -195,7 +197,9 @@ function collapseCorrelated(signals: DetectedSignal[]): DetectedSignal[] {
 	const collapseTraffic = (group: DetectedSignal[]): DetectedSignal[] => {
 		const traffic = group.filter((s) => TRAFFIC_METRICS.has(s.metric));
 		const nonTraffic = group.filter((s) => !TRAFFIC_METRICS.has(s.metric));
-		if (traffic.length < 2) return group;
+		if (traffic.length < 2) {
+			return group;
+		}
 		const strongest = traffic.reduce((best, s) =>
 			Math.abs(s.deltaPercent) > Math.abs(best.deltaPercent) ? s : best
 		);

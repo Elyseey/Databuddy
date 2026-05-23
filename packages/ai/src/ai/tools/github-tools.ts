@@ -15,14 +15,13 @@ async function getGitHubToken(
 			.select({ accessToken: account.accessToken })
 			.from(account)
 			.where(
-				and(
-					eq(account.userId, preferUserId),
-					eq(account.providerId, "github")
-				)
+				and(eq(account.userId, preferUserId), eq(account.providerId, "github"))
 			)
 			.limit(1);
 
-		if (ghAccount?.accessToken) return ghAccount.accessToken;
+		if (ghAccount?.accessToken) {
+			return ghAccount.accessToken;
+		}
 	}
 
 	const [fallback] = await db
@@ -50,7 +49,7 @@ export async function githubFetch(
 			Accept: "application/vnd.github+json",
 			"X-GitHub-Api-Version": "2022-11-28",
 		},
-		signal: AbortSignal.timeout(10000),
+		signal: AbortSignal.timeout(10_000),
 	});
 
 	if (!res.ok) {
@@ -69,7 +68,9 @@ export function createGitHubTools(params: GitHubToolsParams) {
 	let cachedToken: string | null | undefined;
 
 	async function getToken(): Promise<string | null> {
-		if (cachedToken !== undefined) return cachedToken;
+		if (cachedToken !== undefined) {
+			return cachedToken;
+		}
 		cachedToken = await getGitHubToken(params.organizationId, params.userId);
 		return cachedToken;
 	}
@@ -106,7 +107,9 @@ export function createGitHubTools(params: GitHubToolsParams) {
 				token
 			);
 
-			if (data && typeof data === "object" && "error" in data) return data;
+			if (data && typeof data === "object" && "error" in data) {
+				return data;
+			}
 
 			const deploys = data as Array<{
 				id: number;
@@ -142,7 +145,9 @@ export function createGitHubTools(params: GitHubToolsParams) {
 			since: z
 				.string()
 				.optional()
-				.describe("Only commits after this ISO date (e.g. 2026-05-15T00:00:00Z)"),
+				.describe(
+					"Only commits after this ISO date (e.g. 2026-05-15T00:00:00Z)"
+				),
 			until: z
 				.string()
 				.optional()
@@ -162,15 +167,21 @@ export function createGitHubTools(params: GitHubToolsParams) {
 			}
 
 			const queryParams = new URLSearchParams({ per_page: String(limit) });
-			if (since) queryParams.set("since", since);
-			if (until) queryParams.set("until", until);
+			if (since) {
+				queryParams.set("since", since);
+			}
+			if (until) {
+				queryParams.set("until", until);
+			}
 
 			const data = await githubFetch(
 				`/repos/${owner}/${repo}/commits?${queryParams}`,
 				token
 			);
 
-			if (data && typeof data === "object" && "error" in data) return data;
+			if (data && typeof data === "object" && "error" in data) {
+				return data;
+			}
 
 			const commits = data as Array<{
 				sha: string;
@@ -218,7 +229,9 @@ export function createGitHubTools(params: GitHubToolsParams) {
 				token
 			);
 
-			if (data && typeof data === "object" && "error" in data) return data;
+			if (data && typeof data === "object" && "error" in data) {
+				return data;
+			}
 
 			const prs = data as Array<{
 				number: number;
@@ -267,7 +280,9 @@ export function createGitHubTools(params: GitHubToolsParams) {
 				token
 			);
 
-			if (data && typeof data === "object" && "error" in data) return data;
+			if (data && typeof data === "object" && "error" in data) {
+				return data;
+			}
 
 			const repos = data as Array<{
 				full_name: string;
@@ -294,12 +309,21 @@ export function createGitHubTools(params: GitHubToolsParams) {
 		inputSchema: z.object({
 			owner: z.string(),
 			repo: z.string(),
-			path: z.string().describe("File path in the repo (e.g. 'src/components/navbar.tsx')"),
-			ref: z.string().optional().describe("Branch, tag, or commit SHA. Defaults to the default branch."),
+			path: z
+				.string()
+				.describe("File path in the repo (e.g. 'src/components/navbar.tsx')"),
+			ref: z
+				.string()
+				.optional()
+				.describe(
+					"Branch, tag, or commit SHA. Defaults to the default branch."
+				),
 		}),
 		execute: async ({ owner, repo, path, ref }) => {
 			const token = await getToken();
-			if (!token) return { error: "No GitHub account connected" };
+			if (!token) {
+				return { error: "No GitHub account connected" };
+			}
 
 			const refParam = ref ? `?ref=${encodeURIComponent(ref)}` : "";
 			const data = await githubFetch(
@@ -307,9 +331,16 @@ export function createGitHubTools(params: GitHubToolsParams) {
 				token
 			);
 
-			if (data && typeof data === "object" && "error" in data) return data;
+			if (data && typeof data === "object" && "error" in data) {
+				return data;
+			}
 
-			const file = data as { content?: string; encoding?: string; size?: number; name?: string };
+			const file = data as {
+				content?: string;
+				encoding?: string;
+				size?: number;
+				name?: string;
+			};
 			if (!file.content || file.encoding !== "base64") {
 				return { error: "File not found or not a regular file" };
 			}
@@ -318,7 +349,10 @@ export function createGitHubTools(params: GitHubToolsParams) {
 			return {
 				path,
 				size: file.size,
-				content: decoded.length > 15000 ? `${decoded.slice(0, 15000)}\n…[truncated at 15KB]` : decoded,
+				content:
+					decoded.length > 15_000
+						? `${decoded.slice(0, 15_000)}\n…[truncated at 15KB]`
+						: decoded,
 			};
 		},
 	});
@@ -333,19 +367,32 @@ export function createGitHubTools(params: GitHubToolsParams) {
 		}),
 		execute: async ({ owner, repo, sha }) => {
 			const token = await getToken();
-			if (!token) return { error: "No GitHub account connected" };
+			if (!token) {
+				return { error: "No GitHub account connected" };
+			}
 
 			const data = await githubFetch(
 				`/repos/${owner}/${repo}/commits/${sha}`,
 				token
 			);
 
-			if (data && typeof data === "object" && "error" in data) return data;
+			if (data && typeof data === "object" && "error" in data) {
+				return data;
+			}
 
 			const commit = data as {
 				sha: string;
-				commit: { message: string; author: { name: string; date: string } | null };
-				files?: Array<{ filename: string; status: string; additions: number; deletions: number; patch?: string }>;
+				commit: {
+					message: string;
+					author: { name: string; date: string } | null;
+				};
+				files?: Array<{
+					filename: string;
+					status: string;
+					additions: number;
+					deletions: number;
+					patch?: string;
+				}>;
 			};
 
 			const files = (commit.files ?? []).map((f) => ({
@@ -373,18 +420,26 @@ export function createGitHubTools(params: GitHubToolsParams) {
 		inputSchema: z.object({
 			owner: z.string(),
 			repo: z.string(),
-			query: z.string().describe("Search query (e.g. 'navbar-nav-click' or 'function handleCheckout')"),
+			query: z
+				.string()
+				.describe(
+					"Search query (e.g. 'navbar-nav-click' or 'function handleCheckout')"
+				),
 		}),
 		execute: async ({ owner, repo, query }) => {
 			const token = await getToken();
-			if (!token) return { error: "No GitHub account connected" };
+			if (!token) {
+				return { error: "No GitHub account connected" };
+			}
 
 			const data = await githubFetch(
 				`/search/code?q=${encodeURIComponent(query)}+repo:${owner}/${repo}&per_page=10`,
 				token
 			);
 
-			if (data && typeof data === "object" && "error" in data) return data;
+			if (data && typeof data === "object" && "error" in data) {
+				return data;
+			}
 
 			const result = data as {
 				total_count: number;

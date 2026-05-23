@@ -150,8 +150,12 @@ export function createInsightsAgentTools(
 			const ranges = resolveRanges(period);
 			const results = await Promise.all(
 				ranges.map((p) =>
-					fetchProductMetrics(appContext, params.periodBounds, p.label, queries)
-						.then((data) => ({ period: p.label, data }))
+					fetchProductMetrics(
+						appContext,
+						params.periodBounds,
+						p.label,
+						queries
+					).then((data) => ({ period: p.label, data }))
 				)
 			);
 			return truncate(results.length === 1 ? results[0] : results);
@@ -178,8 +182,12 @@ export function createInsightsAgentTools(
 			const ranges = resolveRanges(period);
 			const results = await Promise.all(
 				ranges.map((p) =>
-					fetchOpsMetrics(appContext, params.periodBounds, p.label, queries)
-						.then((data) => ({ period: p.label, data }))
+					fetchOpsMetrics(
+						appContext,
+						params.periodBounds,
+						p.label,
+						queries
+					).then((data) => ({ period: p.label, data }))
 				)
 			);
 			return truncate(results.length === 1 ? results[0] : results);

@@ -36,7 +36,12 @@ export interface AnnotationContext {
 
 export interface GitHubContext {
 	commits: { sha: string; message: string; author: string; date: string }[];
-	recentPRs: { number: number; title: string; mergedAt: string; author: string }[];
+	recentPRs: {
+		number: number;
+		title: string;
+		mergedAt: string;
+		author: string;
+	}[];
 	repo: string;
 }
 
@@ -368,20 +373,27 @@ async function enrichAnnotations(
 	return await annotationQueryFn(websiteId, from, to);
 }
 
+const LEADING_SLASH_RE = /^\//;
+const WORD_SPLIT_RE = /[\s:()]+/;
+
 function extractSignalKeywords(signals: EnrichedSignal[]): string[] {
 	const keywords = new Set<string>();
 	for (const s of signals) {
 		keywords.add(s.metric);
 		for (const seg of s.segments) {
 			for (const m of seg.topMovers) {
-				const path = m.name.replace(/^\//, "").split("/")[0];
-				if (path && path.length > 2) keywords.add(path.toLowerCase());
+				const path = m.name.replace(LEADING_SLASH_RE, "").split("/")[0];
+				if (path && path.length > 2) {
+					keywords.add(path.toLowerCase());
+				}
 			}
 		}
 		if (s.errorContext) {
 			for (const err of s.errorContext.topNewErrors) {
-				const words = err.split(/[\s:()]+/).filter((w) => w.length > 3);
-				for (const w of words.slice(0, 3)) keywords.add(w.toLowerCase());
+				const words = err.split(WORD_SPLIT_RE).filter((w) => w.length > 3);
+				for (const w of words.slice(0, 3)) {
+					keywords.add(w.toLowerCase());
+				}
 			}
 		}
 	}
@@ -409,11 +421,15 @@ async function enrichGitHub(
 			),
 		]);
 
-		if (!Array.isArray(commitsData) || !Array.isArray(prsData)) return undefined;
+		if (!(Array.isArray(commitsData) && Array.isArray(prsData))) {
+			return;
+		}
 
 		const commits = commitsData.map((c: any) => ({
 			sha: String(c.sha ?? "").slice(0, 7),
-			message: String(c.commit?.message ?? "").split("\n")[0].slice(0, 120),
+			message: String(c.commit?.message ?? "")
+				.split("\n")[0]
+				.slice(0, 120),
 			author: String(c.commit?.author?.name ?? ""),
 			date: String(c.commit?.author?.date ?? ""),
 		}));
@@ -430,15 +446,25 @@ async function enrichGitHub(
 		let relevantCommits: typeof commits = [];
 		if (signalKeywords.length > 0 && commits.length > 0) {
 			const detailFetches = commits.slice(0, 5).map(async (c) => {
-				const detail = await githubFetch(`/repos/${repoPath}/commits/${c.sha}`, token);
-				if (!detail || typeof detail !== "object" || "error" in detail) return null;
-				const files = ((detail as any).files ?? []) as Array<{ filename: string }>;
-				const changedFiles = files.map((f) => f.filename);
-				const relevant = signalKeywords.some((kw) =>
-					changedFiles.some((f) => f.toLowerCase().includes(kw)) ||
-					c.message.toLowerCase().includes(kw)
+				const detail = await githubFetch(
+					`/repos/${repoPath}/commits/${c.sha}`,
+					token
 				);
-				return relevant ? { ...c, changedFiles: changedFiles.slice(0, 10) } : null;
+				if (!detail || typeof detail !== "object" || "error" in detail) {
+					return null;
+				}
+				const files = ((detail as any).files ?? []) as Array<{
+					filename: string;
+				}>;
+				const changedFiles = files.map((f) => f.filename);
+				const relevant = signalKeywords.some(
+					(kw) =>
+						changedFiles.some((f) => f.toLowerCase().includes(kw)) ||
+						c.message.toLowerCase().includes(kw)
+				);
+				return relevant
+					? { ...c, changedFiles: changedFiles.slice(0, 10) }
+					: null;
 			});
 
 			const results = await Promise.all(detailFetches);
@@ -447,11 +473,12 @@ async function enrichGitHub(
 
 		return {
 			repo: repoPath,
-			commits: relevantCommits.length > 0 ? relevantCommits : commits.slice(0, 5),
+			commits:
+				relevantCommits.length > 0 ? relevantCommits : commits.slice(0, 5),
 			recentPRs,
 		};
 	} catch {
-		return undefined;
+		return;
 	}
 }
 

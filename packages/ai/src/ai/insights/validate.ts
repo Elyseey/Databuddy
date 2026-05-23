@@ -303,9 +303,19 @@ export function validateInsight(input: ParsedInsight): InsightValidationResult {
 	}
 
 	const suspiciousMetrics = insight.metrics.filter((m) => {
-		if (m.previous === undefined) return false;
-		if (m.format === "percent" && (m.previous === 100 || m.previous === 0) && m.current !== m.previous) return true;
-		if (m.current < 0 || (m.previous !== undefined && m.previous < 0)) return true;
+		if (m.previous === undefined) {
+			return false;
+		}
+		if (
+			m.format === "percent" &&
+			(m.previous === 100 || m.previous === 0) &&
+			m.current !== m.previous
+		) {
+			return true;
+		}
+		if (m.current < 0 || (m.previous !== undefined && m.previous < 0)) {
+			return true;
+		}
 		return false;
 	});
 	if (suspiciousMetrics.length > 0) {

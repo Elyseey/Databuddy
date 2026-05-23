@@ -202,9 +202,25 @@ function ConnectionBadge({
 	connected: boolean;
 	loading: boolean;
 }) {
-	if (loading) return <Badge size="sm" variant="muted">Checking</Badge>;
-	if (connected) return <Badge size="sm" variant="success">Connected</Badge>;
-	return <Badge size="sm" variant="warning">Not connected</Badge>;
+	if (loading) {
+		return (
+			<Badge size="sm" variant="muted">
+				Checking
+			</Badge>
+		);
+	}
+	if (connected) {
+		return (
+			<Badge size="sm" variant="success">
+				Connected
+			</Badge>
+		);
+	}
+	return (
+		<Badge size="sm" variant="warning">
+			Not connected
+		</Badge>
+	);
 }
 
 function LoadingButton() {
@@ -363,11 +379,7 @@ export function IntegrationsSettings({
 	);
 }
 
-function GitHubIntegrationRow({
-	organizationId,
-}: {
-	organizationId: string;
-}) {
+function GitHubIntegrationRow({ organizationId }: { organizationId: string }) {
 	const queryClient = useQueryClient();
 	const accounts = useLinkedAccounts();
 	const githubAccount = accounts.data?.find((a) => a.providerId === "github");
@@ -387,7 +399,9 @@ function GitHubIntegrationRow({
 				scopes: GITHUB_SCOPES,
 				callbackURL: window.location.href,
 			});
-			if (result.error) throw new Error(result.error.message);
+			if (result.error) {
+				throw new Error(result.error.message);
+			}
 			return result;
 		},
 		onError: (err) => {
@@ -398,7 +412,9 @@ function GitHubIntegrationRow({
 	const disconnect = useMutation({
 		mutationFn: async () => {
 			const result = await authClient.unlinkAccount({ providerId: "github" });
-			if (result.error) throw new Error(result.error.message);
+			if (result.error) {
+				throw new Error(result.error.message);
+			}
 			return result;
 		},
 		onSuccess: async () => {
@@ -494,9 +510,7 @@ function GitHubIntegrationRow({
 						setRepo.mutate({ websiteId, owner, repo })
 					}
 					removingId={
-						removeRepo.isPending
-							? removeRepo.variables?.websiteId
-							: undefined
+						removeRepo.isPending ? removeRepo.variables?.websiteId : undefined
 					}
 					settingId={
 						setRepo.isPending ? setRepo.variables?.websiteId : undefined
@@ -638,7 +652,9 @@ function GitHubRepoMappings({
 								<RepoSelector
 									disabled={reposQuery.isLoading || settingId === site.id}
 									onSelect={(fullName) => handleSelect(site.id, fullName)}
-									placeholder={reposQuery.isLoading ? "Loading..." : "Search repos..."}
+									placeholder={
+										reposQuery.isLoading ? "Loading..." : "Search repos..."
+									}
 									repos={repoNames}
 								/>
 								<Button
@@ -757,9 +773,7 @@ function SlackIntegrationRow({
 	return (
 		<IntegrationListRow
 			action={action}
-			badge={
-				<ConnectionBadge connected={connected} loading={isLoading} />
-			}
+			badge={<ConnectionBadge connected={connected} loading={isLoading} />}
 			defaultOpen={false}
 			item={SLACK_ITEM}
 		>
@@ -933,9 +947,13 @@ function SlackWorkspaceRow({
 							{teamName}
 						</span>
 						{integration.status === "active" ? (
-							<Badge size="sm" variant="success">Active</Badge>
+							<Badge size="sm" variant="success">
+								Active
+							</Badge>
 						) : (
-							<Badge size="sm" variant="muted">Disabled</Badge>
+							<Badge size="sm" variant="muted">
+								Disabled
+							</Badge>
 						)}
 					</div>
 					<div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-muted-foreground text-xs">

@@ -326,8 +326,12 @@ function formatSignalBlock(signal: EnrichedSignal, index: number): string {
 
 	if (signal.errorContext) {
 		const ec = signal.errorContext;
-		parts.push(`  errors: ${ec.totalErrorsPrevious}->${ec.totalErrorsCurrent} (${ec.deltaPercent > 0 ? "+" : ""}${ec.deltaPercent}%)`);
-		if (ec.topNewErrors.length > 0) parts.push(`  new: ${ec.topNewErrors.join(", ")}`);
+		parts.push(
+			`  errors: ${ec.totalErrorsPrevious}->${ec.totalErrorsCurrent} (${ec.deltaPercent > 0 ? "+" : ""}${ec.deltaPercent}%)`
+		);
+		if (ec.topNewErrors.length > 0) {
+			parts.push(`  new: ${ec.topNewErrors.join(", ")}`);
+		}
 	}
 
 	for (const a of signal.annotations) {
@@ -340,7 +344,9 @@ function formatSignalBlock(signal: EnrichedSignal, index: number): string {
 			parts.push(`  ${c.sha} ${c.message} (${c.date?.slice(0, 10)})`);
 		}
 		for (const pr of gc.recentPRs.slice(0, 3)) {
-			parts.push(`  PR#${pr.number} ${pr.title} (${pr.mergedAt?.slice(0, 10)})`);
+			parts.push(
+				`  PR#${pr.number} ${pr.title} (${pr.mergedAt?.slice(0, 10)})`
+			);
 		}
 	}
 
@@ -523,7 +529,6 @@ ${orgContext}${annotationContext}${recentInsightsBlock}`;
 				userId: params.userId,
 			})
 		: {};
-	const hasGitHub = investigationMode;
 	const allTools = { ...analyticsTools, ...githubTools };
 	const availableTools = Object.fromEntries(
 		Object.entries(allTools).filter(
@@ -533,7 +538,6 @@ ${orgContext}${annotationContext}${recentInsightsBlock}`;
 				name === "execute_sql"
 		)
 	) as typeof allTools;
-	const activeToolNames = Object.keys(availableTools) as (keyof typeof availableTools)[];
 
 	try {
 		const appContext: AppContext = {
@@ -555,7 +559,7 @@ ${orgContext}${annotationContext}${recentInsightsBlock}`;
 			description:
 				"Call this when you have a finding worth reporting. Each call produces one insight. Call multiple times for multiple findings.",
 			inputSchema: insightSchema,
-			execute: async (insight) => {
+			execute: (insight) => {
 				collected.push(insight);
 				return `Insight recorded: "${insight.title}"`;
 			},
@@ -563,7 +567,10 @@ ${orgContext}${annotationContext}${recentInsightsBlock}`;
 
 		let toolCallCount = 0;
 		const ai = getAILogger();
-		const allToolsWithEmit = { ...availableTools, emit_insight: emitInsightTool };
+		const allToolsWithEmit = {
+			...availableTools,
+			emit_insight: emitInsightTool,
+		};
 		const agent = new ToolLoopAgent({
 			model: ai.wrap(modelForTier(params.config.modelTier)),
 			instructions: {
