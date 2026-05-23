@@ -12,6 +12,11 @@ export const AGENT_TENANT_COLUMN_BY_TABLE: Readonly<Record<string, string>> = {
 	"analytics.error_spans": "client_id",
 	"analytics.web_vitals_spans": "client_id",
 	"analytics.outgoing_links": "client_id",
+	"analytics.custom_events": "owner_id",
+	"analytics.revenue": "owner_id",
+	"analytics.blocked_traffic": "client_id",
+	"analytics.ai_traffic_spans": "client_id",
+	"analytics.link_visits": "client_id",
 };
 
 /**

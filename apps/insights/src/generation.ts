@@ -49,7 +49,7 @@ import {
 	setInsightsLog,
 } from "./lib/evlog-insights";
 
-const AGENT_TIMEOUT_MS = 60_000;
+const AGENT_TIMEOUT_MS = 180_000;
 const RECENT_INSIGHTS_PROMPT_LIMIT = 12;
 const DEFAULT_MAX_INSIGHTS = 2;
 const TOOL_NAMES = [
@@ -478,8 +478,6 @@ INVESTIGATION STRATEGY:
    - "Error on /editor affects 42 users" → SQL: SELECT session_id, count() as errors, min(timestamp) as first_error FROM analytics.error_spans WHERE client_id = {websiteId:String} AND message LIKE '%disposed%' GROUP BY session_id ORDER BY errors DESC LIMIT 5
    - "Traffic from Google doubled" → query utm_campaigns to see which campaigns, then SQL to check if those visitors convert differently
 3. Keep following leads until you can explain WHY, not just WHAT
-
-When you have enough evidence to explain the root cause, STOP QUERYING and produce your findings. Do not keep running queries hoping for more data. 3-6 tool calls is usually enough for a thorough investigation.
 
 After investigating, DROP signals that are noise. For signals worth reporting:
 - Explain the root cause with specific evidence
