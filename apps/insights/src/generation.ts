@@ -10,10 +10,7 @@ import { validateInsights } from "@databuddy/ai/insights/validate";
 import { getAILogger } from "@databuddy/ai/lib/ai-logger";
 import { storeAnalyticsSummary } from "@databuddy/ai/lib/supermemory";
 import type { ParsedInsight } from "@databuddy/ai/schemas/smart-insights-output";
-import {
-	insightSchema,
-	insightsOutputSchema,
-} from "@databuddy/ai/schemas/smart-insights-output";
+import { insightSchema } from "@databuddy/ai/schemas/smart-insights-output";
 import { createInsightsAgentTools } from "@databuddy/ai/tools/insights-agent-tools";
 import {
 	and,
@@ -39,11 +36,11 @@ import {
 	invalidateAgentContextSnapshotsForWebsite,
 	invalidateInsightsCachesForOrganization,
 } from "@databuddy/redis";
-import { generateText, Output, stepCountIs, tool, ToolLoopAgent } from "ai";
+import { stepCountIs, tool, ToolLoopAgent } from "ai";
 import { randomUUIDv7 } from "bun";
 import dayjs from "dayjs";
 import { createGitHubTools } from "@databuddy/ai/tools/github-tools";
-import { detectSignals, safeDeltaPercent } from "./detection";
+import { detectSignals } from "./detection";
 import { enrichSignals } from "./enrichment";
 import type { EnrichedSignal } from "./enrichment";
 import {
@@ -384,110 +381,26 @@ Drop noise. Cite specific evidence.
 ${params.orgContext}${params.annotationContext}${params.recentInsightsBlock}`;
 }
 
-async function validateOrRepairInsights(
+function validateCollectedInsights(
 	insights: ParsedInsight[],
 	context: {
 		config: InsightGenerationConfigSnapshot;
-		domain: string;
 		organizationId: string;
 		websiteId: string;
 	}
-): Promise<ParsedInsight[]> {
+): ParsedInsight[] {
 	const validated = validateInsights(insights);
 	if (validated.warnings.length > 0) {
 		emitInsightsEvent("warn", "generation.validation_warnings", {
 			organization_id: context.organizationId,
 			website_id: context.websiteId,
-			
 			input_count: insights.length,
 			output_count: validated.insights.length,
 			warning_count: validated.warnings.length,
 			warnings: validated.warnings,
 		});
 	}
-
-	const targetCount = Math.min(maxInsights(context.config), insights.length);
-	if (targetCount === 0 || validated.insights.length >= targetCount) {
-		return validated.insights.slice(0, targetCount);
-	}
-
-	const repairStartedAt = performance.now();
-	try {
-		const ai = getAILogger();
-		const repair = await generateText({
-			model: ai.wrap(modelForTier(context.config.modelTier)),
-			output: Output.object({ schema: insightsOutputSchema }),
-			messages: [
-				{
-					role: "system",
-					content: `Repair Databuddy insight cards. Return up to ${targetCount} concise, valid cards when the source contains distinct data-backed signals. Use only the provided metrics and claims; do not invent numbers, causes, revenue impact, or new entities. Keep title <=80 chars, description <=320 chars, suggestion <=260 chars. Write for a founder/operator: titles must be plain English and avoid raw metric jargon like INP, LCP, FCP, TTFB, CLS, or p75. Technical metric names may remain in the metrics array. Suggestions need specific operational actions, not monitoring. Soften unsupported causality.`,
-				},
-				{
-					role: "user",
-					content: JSON.stringify(
-						{
-							domain: context.domain,
-							validationWarnings: validated.warnings,
-							originalInsights: insights,
-						},
-						null,
-						2
-					),
-				},
-			],
-			temperature: 0,
-			maxOutputTokens: 4096,
-			experimental_telemetry: {
-				isEnabled: true,
-				functionId: "databuddy.insights.worker.repair",
-				metadata: {
-					source: "insights_worker",
-					feature: "smart_insights",
-					
-					organizationId: context.organizationId,
-					websiteId: context.websiteId,
-					websiteDomain: context.domain,
-				},
-			},
-		});
-
-		const repairedOutput = repair.output?.insights ?? [];
-		const repaired = validateInsights(repairedOutput);
-		if (repaired.warnings.length > 0) {
-			emitInsightsEvent("warn", "generation.repair.validation_warnings", {
-				organization_id: context.organizationId,
-				website_id: context.websiteId,
-				
-				input_count: repairedOutput.length,
-				output_count: repaired.insights.length,
-				warning_count: repaired.warnings.length,
-				warnings: repaired.warnings,
-			});
-		}
-
-		if (repaired.insights.length >= validated.insights.length) {
-			emitInsightsEvent("info", "generation.repair.completed", {
-				organization_id: context.organizationId,
-				website_id: context.websiteId,
-				
-				duration_ms: Math.round(performance.now() - repairStartedAt),
-				input_count: insights.length,
-				output_count: repaired.insights.length,
-			});
-			return repaired.insights.slice(0, targetCount);
-		}
-	} catch (error) {
-		captureInsightsError(error, "generation.repair.failed", {
-			organization_id: context.organizationId,
-			website_id: context.websiteId,
-			
-			duration_ms: Math.round(performance.now() - repairStartedAt),
-			input_count: insights.length,
-			target_count: targetCount,
-		});
-	}
-
-	return validated.insights.slice(0, targetCount);
+	return validated.insights.slice(0, maxInsights(context.config));
 }
 
 async function analyzeWebsite(params: {
@@ -695,7 +608,7 @@ ${orgContext}${annotationContext}${recentInsightsBlock}`;
 		});
 
 		if (collected.length > 0) {
-			const validated = await validateOrRepairInsights(collected, {
+			const validated = validateCollectedInsights(collected, {
 				config: params.config,
 				domain: params.domain,
 				organizationId: params.organizationId,
