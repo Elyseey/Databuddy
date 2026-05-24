@@ -102,7 +102,7 @@ export function createInsightsAgentTools(
 						limit: q.limit ?? 10,
 						filters: q.filters?.map((f) => ({
 							field: f.field,
-							operator: "equals" as const,
+							op: "eq" as const,
 							value: f.value,
 						})),
 					};
@@ -261,10 +261,13 @@ Every WHERE clause needs a tenant filter: use client_id = {websiteId:String} for
 							params: q.params,
 						});
 						return { label: q.label, ...result };
-					} catch (err: any) {
+					} catch (err: unknown) {
 						return {
 							label: q.label,
-							error: err.message?.slice(0, 200) ?? "Query failed",
+							error:
+								err instanceof Error
+									? err.message.slice(0, 200)
+									: "Query failed",
 							data: [],
 						};
 					}

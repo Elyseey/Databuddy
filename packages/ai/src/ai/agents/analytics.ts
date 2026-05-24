@@ -18,6 +18,7 @@ import { createGoalTools } from "../tools/goals";
 import { createLinksTools } from "../tools/links";
 import { createMemoryTools } from "../tools/memory";
 import { createProfileTools } from "../tools/profiles";
+import { createScrapeTools } from "../tools/scrape-page";
 import type { AgentConfig, AgentContext, AgentThinking } from "./types";
 
 const analyticsTools = {
@@ -79,7 +80,12 @@ export function createConfig(
 			content: buildAnalyticsInstructions(appContext),
 			providerOptions: tier.promptCaching ? ANTHROPIC_CACHE_1H : undefined,
 		},
-		tools: analyticsTools,
+		tools: {
+			...analyticsTools,
+			...(context.websiteDomain
+				? createScrapeTools(context.websiteDomain)
+				: {}),
+		},
 		stopWhen: stepCountIs(tier.maxSteps),
 		temperature: tier.temperature,
 		providerOptions: thinkingProviderOptions(context.thinking, modelKey),

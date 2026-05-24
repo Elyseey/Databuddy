@@ -1,9 +1,5 @@
 import type { ParsedInsight } from "../schemas/smart-insights-output";
 
-type InsightType = ParsedInsight["type"];
-type InsightSentiment = ParsedInsight["sentiment"];
-type InsightMetric = ParsedInsight["metrics"][number];
-
 export interface InsightValidationResult {
 	insight: ParsedInsight | null;
 	warnings: string[];
@@ -16,7 +12,6 @@ export interface InsightsValidationResult {
 
 const LOWER_IS_BETTER_PATTERNS = [
 	/error/,
-	/errors/,
 	/affected users/,
 	/bounce/,
 	/drop[ -]?off/,
@@ -61,7 +56,7 @@ function roundPercent(value: number): number {
 	return Math.round(value * 10) / 10;
 }
 
-function metricChange(metric: InsightMetric): number | null {
+function metricChange(metric: ParsedInsight["metrics"][number]): number | null {
 	if (metric.previous === undefined || metric.previous === 0) {
 		return null;
 	}
@@ -73,7 +68,9 @@ function isLowerBetterMetric(label: string): boolean {
 	return LOWER_IS_BETTER_PATTERNS.some((pattern) => pattern.test(normalized));
 }
 
-function sentimentForPrimaryMetric(metric: InsightMetric): InsightSentiment {
+function sentimentForPrimaryMetric(
+	metric: ParsedInsight["metrics"][number]
+): ParsedInsight["sentiment"] {
 	const change = metricChange(metric);
 	if (change === null || Math.abs(change) < 0.05) {
 		return "neutral";
@@ -95,9 +92,9 @@ function allowsSentimentDivergence(insight: ParsedInsight): boolean {
 }
 
 function typeForDirection(
-	type: InsightType,
-	sentiment: InsightSentiment
-): InsightType {
+	type: ParsedInsight["type"],
+	sentiment: ParsedInsight["sentiment"]
+): ParsedInsight["type"] {
 	if (sentiment !== "positive") {
 		return type;
 	}
@@ -121,9 +118,6 @@ function hasDirectionContradiction(insight: ParsedInsight): boolean {
 	const hasUp = UP_WORDS.test(text) || SIGNED_UP_NUMBER.test(text);
 	const hasDown = DOWN_WORDS.test(text);
 
-	if (hasUp && hasDown) {
-		return false;
-	}
 	if (insight.changePercent > 0) {
 		return hasDown && !IMPROVE_WORDS.test(text);
 	}
