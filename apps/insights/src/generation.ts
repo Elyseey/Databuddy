@@ -36,13 +36,13 @@ import {
 	invalidateAgentContextSnapshotsForWebsite,
 	invalidateInsightsCachesForOrganization,
 } from "@databuddy/redis";
+import { createGitHubTools } from "@databuddy/ai/tools/github-tools";
+import { createScrapeTools } from "@databuddy/ai/tools/scrape-page";
 import { stepCountIs, tool, ToolLoopAgent } from "ai";
 import { randomUUIDv7 } from "bun";
 import dayjs from "dayjs";
-import { createGitHubTools } from "@databuddy/ai/tools/github-tools";
 import { detectSignals } from "./detection";
-import { enrichSignals } from "./enrichment";
-import type { EnrichedSignal } from "./enrichment";
+import { enrichSignals, type EnrichedSignal } from "./enrichment";
 import {
 	captureInsightsError,
 	emitInsightsEvent,
@@ -298,13 +298,18 @@ function buildSystemPrompt(
 
 RULES:
 - Write titles a founder can scan in 2 seconds. Lead with the outcome: "Checkout errors tripled after deploy" not "Error rate shows concerning trend".
+- Titles must use plain language. Never use technical acronyms (INP, LCP, FCP, TTFB, CLS, p75). Say "page load time" not "LCP", "interaction speed" not "INP", "layout stability" not "CLS".
 - Only report signals that would change what someone does today. Silence over noise.
 - Never use hedging words in titles (concerning, softened, slightly, worth watching).
 - Never say "monitor" or "watch" in suggestions. Name the exact page, error, or component to fix.
 - Do not invent causality. Cite evidence. Confidence > 0.7 requires segment isolation or temporal correlation.
 - Call emit_insight for each finding. Include rootCause, evidence array, and investigationDepth.
 - Metrics array: only include numbers you queried and verified. The primary metric must be a real measured value, not estimated or extrapolated. If the metric is segment-specific (e.g. "Google sessions"), label it clearly — do not put segment values where total values are expected.
-- When you suspect a code change caused an issue, use github_search_code to check if the relevant code exists, github_commit_diff to see what changed, or github_read_file to inspect the current state.${
+- CRITICAL: your title's direction words MUST match the primary metric. If current > previous, use "rose/surged/jumped/up". If current < previous, use "fell/dropped/declined/down". A title saying "dropped" when the metric went up will be rejected.
+- Keep copy tight: title ≤80 chars, description ≤480 chars, suggestion ≤400 chars. Insights exceeding these limits are dropped.
+- Low-traffic sites (<50 sessions/week): do not claim percentage changes on segments with fewer than 10 absolute values. Focus on structural issues (missing tracking, unconfigured goals) instead of noisy metric movements.
+- When you suspect a code change caused an issue, use github_search_code to check if the relevant code exists, github_commit_diff to see what changed, or github_read_file to inspect the current state.
+- Use scrape_page on "/" early to understand the product: what it does, pricing, CTAs. Scrape specific pages that appear in anomalies. Product context makes insights actionable — reference specific pages, features, and CTAs by name.${
 		options?.investigationMode
 			? "\n- Investigate the detected signals using tools. Call emit_insight for each real finding. Drop noise."
 			: ""
@@ -313,9 +318,12 @@ RULES:
 
 function formatSignalBlock(signal: EnrichedSignal, index: number): string {
 	const dir = signal.direction === "up" ? "+" : "-";
-	const method = signal.method === "zscore" ? `z=${signal.zScore}` : "WoW";
+	const scope =
+		signal.method === "zscore"
+			? `z=${signal.zScore}, latest day vs baseline mean`
+			: "WoW period total";
 	const parts = [
-		`${index + 1}. ${signal.label} ${dir}${Math.abs(signal.deltaPercent).toFixed(0)}% (${method}, ${signal.severity}) — ${signal.current.toLocaleString()} vs ${signal.baseline.toLocaleString()}`,
+		`${index + 1}. ${signal.label} ${dir}${Math.abs(signal.deltaPercent).toFixed(0)}% (${scope}, ${signal.severity}) — ${signal.current.toLocaleString()} vs ${signal.baseline.toLocaleString()}`,
 	];
 
 	for (const seg of signal.segments) {
@@ -379,13 +387,21 @@ function buildInvestigationPrompt(
 Period: ${period.current.from} to ${period.current.to} vs ${period.previous.from} to ${period.previous.to}
 Timezone: ${timezone}
 
+Start by scraping "/" to understand the product, then investigate the signals below.
+
 SIGNALS:
 
 ${signalBlocks}
 
-Segments show WHAT changed. Figure out WHY using web_metrics (use period="both" to compare) and execute_sql for cross-table analysis. Follow leads: if a browser dropped, check vitals for that browser. If errors spiked, get stack traces. ${githubInstruction}
+1. Scrape "/" for product context, then use web_metrics (period="both") and execute_sql to investigate.
+${githubInstruction}
+3. If a signal involves a specific page (path), scrape that page to see what's on it.
 
-When you emit_insight, verify the numbers first. Query summary_metrics with period="both" to confirm baseline values before citing them. Do not guess previous-period values — query them. Drop noise. Cite specific evidence.
+Z-score signals compare ONE DAY against the baseline mean — they are NOT period totals. Always query summary_metrics with period="both" to get actual period totals before citing WoW changes.
+
+When you emit_insight: title direction MUST match the primary metric. If sessions went up, say "surged/jumped/rose" not "dropped/fell". Every number you cite must match its direction word — not just the title. If TTFB went from 2500 to 1500, say "improved" or "fell", not "rose". Use summary_metrics as the canonical source for headline numbers, execute_sql only for segment breakdowns.
+
+Low-traffic sites (<50 sessions/week): do not report percentage changes on segments with <10 absolute values. A 3-visitor change is not "43% decline" — it's noise. Focus on structural observations (missing tracking, unconfigured goals) rather than metric movements.
 ${params.orgContext}${params.annotationContext}${params.recentInsightsBlock}`;
 }
 
@@ -514,7 +530,7 @@ async function analyzeWebsite(params: {
 				annotationContext,
 				orgContext,
 			})
-		: `Analyze ${params.domain} (${currentRange.from} to ${currentRange.to} vs ${previousRange.from} to ${previousRange.to}, ${params.config.timezone}). Use web_metrics with period="both" to compare periods efficiently.
+		: `Analyze ${params.domain} (${currentRange.from} to ${currentRange.to} vs ${previousRange.from} to ${previousRange.to}, ${params.config.timezone}). Start by scraping "/" to understand what the product does, then use web_metrics with period="both" to compare periods efficiently.
 ${orgContext}${annotationContext}${recentInsightsBlock}`;
 
 	const { tools: analyticsTools } = createInsightsAgentTools({
@@ -529,13 +545,15 @@ ${orgContext}${annotationContext}${recentInsightsBlock}`;
 				userId: params.userId,
 			})
 		: {};
-	const allTools = { ...analyticsTools, ...githubTools };
+	const scrapeTools = createScrapeTools(params.domain);
+	const allTools = { ...analyticsTools, ...githubTools, ...scrapeTools };
 	const availableTools = Object.fromEntries(
 		Object.entries(allTools).filter(
 			([name]) =>
 				allowedTools.includes(name as InsightGenerationTool) ||
 				name.startsWith("github_") ||
-				name === "execute_sql"
+				name === "execute_sql" ||
+				name === "scrape_page"
 		)
 	) as typeof allTools;
 
@@ -619,7 +637,6 @@ ${orgContext}${annotationContext}${recentInsightsBlock}`;
 		if (collected.length > 0) {
 			const validated = validateCollectedInsights(collected, {
 				config: params.config,
-				domain: params.domain,
 				organizationId: params.organizationId,
 				websiteId: params.websiteId,
 			});
@@ -710,12 +727,16 @@ async function persistWebsiteInsights(params: {
 		createdAt: new Date(),
 	};
 
-	const toInsert = finalInsights
-		.filter((insight) => {
-			const existingId = dedupeKeyToId.get(dedupeKeyFor(insight));
-			return !(existingId && insight.id === existingId);
-		})
-		.map((insight) => ({
+	const insightsWithKeys = finalInsights.map((insight) => {
+		const key = dedupeKeyFor(insight);
+		const existingId = dedupeKeyToId.get(key);
+		const isRefresh = existingId !== undefined && insight.id === existingId;
+		return { insight, key, isRefresh };
+	});
+
+	const toInsert = insightsWithKeys
+		.filter((i) => !i.isRefresh)
+		.map(({ insight, key }) => ({
 			id: insight.id,
 			organizationId: params.organizationId,
 			websiteId: insight.websiteId,
@@ -728,7 +749,7 @@ async function persistWebsiteInsights(params: {
 			type: insight.type,
 			priority: insight.priority,
 			changePercent: insight.changePercent ?? null,
-			dedupeKey: dedupeKeyFor(insight),
+			dedupeKey: key,
 			subjectKey: insight.subjectKey,
 			sources: insight.sources,
 			confidence: insight.confidence,
@@ -747,10 +768,9 @@ async function persistWebsiteInsights(params: {
 			previousPeriodTo: params.period.previous.to,
 		}));
 
-	const toRefresh = finalInsights.filter((insight) => {
-		const existingId = dedupeKeyToId.get(dedupeKeyFor(insight));
-		return existingId !== undefined && insight.id === existingId;
-	});
+	const toRefresh = insightsWithKeys
+		.filter((i) => i.isRefresh)
+		.map((i) => i.insight);
 
 	if (toInsert.length > 0) {
 		await db

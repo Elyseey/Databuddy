@@ -425,7 +425,21 @@ async function enrichGitHub(
 			return;
 		}
 
-		const commits = commitsData.map((c: any) => ({
+		interface GHCommit {
+			sha?: string;
+			commit?: {
+				message?: string;
+				author?: { name?: string; date?: string };
+			};
+		}
+		interface GHPR {
+			number?: number;
+			title?: string;
+			merged_at?: string | null;
+			user?: { login?: string };
+		}
+
+		const commits = (commitsData as GHCommit[]).map((c) => ({
 			sha: String(c.sha ?? "").slice(0, 7),
 			message: String(c.commit?.message ?? "")
 				.split("\n")[0]
@@ -434,9 +448,9 @@ async function enrichGitHub(
 			date: String(c.commit?.author?.date ?? ""),
 		}));
 
-		const recentPRs = prsData
-			.filter((pr: any) => pr.merged_at)
-			.map((pr: any) => ({
+		const recentPRs = (prsData as GHPR[])
+			.filter((pr) => pr.merged_at)
+			.map((pr) => ({
 				number: Number(pr.number),
 				title: String(pr.title ?? "").slice(0, 120),
 				mergedAt: String(pr.merged_at),
@@ -453,9 +467,9 @@ async function enrichGitHub(
 				if (!detail || typeof detail !== "object" || "error" in detail) {
 					return null;
 				}
-				const files = ((detail as any).files ?? []) as Array<{
-					filename: string;
-				}>;
+				const files = (
+					(detail as { files?: Array<{ filename: string }> }).files ?? []
+				);
 				const changedFiles = files.map((f) => f.filename);
 				const relevant = signalKeywords.some(
 					(kw) =>
@@ -468,7 +482,7 @@ async function enrichGitHub(
 			});
 
 			const results = await Promise.all(detailFetches);
-			relevantCommits = results.filter(Boolean) as typeof commits;
+			relevantCommits = results.flatMap((r) => (r ? [r] : []));
 		}
 
 		return {

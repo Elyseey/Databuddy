@@ -5,8 +5,8 @@ import {
 	type QueryFn,
 	assignSeverity,
 	detectSignals,
-	mean,
-	stddev,
+	mad,
+	median,
 } from "./detection";
 
 function makeDailyRows(
@@ -79,30 +79,32 @@ function createMockQueryFn(
 	) as unknown as QueryFn;
 }
 
-describe("mean", () => {
+describe("median", () => {
 	it("returns 0 for empty array", () => {
-		expect(mean([])).toBe(0);
+		expect(median([])).toBe(0);
 	});
 
-	it("computes the arithmetic mean", () => {
-		expect(mean([10, 20, 30])).toBe(20);
+	it("returns the middle value for odd-length array", () => {
+		expect(median([3, 1, 2])).toBe(2);
+	});
+
+	it("returns the average of two middle values for even-length array", () => {
+		expect(median([1, 2, 3, 4])).toBe(2.5);
+	});
+
+	it("is not affected by outliers", () => {
+		expect(median([100, 101, 102, 103, 500])).toBe(102);
 	});
 });
 
-describe("stddev", () => {
+describe("mad", () => {
 	it("returns 0 for fewer than 2 values", () => {
-		expect(stddev([])).toBe(0);
-		expect(stddev([5])).toBe(0);
+		expect(mad([])).toBe(0);
+		expect(mad([5])).toBe(0);
 	});
 
-	it("computes sample standard deviation", () => {
-		const result = stddev([10, 10, 10]);
-		expect(result).toBe(0);
-	});
-
-	it("computes non-zero sample standard deviation", () => {
-		const result = stddev([2, 4, 4, 4, 5, 5, 7, 9]);
-		expect(Math.abs(result - 2.138)).toBeLessThan(0.001);
+	it("computes median absolute deviation", () => {
+		expect(mad([1, 1, 2, 2, 4, 6, 9])).toBe(1);
 	});
 });
 
@@ -215,6 +217,45 @@ describe("detectSignals", () => {
 			const signals = await detectSignals(BASE_PARAMS, queryFn);
 			const zscoreSignals = signals.filter((s) => s.method === "zscore");
 			expect(zscoreSignals.length).toBe(0);
+		});
+
+		it("is not fooled by outlier days in the baseline", async () => {
+			const start = dayjs().subtract(27, "day");
+			const normal = generateStableDays(24, {
+				visitors: 150,
+				sessions: 170,
+				pageviews: 300,
+				bounce_rate: 40,
+				median_session_duration: 60,
+			}, start);
+
+			normal[20].visitors = 450;
+			normal[21].visitors = 400;
+			normal[22].visitors = 380;
+
+			const latestDay = {
+				date: start.add(27, "day").format("YYYY-MM-DD"),
+				visitors: 155,
+				sessions: 170,
+				pageviews: 300,
+				bounce_rate: 40,
+				median_session_duration: 60,
+			};
+
+			const rows = makeDailyRows([...normal, ...generateStableDays(3, {
+				visitors: 150,
+				sessions: 170,
+				pageviews: 300,
+				bounce_rate: 40,
+				median_session_duration: 60,
+			}, start.add(24, "day")), latestDay]);
+			const queryFn = createMockQueryFn(rows);
+
+			const signals = await detectSignals(BASE_PARAMS, queryFn);
+			const visitorSignal = signals.find(
+				(s) => s.metric === "visitors" && s.method === "zscore"
+			);
+			expect(visitorSignal).toBeUndefined();
 		});
 
 		it("requires at least 7 days of data", async () => {
@@ -598,6 +639,52 @@ describe("detectSignals", () => {
 			expect(
 				signals.some((s) => s.metric === "visitors")
 			).toBe(true);
+		});
+	});
+
+	describe("z-score vs WoW conflict resolution", () => {
+		it("drops z-score signal when WoW shows the opposite direction", async () => {
+			const start = dayjs().subtract(27, "day");
+			const normal = generateStableDays(24, {
+				visitors: 100,
+				sessions: 120,
+				pageviews: 200,
+				bounce_rate: 40,
+				median_session_duration: 60,
+			}, start);
+
+			normal[20].visitors = 400;
+			normal[21].visitors = 350;
+			normal[22].visitors = 300;
+
+			const latestDay = {
+				date: start.add(27, "day").format("YYYY-MM-DD"),
+				visitors: 50,
+				sessions: 120,
+				pageviews: 200,
+				bounce_rate: 40,
+				median_session_duration: 60,
+			};
+
+			const rows = makeDailyRows([...normal, ...generateStableDays(3, {
+				visitors: 100,
+				sessions: 120,
+				pageviews: 200,
+				bounce_rate: 40,
+				median_session_duration: 60,
+			}, start.add(24, "day")), latestDay]);
+
+			const queryFn = createMockQueryFn(
+				rows,
+				{ unique_visitors: 200, sessions: 240, pageviews: 400, bounce_rate: 40, median_session_duration: 60 },
+				{ unique_visitors: 100, sessions: 120, pageviews: 200, bounce_rate: 40, median_session_duration: 60 },
+			);
+
+			const signals = await detectSignals(BASE_PARAMS, queryFn);
+			const visitorSignal = signals.find((s) => s.metric === "visitors");
+			if (visitorSignal) {
+				expect(visitorSignal.direction).toBe("up");
+			}
 		});
 	});
 

@@ -69,29 +69,27 @@ interface DailyRow {
 	visitors?: unknown;
 }
 
-export function mean(values: number[]): number {
+export function median(values: number[]): number {
 	if (values.length === 0) {
 		return 0;
 	}
-	let sum = 0;
-	for (const v of values) {
-		sum += v;
-	}
-	return sum / values.length;
+	const sorted = [...values].sort((a, b) => a - b);
+	const mid = Math.floor(sorted.length / 2);
+	return sorted.length % 2 === 0
+		? (sorted[mid - 1] + sorted[mid]) / 2
+		: sorted[mid];
 }
 
-export function stddev(values: number[]): number {
+export function mad(values: number[]): number {
 	if (values.length < 2) {
 		return 0;
 	}
-	const m = mean(values);
-	let variance = 0;
-	for (const v of values) {
-		variance += (v - m) ** 2;
-	}
-	variance /= values.length - 1;
-	return Math.sqrt(variance);
+	const med = median(values);
+	const deviations = values.map((v) => Math.abs(v - med));
+	return median(deviations);
 }
+
+const MAD_SCALE = 1.4826;
 
 export function safeDeltaPercent(current: number, previous: number): number {
 	if (previous === 0) {
@@ -156,7 +154,16 @@ export async function detectSignals(
 
 	const wowSignals = await detectWow(params, today, queryFn);
 
-	const all = [...zscoreSignals, ...wowSignals];
+	const wowDirection = new Map<string, "up" | "down">();
+	for (const s of wowSignals) {
+		wowDirection.set(s.metric, s.direction);
+	}
+	const reconciledZscore = zscoreSignals.filter((s) => {
+		const wow = wowDirection.get(s.metric);
+		return wow === undefined || wow === s.direction;
+	});
+
+	const all = [...reconciledZscore, ...wowSignals];
 
 	const byMetric = new Map<string, DetectedSignal>();
 	for (const signal of all) {
@@ -245,23 +252,24 @@ function detectZscore(sorted: DailyRow[]): DetectedSignal[] {
 			continue;
 		}
 
-		const baselineMean = mean(baselineValues);
-		const baselineStddev = stddev(baselineValues);
-		if (baselineStddev === 0) {
+		const baselineMedian = median(baselineValues);
+		const baselineMad = mad(baselineValues);
+		const scaledMad = baselineMad * MAD_SCALE;
+		if (scaledMad === 0) {
 			continue;
 		}
 
 		const currentValue = Number(
 			latest[metric.dailyField as keyof DailyRow] ?? 0
 		);
-		const zScore = (currentValue - baselineMean) / baselineStddev;
+		const zScore = (currentValue - baselineMedian) / scaledMad;
 		if (Math.abs(zScore) < 2.5) {
 			continue;
 		}
 
-		const delta = safeDeltaPercent(currentValue, baselineMean);
+		const delta = safeDeltaPercent(currentValue, baselineMedian);
 		const direction: "up" | "down" =
-			currentValue > baselineMean ? "up" : "down";
+			currentValue > baselineMedian ? "up" : "down";
 
 		signals.push({
 			metric: metric.key,
@@ -269,7 +277,7 @@ function detectZscore(sorted: DailyRow[]): DetectedSignal[] {
 			method: "zscore",
 			direction,
 			current: currentValue,
-			baseline: baselineMean,
+			baseline: baselineMedian,
 			deltaPercent: Number(delta.toFixed(2)),
 			zScore: Number(zScore.toFixed(2)),
 			severity: assignSeverity(zScore, delta),
@@ -286,7 +294,7 @@ async function detectWow(
 	queryFn: QueryFn
 ): Promise<DetectedSignal[]> {
 	const { websiteId, lookbackDays, timezone } = params;
-	const windowDays = Math.max(3, Math.floor(lookbackDays / 2));
+	const windowDays = Math.max(3, lookbackDays);
 
 	const currentFrom = today
 		.subtract(windowDays - 1, "day")
