@@ -154,6 +154,26 @@ const TYPE_STYLES: Record<
 		color: "text-emerald-500",
 		bg: "bg-emerald-500/10",
 	},
+	deploy_correlation: {
+		icon: <RocketIcon className="size-4" weight="duotone" />,
+		color: "text-amber-500",
+		bg: "bg-amber-500/10",
+	},
+	segment_regression: {
+		icon: <TrendDownIcon className="size-4" weight="fill" />,
+		color: "text-red-500",
+		bg: "bg-red-500/10",
+	},
+	error_impact: {
+		icon: <BugIcon className="size-4" weight="duotone" />,
+		color: "text-red-500",
+		bg: "bg-red-500/10",
+	},
+	cross_signal: {
+		icon: <LinkIcon className="size-4" weight="duotone" />,
+		color: "text-violet-500",
+		bg: "bg-violet-500/10",
+	},
 };
 
 type InsightCardVariant = "full" | "compact";

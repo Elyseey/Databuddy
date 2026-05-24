@@ -19,7 +19,11 @@ export type InsightType =
 	| "persistent_error_hotspot"
 	| "quality_shift"
 	| "cross_property_dependency"
-	| "performance_improved";
+	| "performance_improved"
+	| "deploy_correlation"
+	| "segment_regression"
+	| "error_impact"
+	| "cross_signal";
 
 export type InsightSeverity = "critical" | "warning" | "info";
 
