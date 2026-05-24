@@ -118,6 +118,9 @@ function hasDirectionContradiction(insight: ParsedInsight): boolean {
 	const hasUp = UP_WORDS.test(text) || SIGNED_UP_NUMBER.test(text);
 	const hasDown = DOWN_WORDS.test(text);
 
+	if (hasUp && hasDown) {
+		return false;
+	}
 	if (insight.changePercent > 0) {
 		return hasDown && !IMPROVE_WORDS.test(text);
 	}

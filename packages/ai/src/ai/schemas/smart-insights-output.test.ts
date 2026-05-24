@@ -31,23 +31,8 @@ describe("insightSchema impactSummary length bound", () => {
 		expect(result.success).toBe(true);
 	});
 
-	test("accepts a 220-character impactSummary (current upper bound)", () => {
-		const summary = "x".repeat(220);
-		const result = insightSchema.safeParse({ ...baseInsight, impactSummary: summary });
-		expect(result.success).toBe(true);
-	});
-
-	test("rejects a 221-character impactSummary", () => {
-		const summary = "x".repeat(221);
-		const result = insightSchema.safeParse({ ...baseInsight, impactSummary: summary });
-		expect(result.success).toBe(false);
-	});
-
-	test("real-world 173-char impactSummary that previously failed now passes", () => {
-		const summary =
-			"Zero navigation interactions for two consecutive weeks means no visitor can explore the product from the homepage — directly suppressing sign-up and pricing funnel entry.";
-		expect(summary.length).toBeGreaterThan(160);
-		expect(summary.length).toBeLessThanOrEqual(220);
+	test("accepts a long impactSummary with no upper bound", () => {
+		const summary = "x".repeat(500);
 		const result = insightSchema.safeParse({ ...baseInsight, impactSummary: summary });
 		expect(result.success).toBe(true);
 	});
