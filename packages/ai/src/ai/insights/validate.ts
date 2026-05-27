@@ -49,8 +49,22 @@ const BUSINESS_CLAIM_PATTERN =
 const TECHNICAL_TITLE_JARGON_PATTERN = /\b(INP|LCP|FCP|TTFB|CLS|p75)\b/i;
 
 const MAX_TITLE_CHARS = 80;
-const MAX_DESCRIPTION_CHARS = 480;
-const MAX_SUGGESTION_CHARS = 400;
+const MAX_DESCRIPTION_CHARS = 300;
+const MAX_SUGGESTION_CHARS = 300;
+
+function truncateAtSentence(text: string, maxLength: number): string {
+	if (text.length <= maxLength) {
+		return text;
+	}
+	const truncated = text.slice(0, maxLength);
+	const lastPeriod = truncated.lastIndexOf(". ");
+	const lastSemicolon = truncated.lastIndexOf("; ");
+	const cut = Math.max(lastPeriod, lastSemicolon);
+	if (cut > maxLength * 0.5) {
+		return text.slice(0, cut + 1).trim();
+	}
+	return text.slice(0, maxLength - 1).trim();
+}
 
 function roundPercent(value: number): number {
 	return Math.round(value * 10) / 10;
@@ -79,16 +93,18 @@ function sentimentForPrimaryMetric(
 	return improved ? "positive" : "negative";
 }
 
+const SENTIMENT_DIVERGENCE_TYPES = new Set([
+	"conversion_leak",
+	"funnel_regression",
+	"channel_concentration",
+	"quality_shift",
+	"cross_property_dependency",
+	"referrer_change",
+	"engagement_change",
+]);
+
 function allowsSentimentDivergence(insight: ParsedInsight): boolean {
-	return [
-		"conversion_leak",
-		"funnel_regression",
-		"channel_concentration",
-		"quality_shift",
-		"cross_property_dependency",
-		"referrer_change",
-		"engagement_change",
-	].includes(insight.type);
+	return SENTIMENT_DIVERGENCE_TYPES.has(insight.type);
 }
 
 function typeForDirection(
@@ -227,18 +243,35 @@ export function validateInsight(input: ParsedInsight): InsightValidationResult {
 		};
 	}
 
-	if (
-		insight.title.length > MAX_TITLE_CHARS ||
-		insight.description.length > MAX_DESCRIPTION_CHARS ||
-		insight.suggestion.length > MAX_SUGGESTION_CHARS
-	) {
+	if (insight.title.length > MAX_TITLE_CHARS) {
 		return {
 			insight: null,
 			warnings: [
 				...warnings,
-				`${insight.title}: dropped because insight copy is too verbose`,
+				`${insight.title}: dropped because title exceeds ${MAX_TITLE_CHARS} chars`,
 			],
 		};
+	}
+
+	if (
+		insight.description.length > MAX_DESCRIPTION_CHARS ||
+		insight.suggestion.length > MAX_SUGGESTION_CHARS
+	) {
+		const trimmed = {
+			...insight,
+			description: truncateAtSentence(
+				insight.description,
+				MAX_DESCRIPTION_CHARS
+			),
+			suggestion: truncateAtSentence(insight.suggestion, MAX_SUGGESTION_CHARS),
+		};
+		if (
+			trimmed.description !== insight.description ||
+			trimmed.suggestion !== insight.suggestion
+		) {
+			warnings.push(`${insight.title}: truncated copy to fit limits`);
+		}
+		insight = trimmed;
 	}
 
 	if (

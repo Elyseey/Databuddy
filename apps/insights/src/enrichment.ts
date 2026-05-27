@@ -45,11 +45,21 @@ export interface GitHubContext {
 	repo: string;
 }
 
+export interface VitalsContext {
+	metrics: Array<{
+		name: string;
+		currentP75: number;
+		previousP75: number;
+		deltaPercent: number;
+	}>;
+}
+
 export interface EnrichedSignal extends DetectedSignal {
 	annotations: AnnotationContext[];
 	errorContext?: ErrorContext;
 	githubContext?: GitHubContext;
 	segments: SegmentBreakdown[];
+	vitalsContext?: VitalsContext;
 }
 
 export interface EnrichSignalsParams {
@@ -96,6 +106,7 @@ const SEGMENT_TOP_MOVERS = 3;
 const SEGMENT_FETCH_LIMIT = 100;
 const ERROR_MIN_DELTA_PERCENT = 20;
 const ERROR_TOP_LIMIT = 5;
+const ERROR_WORD_SPLIT_RE = /[\s:()]+/;
 
 function computeWindow(
 	signal: DetectedSignal,
@@ -114,7 +125,7 @@ function computeWindow(
 		};
 	}
 
-	const windowDays = Math.max(3, Math.floor(lookbackDays / 2));
+	const windowDays = Math.max(3, lookbackDays);
 	return {
 		currentFrom: detectedDay
 			.subtract(windowDays - 1, "day")
@@ -125,6 +136,41 @@ function computeWindow(
 			.format("YYYY-MM-DD"),
 		previousTo: detectedDay.subtract(windowDays, "day").format("YYYY-MM-DD"),
 	};
+}
+
+function queryPeriodPair(
+	websiteId: string,
+	timezone: string,
+	window: SignalWindow,
+	queryFn: QueryFn
+) {
+	return (type: string, limit?: number) =>
+		Promise.all([
+			queryFn(
+				{
+					projectId: websiteId,
+					type,
+					from: window.currentFrom,
+					to: window.currentTo,
+					timezone,
+					...(limit ? { limit } : {}),
+				},
+				undefined,
+				timezone
+			),
+			queryFn(
+				{
+					projectId: websiteId,
+					type,
+					from: window.previousFrom,
+					to: window.previousTo,
+					timezone,
+					...(limit ? { limit } : {}),
+				},
+				undefined,
+				timezone
+			),
+		]);
 }
 
 function computeSegmentMovers(
@@ -177,44 +223,20 @@ async function enrichSegments(
 	window: SignalWindow,
 	queryFn: QueryFn
 ): Promise<SegmentBreakdown[]> {
+	const query = queryPeriodPair(websiteId, timezone, window, queryFn);
 	const results = await Promise.all(
 		DIMENSION_CONFIGS.map(async ({ dimension, queryType }) => {
-			const [currentRows, previousRows] = await Promise.all([
-				queryFn(
-					{
-						projectId: websiteId,
-						type: queryType,
-						from: window.currentFrom,
-						to: window.currentTo,
-						timezone,
-						limit: SEGMENT_FETCH_LIMIT,
-					},
-					undefined,
-					timezone
-				),
-				queryFn(
-					{
-						projectId: websiteId,
-						type: queryType,
-						from: window.previousFrom,
-						to: window.previousTo,
-						timezone,
-						limit: SEGMENT_FETCH_LIMIT,
-					},
-					undefined,
-					timezone
-				),
-			]);
-
+			const [currentRows, previousRows] = await query(
+				queryType,
+				SEGMENT_FETCH_LIMIT
+			);
 			const topMovers = computeSegmentMovers(
 				currentRows as DimensionRow[],
 				previousRows as DimensionRow[]
 			);
-
 			return { dimension, topMovers };
 		})
 	);
-
 	return results.filter((r) => r.topMovers.length > 0);
 }
 
@@ -224,54 +246,11 @@ async function enrichErrors(
 	window: SignalWindow,
 	queryFn: QueryFn
 ): Promise<ErrorContext | undefined> {
-	const [currentSummary, previousSummary, currentTypes, previousTypes] =
+	const query = queryPeriodPair(websiteId, timezone, window, queryFn);
+	const [[currentSummary, previousSummary], [currentTypes, previousTypes]] =
 		await Promise.all([
-			queryFn(
-				{
-					projectId: websiteId,
-					type: "error_summary",
-					from: window.currentFrom,
-					to: window.currentTo,
-					timezone,
-				},
-				undefined,
-				timezone
-			),
-			queryFn(
-				{
-					projectId: websiteId,
-					type: "error_summary",
-					from: window.previousFrom,
-					to: window.previousTo,
-					timezone,
-				},
-				undefined,
-				timezone
-			),
-			queryFn(
-				{
-					projectId: websiteId,
-					type: "error_types",
-					from: window.currentFrom,
-					to: window.currentTo,
-					timezone,
-					limit: SEGMENT_FETCH_LIMIT,
-				},
-				undefined,
-				timezone
-			),
-			queryFn(
-				{
-					projectId: websiteId,
-					type: "error_types",
-					from: window.previousFrom,
-					to: window.previousTo,
-					timezone,
-					limit: SEGMENT_FETCH_LIMIT,
-				},
-				undefined,
-				timezone
-			),
+			query("error_summary"),
+			query("error_types", SEGMENT_FETCH_LIMIT),
 		]);
 
 	const currentRow = (currentSummary[0] ?? {}) as ErrorSummaryRow;
@@ -373,8 +352,54 @@ async function enrichAnnotations(
 	return await annotationQueryFn(websiteId, from, to);
 }
 
-const LEADING_SLASH_RE = /^\//;
-const WORD_SPLIT_RE = /[\s:()]+/;
+async function enrichVitals(
+	websiteId: string,
+	timezone: string,
+	window: SignalWindow,
+	queryFn: QueryFn
+): Promise<VitalsContext | undefined> {
+	const query = queryPeriodPair(websiteId, timezone, window, queryFn);
+	const [currentVitals, previousVitals] = await query("vitals_overview");
+
+	interface VitalsRow {
+		metric_name?: string;
+		p75?: number;
+		samples?: number;
+	}
+	const currentMap = new Map(
+		(currentVitals as VitalsRow[]).map((r) => [r.metric_name, r])
+	);
+	const previousMap = new Map(
+		(previousVitals as VitalsRow[]).map((r) => [r.metric_name, r])
+	);
+
+	const metrics: VitalsContext["metrics"] = [];
+	for (const name of ["LCP", "INP", "CLS", "FCP", "TTFB"]) {
+		const cur = currentMap.get(name);
+		const prev = previousMap.get(name);
+		const curVal = cur?.p75 ?? 0;
+		const prevVal = prev?.p75 ?? 0;
+		if (
+			curVal === 0 ||
+			prevVal === 0 ||
+			(cur?.samples ?? 0) < 5 ||
+			(prev?.samples ?? 0) < 5
+		) {
+			continue;
+		}
+		const pct = safeDeltaPercent(curVal, prevVal);
+		if (Math.abs(pct) >= 15) {
+			metrics.push({
+				name,
+				currentP75: curVal,
+				previousP75: prevVal,
+				deltaPercent: Number(pct.toFixed(1)),
+			});
+		}
+	}
+
+	return metrics.length > 0 ? { metrics } : undefined;
+}
 
 function extractSignalKeywords(signals: EnrichedSignal[]): string[] {
 	const keywords = new Set<string>();
@@ -382,15 +407,17 @@ function extractSignalKeywords(signals: EnrichedSignal[]): string[] {
 		keywords.add(s.metric);
 		for (const seg of s.segments) {
 			for (const m of seg.topMovers) {
-				const path = m.name.replace(LEADING_SLASH_RE, "").split("/")[0];
-				if (path && path.length > 2) {
-					keywords.add(path.toLowerCase());
+				const segment = m.name.split("/").find((p) => p.length > 2);
+				if (segment) {
+					keywords.add(segment.toLowerCase());
 				}
 			}
 		}
 		if (s.errorContext) {
 			for (const err of s.errorContext.topNewErrors) {
-				const words = err.split(WORD_SPLIT_RE).filter((w) => w.length > 3);
+				const words = err
+					.split(ERROR_WORD_SPLIT_RE)
+					.filter((w) => w.length > 3);
 				for (const w of words.slice(0, 3)) {
 					keywords.add(w.toLowerCase());
 				}
@@ -426,16 +453,16 @@ async function enrichGitHub(
 		}
 
 		interface GHCommit {
-			sha?: string;
 			commit?: {
 				message?: string;
 				author?: { name?: string; date?: string };
 			};
+			sha?: string;
 		}
 		interface GHPR {
+			merged_at?: string | null;
 			number?: number;
 			title?: string;
-			merged_at?: string | null;
 			user?: { login?: string };
 		}
 
@@ -467,9 +494,8 @@ async function enrichGitHub(
 				if (!detail || typeof detail !== "object" || "error" in detail) {
 					return null;
 				}
-				const files = (
-					(detail as { files?: Array<{ filename: string }> }).files ?? []
-				);
+				const files =
+					(detail as { files?: Array<{ filename: string }> }).files ?? [];
 				const changedFiles = files.map((f) => f.filename);
 				const relevant = signalKeywords.some(
 					(kw) =>
@@ -514,16 +540,19 @@ export async function enrichSignals(
 		signals.map(async (signal) => {
 			const window = computeWindow(signal, lookbackDays);
 
-			const [segments, errorContext, signalAnnotations] = await Promise.all([
-				enrichSegments(websiteId, timezone, window, queryFn),
-				enrichErrors(websiteId, timezone, window, queryFn),
-				enrichAnnotations(websiteId, window, annotationQueryFn),
-			]);
+			const [segments, errorContext, vitalsContext, signalAnnotations] =
+				await Promise.all([
+					enrichSegments(websiteId, timezone, window, queryFn),
+					enrichErrors(websiteId, timezone, window, queryFn),
+					enrichVitals(websiteId, timezone, window, queryFn),
+					enrichAnnotations(websiteId, window, annotationQueryFn),
+				]);
 
 			return {
 				...signal,
 				segments,
 				errorContext,
+				vitalsContext,
 				annotations: signalAnnotations,
 			} as EnrichedSignal;
 		})

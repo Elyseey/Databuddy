@@ -71,6 +71,20 @@ export interface AnalyticsInsightEvidence {
 
 export type AnalyticsInsightSource = "web" | "product" | "ops" | "business";
 
+export interface AnalyticsInsightAction {
+	label: string;
+	params: Record<string, string>;
+	type:
+		| "fix_goal"
+		| "create_funnel"
+		| "add_custom_event"
+		| "create_annotation"
+		| "update_config"
+		| "add_tracking"
+		| "investigate_further"
+		| "code_fix";
+}
+
 export const funnelDefinitions = pgTable(
 	"funnel_definitions",
 	{
@@ -222,6 +236,7 @@ export const analyticsInsights = pgTable(
 		investigationDepth: text("investigation_depth").$type<
 			"surface" | "investigated" | "deep"
 		>(),
+		actions: jsonb().$type<AnalyticsInsightAction[]>(),
 		timezone: text().notNull().default("UTC"),
 		currentPeriodFrom: text("current_period_from").notNull(),
 		currentPeriodTo: text("current_period_to").notNull(),

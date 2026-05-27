@@ -22,7 +22,7 @@ import {
 	changePercentChipClassName,
 	formatSignedChangePercent,
 } from "@/lib/insight-signal-key";
-import type { Insight, InsightType } from "@/lib/insight-types";
+import type { Insight, InsightAction, InsightType } from "@/lib/insight-types";
 import { cn } from "@/lib/utils";
 import {
 	ArrowRightIcon,
@@ -375,6 +375,52 @@ function InsightCardPanel({
 	);
 }
 
+const ACTION_ICONS: Record<InsightAction["type"], ReactNode> = {
+	fix_goal: <BugIcon className="size-3" weight="duotone" />,
+	create_funnel: <ChartLineUpIcon className="size-3" weight="duotone" />,
+	add_custom_event: <LightningIcon className="size-3" weight="fill" />,
+	create_annotation: (
+		<LightbulbFilamentIcon className="size-3" weight="duotone" />
+	),
+	update_config: <GaugeIcon className="size-3" weight="duotone" />,
+	add_tracking: <LightningIcon className="size-3" weight="fill" />,
+	investigate_further: <ArrowRightIcon className="size-3" weight="fill" />,
+	code_fix: <RocketIcon className="size-3" weight="duotone" />,
+};
+
+function InsightActionPill({ action }: { action: InsightAction }) {
+	const handleClick = async () => {
+		if (
+			(action.type === "code_fix" || action.type === "investigate_further") &&
+			action.params.prompt
+		) {
+			try {
+				await navigator.clipboard.writeText(action.params.prompt);
+				toast.success(
+					action.type === "code_fix"
+						? "Copied to clipboard -- paste in Cursor or Claude Code"
+						: "Copied investigation prompt"
+				);
+			} catch {
+				toast.error("Could not copy to clipboard");
+			}
+			return;
+		}
+		toast.info(`${action.label}`);
+	};
+
+	return (
+		<button
+			className="inline-flex items-center gap-1 rounded-md border border-border/60 bg-background px-2 py-1 text-foreground/80 text-xs transition-colors hover:bg-accent hover:text-foreground"
+			onClick={handleClick}
+			type="button"
+		>
+			{ACTION_ICONS[action.type]}
+			{action.label}
+		</button>
+	);
+}
+
 function InsightCopy({ view }: { view: InsightCardViewModel }) {
 	return (
 		<>
@@ -386,6 +432,38 @@ function InsightCopy({ view }: { view: InsightCardViewModel }) {
 					{view.whyItMatters}
 				</p>
 			</section>
+
+			{view.rootCause && (
+				<section className="space-y-1.5">
+					<p className="font-medium text-muted-foreground text-xs uppercase tracking-wide">
+						Root cause
+					</p>
+					<p className="text-pretty text-[13px] text-foreground/85 leading-relaxed">
+						{view.rootCause}
+					</p>
+				</section>
+			)}
+
+			{view.investigationEvidence.length > 0 && (
+				<section className="space-y-1.5">
+					<p className="font-medium text-muted-foreground text-xs uppercase tracking-wide">
+						Evidence
+					</p>
+					<ul className="space-y-1">
+						{view.investigationEvidence.map((e, i) => (
+							<li
+								className="flex gap-2 text-[13px] text-muted-foreground leading-relaxed"
+								key={`ev-${i}`}
+							>
+								<span className="shrink-0 text-muted-foreground/50">
+									&bull;
+								</span>
+								<span>{e.description}</span>
+							</li>
+						))}
+					</ul>
+				</section>
+			)}
 
 			{view.nextStep && (
 				<section className="space-y-1.5 rounded-lg border border-border/60 bg-accent/40 p-3">
@@ -401,23 +479,30 @@ function InsightCopy({ view }: { view: InsightCardViewModel }) {
 					<p className="text-pretty pl-6 text-foreground/85 text-xs leading-relaxed">
 						{view.nextStep}
 					</p>
+					{view.actions.length > 0 && (
+						<div className="flex flex-wrap gap-1.5 pt-1.5 pl-6">
+							{view.actions.map((action, i) => (
+								<InsightActionPill action={action} key={`action-${i}`} />
+							))}
+						</div>
+					)}
 				</section>
 			)}
 		</>
 	);
 }
 
-function InsightEvidence({ view }: { view: InsightCardViewModel }) {
-	if (view.evidence.length === 0) {
+function InsightMetricsSection({ view }: { view: InsightCardViewModel }) {
+	if (view.metrics.length === 0) {
 		return null;
 	}
 
 	return (
 		<section className="space-y-2">
 			<p className="font-medium text-muted-foreground text-xs uppercase tracking-wide">
-				Evidence
+				Metrics
 			</p>
-			<InsightMetrics metrics={view.evidence} />
+			<InsightMetrics metrics={view.metrics} />
 		</section>
 	);
 }
@@ -645,7 +730,7 @@ export function InsightCard({
 
 			<InsightCardPanel expanded={expanded}>
 				<InsightCopy view={view} />
-				{!isCompact && <InsightEvidence view={view} />}
+				{!isCompact && <InsightMetricsSection view={view} />}
 				<InsightCardActions
 					comparisonWindow={comparisonWindow}
 					feedbackVote={feedbackVote}
