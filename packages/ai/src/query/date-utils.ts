@@ -66,16 +66,16 @@ export function padToClickHouseDateTime(value: string): string {
 	return DATE_ONLY_RE.test(value) ? `${value} 00:00:00` : value;
 }
 
-export function todayInTimeZone(timeZone: string): string {
+export function todayInTimeZone(timeZone: string, now: Date = new Date()): string {
 	try {
 		return new Intl.DateTimeFormat("en-CA", {
 			timeZone,
 			year: "numeric",
 			month: "2-digit",
 			day: "2-digit",
-		}).format(new Date());
+		}).format(now);
 	} catch {
-		return new Date().toISOString().slice(0, 10);
+		return now.toISOString().slice(0, 10);
 	}
 }
 
