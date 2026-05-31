@@ -2,6 +2,7 @@ import { tool } from "ai";
 import { z } from "zod";
 import { getWebsiteDomain } from "../../lib/website-utils";
 import { executeQuery, QueryBuilders } from "../../query";
+import { shiftDate, todayInTimeZone } from "../../query/date-utils";
 import type { QueryRequest } from "../../query/types";
 import { getAppContext, resolveToolWebsite } from "./utils";
 
@@ -61,38 +62,33 @@ interface QueryItemResult {
 
 const MAX_MODEL_ROWS = 50;
 
-function resolveDates(item: QueryItem): { from: string; to: string } {
+const PRESET_DAYS = {
+	last_7d: 7,
+	last_14d: 14,
+	last_30d: 30,
+	last_90d: 90,
+} as const;
+
+function resolveDates(
+	item: QueryItem,
+	timeZone: string
+): { from: string; to: string } {
 	if (item.from && item.to) {
 		return { from: item.from, to: item.to };
 	}
 
-	const now = new Date();
-	const today = now.toISOString().split("T").at(0) ?? "";
+	const today = todayInTimeZone(timeZone);
 
-	const daysBack = (d: number) => {
-		const date = new Date(now);
-		date.setDate(date.getDate() - d);
-		return date.toISOString().split("T").at(0) ?? "";
-	};
-
-	switch (item.preset) {
-		case "today":
-			return { from: today, to: today };
-		case "yesterday": {
-			const y = daysBack(1);
-			return { from: y, to: y };
-		}
-		case "last_7d":
-			return { from: daysBack(7), to: today };
-		case "last_14d":
-			return { from: daysBack(14), to: today };
-		case "last_30d":
-			return { from: daysBack(30), to: today };
-		case "last_90d":
-			return { from: daysBack(90), to: today };
-		default:
-			return { from: daysBack(7), to: today };
+	if (item.preset === "today") {
+		return { from: today, to: today };
 	}
+	if (item.preset === "yesterday") {
+		const yesterday = shiftDate(today, -1);
+		return { from: yesterday, to: yesterday };
+	}
+
+	const days = PRESET_DAYS[item.preset as keyof typeof PRESET_DAYS] ?? 7;
+	return { from: shiftDate(today, -days), to: today };
 }
 
 const BUILDER_CATEGORIES = `Builder types by category:
@@ -162,7 +158,8 @@ export const getDataTool = tool({
 				}
 
 				const domain = resolvedDomain || (await getWebsiteDomain(websiteId));
-				const { from, to } = resolveDates(item);
+				const timezone = item.timezone ?? ctx.timezone ?? "UTC";
+				const { from, to } = resolveDates(item, timezone);
 				const req: QueryRequest = {
 					projectId: websiteId,
 					type: item.type,
@@ -173,10 +170,10 @@ export const getDataTool = tool({
 					groupBy: item.groupBy,
 					orderBy: item.orderBy,
 					limit: item.limit,
-					timezone: item.timezone ?? "UTC",
+					timezone,
 				};
 
-				const data = await executeQuery(req, domain, req.timezone);
+				const data = await executeQuery(req, domain, timezone);
 				return {
 					type: item.type,
 					websiteId,
