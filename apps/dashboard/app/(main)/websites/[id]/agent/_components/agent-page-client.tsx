@@ -1,7 +1,7 @@
 "use client";
 
-import { Skeleton } from "@databuddy/ui";
 import { useRouter } from "next/navigation";
+import { AgentLoadingSkeleton } from "@/components/agent/agent-loading-skeleton";
 import { AgentWorkspace } from "@/components/agent/agent-workspace";
 import { clearLastChatId } from "@/components/agent/hooks/use-chat-db";
 import { useOrganizationsContext } from "@/components/providers/organizations-provider";
@@ -18,12 +18,7 @@ export function AgentPageClient({ chatId, websiteId }: AgentPageClientProps) {
 	const basePath = `/websites/${websiteId}/agent`;
 
 	if (isLoading) {
-		return (
-			<div className="flex h-full flex-col gap-3 p-4">
-				<Skeleton className="h-8 w-48 rounded" />
-				<Skeleton className="h-full w-full rounded" />
-			</div>
-		);
+		return <AgentLoadingSkeleton />;
 	}
 
 	return (

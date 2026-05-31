@@ -1,7 +1,7 @@
 "use client";
 
+import { AgentLoadingSkeleton } from "@/components/agent/agent-loading-skeleton";
 import { useGlobalAgent } from "@/components/agent/global-agent-provider";
-import { Skeleton } from "@databuddy/ui";
 import { AgentNoWebsites } from "./agent-no-websites";
 
 type AgentGate =
@@ -27,10 +27,5 @@ export function AgentGatePlaceholder({
 	if (status === "no-websites") {
 		return <AgentNoWebsites />;
 	}
-	return (
-		<div className="flex h-full flex-col gap-3 p-4">
-			<Skeleton className="h-8 w-48 rounded" />
-			<Skeleton className="h-full w-full rounded" />
-		</div>
-	);
+	return <AgentLoadingSkeleton />;
 }
