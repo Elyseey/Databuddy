@@ -9,7 +9,9 @@ interface Queryable {
 	query: (...args: unknown[]) => unknown;
 }
 
-const DEFAULT_POOL_MAX = 10;
+const DEFAULT_POOL_MAX = 30;
+const DEFAULT_CONNECTION_TIMEOUT_MS = 2000;
+const DEFAULT_STATEMENT_TIMEOUT_MS = 3000;
 const wrappedQueries = new WeakSet<object>();
 
 let _pgTraceFn: ((durationMs: number) => void) | null = null;
@@ -114,11 +116,18 @@ function getDb(): DB {
 			throw new Error("DATABASE_URL is not set");
 		}
 
+		const statementTimeoutMs = parsePositiveInt(
+			process.env.DB_STATEMENT_TIMEOUT_MS,
+			DEFAULT_STATEMENT_TIMEOUT_MS
+		);
 		const pool = new Pool({
 			connectionString: connectionStringForNodePg(databaseUrl),
 			max: parsePositiveInt(process.env.DB_POOL_MAX, DEFAULT_POOL_MAX),
 			idleTimeoutMillis: 30_000,
-			connectionTimeoutMillis: 5000,
+			connectionTimeoutMillis: parsePositiveInt(
+				process.env.DB_CONNECTION_TIMEOUT_MS,
+				DEFAULT_CONNECTION_TIMEOUT_MS
+			),
 			application_name: process.env.SERVICE_NAME || "databuddy",
 		});
 		pool.on("error", (error) => {
@@ -127,6 +136,17 @@ function getDb(): DB {
 				return;
 			}
 			console.error("[db] postgres pool error", error);
+		});
+		pool.on("connect", (client) => {
+			client
+				.query(`SET statement_timeout = ${statementTimeoutMs}`)
+				.catch((error) => {
+					if (_pgErrorFn) {
+						_pgErrorFn(error as Error);
+						return;
+					}
+					console.error("[db] failed to set statement_timeout", error);
+				});
 		});
 
 		_pool = instrumentedPool(pool);
