@@ -389,13 +389,19 @@ export const linksRouter = {
 						throw rpcError.internal("Failed to create link");
 					}
 
-					await setCachedLink(slug, toCachedLink(newLink)).catch((err) =>
+					setCachedLink(slug, toCachedLink(newLink)).catch((err) =>
 						logger.error(
 							{ slug, linkId: newLink.id, error: String(err) },
 							"Failed to cache link after create"
 						)
 					);
-					await invalidateAgentContextSnapshotsForOwner(organizationId);
+					invalidateAgentContextSnapshotsForOwner(organizationId).catch(
+						(err) =>
+							logger.error(
+								{ organizationId, error: String(err) },
+								"Failed to invalidate agent context snapshots after link create"
+							)
+					);
 
 					return newLink;
 				} catch (error) {
@@ -511,7 +517,7 @@ export const linksRouter = {
 					throw rpcError.notFound("link", input.id);
 				}
 
-				await Promise.all([
+				Promise.all([
 					oldSlug === updatedLink.slug
 						? Promise.resolve()
 						: invalidateLinkCache(oldSlug),
@@ -585,9 +591,14 @@ export const linksRouter = {
 				);
 			}
 
-			// Hard delete the link
 			await context.db.delete(links).where(eq(links.id, input.id));
-			await invalidateAgentContextSnapshotsForOwner(link.organizationId);
+			invalidateAgentContextSnapshotsForOwner(link.organizationId).catch(
+				(err) =>
+					logger.error(
+						{ organizationId: link.organizationId, error: String(err) },
+						"Failed to invalidate agent context snapshots after link delete"
+					)
+			);
 
 			return { success: true };
 		}),
