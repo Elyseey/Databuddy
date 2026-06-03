@@ -2,7 +2,7 @@ import {
 	type ApiKeyRow,
 	getApiKeyFromHeader,
 } from "@databuddy/api-keys/resolve";
-import { auth, type User } from "@databuddy/auth";
+import { auth, hasSessionCookie, type User } from "@databuddy/auth";
 import { db } from "@databuddy/db";
 import { os as createOS } from "@orpc/server";
 import { baseErrors } from "./errors";
@@ -60,7 +60,9 @@ export const createRPCContext = async (
 	const [session, apiKey] = preResolved
 		? [preResolved.session, preResolved.apiKey]
 		: await Promise.all([
-				auth.api.getSession({ headers: opts.headers }),
+				hasSessionCookie(opts.headers)
+					? auth.api.getSession({ headers: opts.headers })
+					: Promise.resolve(null),
 				getApiKeyFromHeader(opts.headers),
 			]);
 

@@ -3,7 +3,7 @@ import {
 	hasWebsiteScope,
 	isApiKeyPresent,
 } from "@databuddy/api-keys/resolve";
-import { auth } from "@databuddy/auth";
+import { auth, hasSessionCookie } from "@databuddy/auth";
 import { db } from "@databuddy/db";
 import { Elysia } from "elysia";
 import { getResolvedAuth } from "../lib/auth-wide-event";
@@ -67,12 +67,15 @@ export function websiteAuth() {
 				sessionUser = getSessionUser(session);
 				apiKey = preResolved.apiKeyResult?.key ?? null;
 			} else {
+				const sessionCookiePresent = hasSessionCookie(request.headers);
 				const [resolvedApiKey, resolvedSession] = await record(
 					"getAuthContext",
 					() =>
 						Promise.all([
 							apiKeyPresent ? getApiKeyFromHeader(request.headers) : null,
-							auth.api.getSession({ headers: request.headers }),
+							sessionCookiePresent
+								? auth.api.getSession({ headers: request.headers })
+								: null,
 						])
 				);
 				session = resolvedSession;
