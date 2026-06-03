@@ -135,33 +135,26 @@ function queryPeriodPair(
 	window: SignalWindow,
 	queryFn: QueryFn
 ) {
-	return (type: string, limit?: number) =>
-		Promise.all([
+	return (type: string, limit?: number) => {
+		const base = {
+			projectId: websiteId,
+			type,
+			timezone,
+			...(limit ? { limit } : {}),
+		};
+		return Promise.all([
 			queryFn(
-				{
-					projectId: websiteId,
-					type,
-					from: window.currentFrom,
-					to: window.currentTo,
-					timezone,
-					...(limit ? { limit } : {}),
-				},
+				{ ...base, from: window.currentFrom, to: window.currentTo },
 				undefined,
 				timezone
 			),
 			queryFn(
-				{
-					projectId: websiteId,
-					type,
-					from: window.previousFrom,
-					to: window.previousTo,
-					timezone,
-					...(limit ? { limit } : {}),
-				},
+				{ ...base, from: window.previousFrom, to: window.previousTo },
 				undefined,
 				timezone
 			),
 		]);
+	};
 }
 
 function computeSegmentMovers(

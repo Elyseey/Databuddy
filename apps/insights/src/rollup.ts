@@ -87,7 +87,7 @@ async function fetchRollupInsights(
 	const cutoff = dayjs()
 		.subtract(RANGE_TO_DAYS[range], "day")
 		.format("YYYY-MM-DD");
-	const rows = await db
+	return await db
 		.select({
 			title: analyticsInsights.title,
 			description: analyticsInsights.description,
@@ -96,7 +96,6 @@ async function fetchRollupInsights(
 			sentiment: analyticsInsights.sentiment,
 			priority: analyticsInsights.priority,
 			changePercent: analyticsInsights.changePercent,
-			createdAt: analyticsInsights.createdAt,
 			websiteName: websites.name,
 			websiteDomain: websites.domain,
 		})
@@ -114,18 +113,6 @@ async function fetchRollupInsights(
 			desc(analyticsInsights.createdAt)
 		)
 		.limit(ROLLUP_INSIGHT_LIMIT);
-
-	return rows.map((row) => ({
-		title: row.title,
-		description: row.description,
-		suggestion: row.suggestion,
-		severity: row.severity,
-		sentiment: row.sentiment,
-		priority: row.priority,
-		changePercent: row.changePercent,
-		websiteName: row.websiteName,
-		websiteDomain: row.websiteDomain,
-	}));
 }
 
 async function generateRollupNarrative(
