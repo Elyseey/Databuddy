@@ -217,19 +217,6 @@ function forwardAuthLog(
 	log.info(fields);
 }
 
-const SESSION_COOKIE_HINTS = [
-	"better-auth.session_token",
-	"better-auth.session_data",
-];
-
-export function hasSessionCookie(headers: Headers): boolean {
-	const cookie = headers.get("cookie");
-	if (!cookie) {
-		return false;
-	}
-	return SESSION_COOKIE_HINTS.some((hint) => cookie.includes(hint));
-}
-
 export const auth = betterAuth({
 	logger: {
 		log: forwardAuthLog,

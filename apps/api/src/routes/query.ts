@@ -1,4 +1,4 @@
-import { auth, hasSessionCookie } from "@databuddy/auth";
+import { auth } from "@databuddy/auth";
 import {
 	type ApiKeyRow,
 	getAccessibleWebsiteIds,
@@ -1057,9 +1057,7 @@ export const query = new Elysia({ prefix: "/v1/query" })
 		const hasApiKey = isApiKeyPresent(request.headers);
 		const [apiKey, session] = await Promise.all([
 			hasApiKey ? getApiKeyFromHeader(request.headers) : null,
-			hasSessionCookie(request.headers)
-				? auth.api.getSession({ headers: request.headers })
-				: null,
+			auth.api.getSession({ headers: request.headers }),
 		]);
 		const user = session?.user ?? null;
 

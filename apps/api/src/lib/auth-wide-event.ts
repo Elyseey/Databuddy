@@ -3,7 +3,7 @@ import {
 	isApiKeyPresent,
 	resolveApiKey,
 } from "@databuddy/api-keys/resolve";
-import { auth, hasSessionCookie } from "@databuddy/auth";
+import { auth } from "@databuddy/auth";
 import { mergeWideEvent, record } from "./tracing";
 
 export interface ResolvedAuth {
@@ -21,12 +21,9 @@ export async function applyAuthWideEvent(headers: Headers): Promise<void> {
 	const fields: Record<string, string | number | boolean> = {};
 
 	const hasKey = isApiKeyPresent(headers);
-	const sessionCookiePresent = hasSessionCookie(headers);
 	const [session, apiKeyResult] = await record("auth", () =>
 		Promise.all([
-			sessionCookiePresent
-				? auth.api.getSession({ headers }).catch(() => null)
-				: null,
+			auth.api.getSession({ headers }).catch(() => null),
 			hasKey ? resolveApiKey(headers) : null,
 		])
 	);
