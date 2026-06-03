@@ -14,6 +14,17 @@ import type { EnrichedSignal } from "./enrichment";
 
 const RECENT_INSIGHTS_PROMPT_LIMIT = 12;
 
+function capabilityLine(
+	label: string,
+	items: string[],
+	emptyText: string
+): string {
+	if (items.length === 0) {
+		return `${label}: ${emptyText}`;
+	}
+	return `${label} (${items.length}): ${items.join(", ")}`;
+}
+
 export async function fetchSiteCapabilities(
 	websiteId: string,
 	timezone: string,
@@ -80,60 +91,42 @@ export async function fetchSiteCapabilities(
 				.limit(20),
 		]);
 
-	const parts: string[] = [];
-
+	const customEvents = customEventRows as Array<{
+		event_name?: string;
+		total_events?: number;
+	}>;
 	const eventNames = [
 		...new Set(
-			(
-				customEventRows as Array<{
-					event_name?: string;
-					total_events?: number;
-				}>
-			)
+			customEvents
 				.filter((r) => r.event_name && (r.total_events ?? 0) > 0)
 				.map((r) => r.event_name as string)
 		),
 	];
-	if (eventNames.length > 0) {
-		parts.push(
-			`Custom events (${eventNames.length}): ${eventNames.join(", ")}`
-		);
-	} else {
-		parts.push("Custom events: none configured");
-	}
 
 	const errors = errorSummaryRows[0] as { totalErrors?: number } | undefined;
 	const errorCount = Number(errors?.totalErrors ?? 0);
-	parts.push(
-		errorCount > 0
-			? `Errors: ${errorCount} in current period`
-			: "Errors: none recorded"
-	);
 
 	const vitals = (vitalRows as Array<{ metric_name?: string }>).map(
 		(r) => r.metric_name
 	);
-	if (vitals.length > 0) {
-		parts.push(`Vitals: ${vitals.join(", ")}`);
-	} else {
-		parts.push("Vitals: no data");
-	}
 
-	if (funnelRows.length > 0) {
-		parts.push(
-			`Funnels (${funnelRows.length}): ${funnelRows.map((f) => f.name).join(", ")}`
-		);
-	} else {
-		parts.push("Funnels: none configured");
-	}
-
-	if (goalRows.length > 0) {
-		parts.push(
-			`Goals (${goalRows.length}): ${goalRows.map((g) => `${g.name} (${g.type}: ${g.target})`).join(", ")}`
-		);
-	} else {
-		parts.push("Goals: none configured");
-	}
+	const parts = [
+		capabilityLine("Custom events", eventNames, "none configured"),
+		errorCount > 0
+			? `Errors: ${errorCount} in current period`
+			: "Errors: none recorded",
+		vitals.length > 0 ? `Vitals: ${vitals.join(", ")}` : "Vitals: no data",
+		capabilityLine(
+			"Funnels",
+			funnelRows.map((f) => f.name),
+			"none configured"
+		),
+		capabilityLine(
+			"Goals",
+			goalRows.map((g) => `${g.name} (${g.type}: ${g.target})`),
+			"none configured"
+		),
+	];
 
 	return `\nSite capabilities:\n${parts.join("\n")}`;
 }
@@ -179,7 +172,7 @@ export async function fetchRecentAnnotations(
 	return `\n\nUser annotations (known events that may explain changes):\n${lines.join("\n")}`;
 }
 
-export async function fetchDismissedPatterns(
+export async function fetchDownvotedPatterns(
 	organizationId: string,
 	websiteId: string
 ): Promise<string> {
@@ -213,6 +206,81 @@ export async function fetchDismissedPatterns(
 	return `\n\nInsights users marked as NOT helpful (avoid similar narratives):\n${lines.join("\n")}`;
 }
 
+export async function fetchSuppressedPatterns(
+	organizationId: string,
+	websiteId: string
+): Promise<string> {
+	const since = dayjs().subtract(30, "day").toDate();
+	const rows = await db
+		.select({
+			title: analyticsInsights.title,
+			type: analyticsInsights.type,
+			subjectKey: analyticsInsights.subjectKey,
+		})
+		.from(insightUserFeedback)
+		.innerJoin(
+			analyticsInsights,
+			eq(insightUserFeedback.insightId, analyticsInsights.id)
+		)
+		.where(
+			and(
+				eq(insightUserFeedback.organizationId, organizationId),
+				eq(analyticsInsights.websiteId, websiteId),
+				eq(insightUserFeedback.vote, "dismissed"),
+				gte(insightUserFeedback.createdAt, since)
+			)
+		)
+		.orderBy(desc(insightUserFeedback.createdAt))
+		.limit(20);
+
+	if (rows.length === 0) {
+		return "";
+	}
+
+	const seen = new Set<string>();
+	const lines: string[] = [];
+	for (const row of rows) {
+		const subject = row.subjectKey?.trim() || row.title;
+		const key = `${row.type}|${subject}`;
+		if (seen.has(key)) {
+			continue;
+		}
+		seen.add(key);
+		lines.push(`- ${row.type} on ${subject}`);
+		if (lines.length >= 10) {
+			break;
+		}
+	}
+
+	return `\n\nUsers dismissed these findings as not worth surfacing. Do not re-raise the same pattern unless it is materially worse than when dismissed:\n${lines.join("\n")}`;
+}
+
+export function historyStateSuffix(state: {
+	hadResolvedHistory: boolean;
+	recurrence: number;
+	resolvedAt: Date | null;
+	resolvedReason: "recovered" | "stale" | null;
+	status: "open" | "resolved";
+}): string {
+	if (state.status === "resolved") {
+		if (state.resolvedReason === "recovered") {
+			return state.resolvedAt
+				? ` (recovered ${dayjs(state.resolvedAt).format("YYYY-MM-DD")})`
+				: " (recovered)";
+		}
+		if (state.resolvedReason === "stale") {
+			return " (went quiet)";
+		}
+		return " (resolved)";
+	}
+	if (state.recurrence > 1) {
+		return state.hadResolvedHistory
+			? ` (intermittent, ${state.recurrence}x)`
+			: ` (reported ${state.recurrence}x)`;
+	}
+	return "";
+}
+
 export async function fetchInsightHistory(
 	organizationId: string,
 	websiteId: string,
@@ -228,6 +296,9 @@ export async function fetchInsightHistory(
 			changePercent: analyticsInsights.changePercent,
 			subjectKey: analyticsInsights.subjectKey,
 			createdAt: analyticsInsights.createdAt,
+			status: analyticsInsights.status,
+			resolvedReason: analyticsInsights.resolvedReason,
+			resolvedAt: analyticsInsights.resolvedAt,
 		})
 		.from(analyticsInsights)
 		.where(
@@ -245,9 +316,13 @@ export async function fetchInsightHistory(
 	}
 
 	const subjectCounts = new Map<string, number>();
+	const subjectHadResolved = new Set<string>();
 	for (const row of rows) {
 		const key = row.subjectKey || row.title;
 		subjectCounts.set(key, (subjectCounts.get(key) ?? 0) + 1);
+		if (row.status === "resolved") {
+			subjectHadResolved.add(key);
+		}
 	}
 
 	const seen = new Set<string>();
@@ -263,16 +338,19 @@ export async function fetchInsightHistory(
 		seen.add(key);
 
 		const date = dayjs(row.createdAt).format("YYYY-MM-DD");
-		const recurrence = subjectCounts.get(key) ?? 1;
-		const recurring = recurrence > 1 ? ` (reported ${recurrence}x)` : "";
 		const change =
 			row.changePercent === null
 				? ""
 				: ` ${row.changePercent > 0 ? "+" : ""}${Math.round(row.changePercent)}%`;
+		const suffix = historyStateSuffix({
+			status: row.status,
+			resolvedReason: row.resolvedReason,
+			resolvedAt: row.resolvedAt,
+			recurrence: subjectCounts.get(key) ?? 1,
+			hadResolvedHistory: subjectHadResolved.has(key) && row.status === "open",
+		});
 
-		lines.push(
-			`- [${row.severity}] ${row.title}${change}${recurring} (${date})`
-		);
+		lines.push(`- [${row.severity}] ${row.title}${change}${suffix} (${date})`);
 		if (row.description) {
 			lines.push(`  ${row.description.slice(0, 150)}`);
 		}
@@ -281,7 +359,7 @@ export async function fetchInsightHistory(
 		}
 	}
 
-	return `\n\nPrevious findings for this site (compare against current data — note what resolved, worsened, or persists):
+	return `\n\nPrevious findings for this site (compare against current data). Items marked "recovered" already returned to normal; do not re-raise them unless they regressed again. Items marked "intermittent" flap repeatedly, so treat them as a recurring pattern rather than a fresh anomaly:
 ${lines.join("\n")}`;
 }
 
@@ -313,6 +391,20 @@ export function formatOrgWebsitesContext(
 	return `## Organization websites\n${lines.join("\n")}\n\n`;
 }
 
+const DEPTH_INSTRUCTIONS: Record<
+	InsightGenerationConfigSnapshot["depth"],
+	string
+> = {
+	light:
+		"Use the smallest useful tool set. Prefer 1-2 high-confidence insights.",
+	standard:
+		"Explore enough context for concise, distinct, high-confidence insights.",
+	deep: "Actively cross-check web, product, ops, and business context.",
+};
+
+const INVESTIGATION_RULE =
+	"\n- Investigate detected signals using tools. Call emit_insight for each finding. Drop noise.";
+
 export function buildSystemPrompt(
 	config: InsightGenerationConfigSnapshot,
 	options?: { investigationMode?: boolean }
@@ -321,12 +413,10 @@ export function buildSystemPrompt(
 		1,
 		Math.min(10, config.maxInsightsPerWebsite ?? 2)
 	);
-	const depthInstruction =
-		config.depth === "light"
-			? "Use the smallest useful tool set. Prefer 1-2 high-confidence insights."
-			: config.depth === "deep"
-				? "Actively cross-check web, product, ops, and business context."
-				: "Explore enough context for concise, distinct, high-confidence insights.";
+	const depthInstruction = DEPTH_INSTRUCTIONS[config.depth];
+	const investigationRule = options?.investigationMode
+		? INVESTIGATION_RULE
+		: "";
 
 	return `You are an analytics investigator. Return up to ${targetCount} insights ranked by business impact. ${depthInstruction}
 
@@ -342,11 +432,7 @@ RULES:
 - Confidence > 0.7 requires segment isolation or temporal correlation.
 - Actions: include when fixable (fix_goal, add_custom_event, create_annotation, create_funnel, add_tracking, investigate_further, code_fix).
 - code_fix: when you find a bug with a clear fix, emit a code_fix action with params {prompt, file_hint, error_message}. The prompt should be paste-ready for Cursor or Claude Code — include the exact file to change, what to change, and why.
-- You have mutation tools: call create_annotation directly to mark deploys or incidents on the timeline. Call update_goal to fix goal target mismatches. Use confirmed=true to execute.${
-		options?.investigationMode
-			? "\n- Investigate detected signals using tools. Call emit_insight for each finding. Drop noise."
-			: ""
-	}`;
+- You have mutation tools: call create_annotation directly to mark deploys or incidents on the timeline. Call update_goal to fix goal target mismatches. Use confirmed=true to execute.${investigationRule}`;
 }
 
 export function formatSignalBlock(
@@ -412,13 +498,14 @@ export function buildInvestigationPrompt(
 	params: {
 		annotationContext: string;
 		capabilitiesBlock: string;
-		dismissedBlock: string;
+		downvotedBlock: string;
 		domain: string;
 		githubRepo?: { owner: string; repo: string };
 		orgContext: string;
 		period: WeekOverWeekPeriod;
 		historyBlock: string;
 		siteContext: string;
+		suppressedBlock: string;
 		timezone: string;
 	}
 ): string {
@@ -450,5 +537,5 @@ ${githubInstruction}
 8. Emit findings via emit_insight as you go.
 
 summary_metrics is the canonical source for headline numbers.
-${params.orgContext}${params.annotationContext}${params.historyBlock}${params.dismissedBlock}`;
+${params.orgContext}${params.annotationContext}${params.historyBlock}${params.suppressedBlock}${params.downvotedBlock}`;
 }

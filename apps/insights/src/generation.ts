@@ -21,11 +21,11 @@ import {
 } from "@databuddy/db/schema";
 import { getCachedSiteContext } from "@databuddy/ai/tools/scrape-page";
 import { getOAuthToken } from "@databuddy/ai/tools/utils/oauth-token";
-import { stepCountIs, tool, ToolLoopAgent } from "ai";
+import { stepCountIs, tool, ToolLoopAgent, type ToolSet } from "ai";
 import { randomUUIDv7 } from "bun";
 import dayjs from "dayjs";
 import { resolveInsightsBilling } from "./billing";
-import { detectSignals, wowWindow } from "./detection";
+import { type DetectedSignal, detectSignals, wowWindow } from "./detection";
 import { detectFunnelGoalSignals } from "./funnel-detection";
 import { enrichSignals, type EnrichedSignal } from "./enrichment";
 import {
@@ -33,13 +33,15 @@ import {
 	maxInsights,
 	persistWebsiteInsights,
 } from "./persistence";
+import { resolveInsightsForWebsite } from "./resolution";
 import {
 	buildInvestigationPrompt,
 	buildSystemPrompt,
-	fetchDismissedPatterns,
+	fetchDownvotedPatterns,
 	fetchInsightHistory,
 	fetchRecentAnnotations,
 	fetchSiteCapabilities,
+	fetchSuppressedPatterns,
 	formatOrgWebsitesContext,
 	type OrgWebsiteRow,
 } from "./prompts";
@@ -114,10 +116,7 @@ function modelKeyForTier(
 	if (tier === "deep") {
 		return "deep";
 	}
-	if (tier === "balanced" && hasCriticalSignals) {
-		return "deep";
-	}
-	return "balanced";
+	return hasCriticalSignals ? "deep" : "balanced";
 }
 
 function normalizeAllowedTools(
@@ -154,6 +153,13 @@ function validateCollectedInsights(
 	return validated.insights.slice(0, maxInsights(context.config));
 }
 
+interface AnalyzeWebsiteResult {
+	detectedSignals: DetectedSignal[];
+	detectionSucceeded: boolean;
+	hadData: boolean;
+	insights: ParsedInsight[];
+}
+
 async function analyzeWebsite(params: {
 	billingCustomerId: string | null;
 	config: InsightGenerationConfigSnapshot;
@@ -164,7 +170,7 @@ async function analyzeWebsite(params: {
 	period: WeekOverWeekPeriod;
 	userId?: string;
 	websiteId: string;
-}): Promise<ParsedInsight[]> {
+}): Promise<AnalyzeWebsiteResult> {
 	const startedAt = performance.now();
 	const currentRange = params.period.current;
 	const previousRange = params.period.previous;
@@ -190,9 +196,16 @@ async function analyzeWebsite(params: {
 			website_id: params.websiteId,
 			duration_ms: Math.round(performance.now() - startedAt),
 		});
-		return [];
+		return {
+			insights: [],
+			detectedSignals: [],
+			hadData: false,
+			detectionSucceeded: false,
+		};
 	}
 
+	let detectedSignals: DetectedSignal[] = [];
+	let detectionSucceeded = false;
 	let enrichedSignals: EnrichedSignal[] = [];
 	try {
 		const detectParams = {
@@ -204,15 +217,16 @@ async function analyzeWebsite(params: {
 			detectSignals(detectParams),
 			detectFunnelGoalSignals(detectParams),
 		]);
-		const signals = [...metricSignals, ...funnelGoalSignals].sort(
+		detectedSignals = [...metricSignals, ...funnelGoalSignals].sort(
 			(a, b) => Math.abs(b.deltaPercent) - Math.abs(a.deltaPercent)
 		);
-		if (signals.length > 0) {
+		detectionSucceeded = true;
+		if (detectedSignals.length > 0) {
 			const githubToken = params.githubRepo
 				? await getOAuthToken("github", params.organizationId, params.userId)
 				: null;
 
-			enrichedSignals = await enrichSignals(signals, {
+			enrichedSignals = await enrichSignals(detectedSignals, {
 				websiteId: params.websiteId,
 				timezone: params.config.timezone,
 				lookbackDays: params.config.lookbackDays,
@@ -232,13 +246,15 @@ async function analyzeWebsite(params: {
 		annotationContext,
 		historyBlock,
 		siteContext,
-		dismissedBlock,
+		downvotedBlock,
+		suppressedBlock,
 		capabilitiesBlock,
 	] = await Promise.all([
 		fetchRecentAnnotations(params.websiteId, params.config),
 		fetchInsightHistory(params.organizationId, params.websiteId, params.config),
 		getCachedSiteContext(params.domain),
-		fetchDismissedPatterns(params.organizationId, params.websiteId),
+		fetchDownvotedPatterns(params.organizationId, params.websiteId),
+		fetchSuppressedPatterns(params.organizationId, params.websiteId),
 		fetchSiteCapabilities(
 			params.websiteId,
 			params.config.timezone,
@@ -263,13 +279,14 @@ async function analyzeWebsite(params: {
 				timezone: params.config.timezone,
 				historyBlock,
 				annotationContext,
-				dismissedBlock,
+				downvotedBlock,
+				suppressedBlock,
 				capabilitiesBlock,
 				orgContext,
 				siteContext: siteBlock,
 			})
 		: `Analyze ${params.domain} (${currentRange.from} to ${currentRange.to} vs ${previousRange.from} to ${previousRange.to}, ${params.config.timezone}). Use web_metrics with period="both" to compare periods efficiently.${siteBlock}${capabilitiesBlock}
-${orgContext}${annotationContext}${historyBlock}${dismissedBlock}`;
+${orgContext}${annotationContext}${historyBlock}${suppressedBlock}${downvotedBlock}`;
 
 	const { tools: analyticsTools } = createInsightsAgentTools({
 		websiteId: params.websiteId,
@@ -290,8 +307,38 @@ ${orgContext}${annotationContext}${historyBlock}${dismissedBlock}`;
 		ALWAYS_ON_TOOLS.has(name);
 	const availableTools = Object.fromEntries(
 		Object.entries(allTools).filter(([name]) => isEnabled(name))
-	) as typeof allTools;
+	) as ToolSet;
 
+	const insights = await runInsightsAgent({
+		availableTools,
+		billingCustomerId: params.billingCustomerId,
+		config: params.config,
+		domain: params.domain,
+		hasCriticalSignals: enrichedSignals.some((s) => s.severity === "critical"),
+		investigationMode,
+		organizationId: params.organizationId,
+		startedAt,
+		userId: params.userId,
+		userPrompt,
+		websiteId: params.websiteId,
+	});
+
+	return { insights, detectedSignals, hadData: true, detectionSucceeded };
+}
+
+async function runInsightsAgent(params: {
+	availableTools: ToolSet;
+	billingCustomerId: string | null;
+	config: InsightGenerationConfigSnapshot;
+	domain: string;
+	hasCriticalSignals: boolean;
+	investigationMode: boolean;
+	organizationId: string;
+	startedAt: number;
+	userId?: string;
+	userPrompt: string;
+	websiteId: string;
+}): Promise<ParsedInsight[]> {
 	try {
 		const appContext: AppContext = {
 			userId: params.userId ?? "system",
@@ -321,18 +368,20 @@ ${orgContext}${annotationContext}${historyBlock}${dismissedBlock}`;
 		let toolCallCount = 0;
 		const ai = getAILogger();
 		const allToolsWithEmit = {
-			...availableTools,
+			...params.availableTools,
 			emit_insight: emitInsightTool,
 		};
 		const modelKey = modelKeyForTier(
 			params.config.modelTier,
-			enrichedSignals.some((s) => s.severity === "critical")
+			params.hasCriticalSignals
 		);
 		const agent = new ToolLoopAgent({
 			model: ai.wrap(INSIGHTS_MODELS[modelKey]),
 			instructions: {
 				role: "system",
-				content: buildSystemPrompt(params.config, { investigationMode }),
+				content: buildSystemPrompt(params.config, {
+					investigationMode: params.investigationMode,
+				}),
 				providerOptions: ANTHROPIC_CACHE_1H,
 			},
 			tools: allToolsWithEmit,
@@ -383,7 +432,7 @@ ${orgContext}${annotationContext}${historyBlock}${dismissedBlock}`;
 		});
 
 		const result = await agent.generate({
-			messages: [{ role: "user", content: userPrompt }],
+			messages: [{ role: "user", content: params.userPrompt }],
 		});
 
 		await trackAgentUsageAndBill({
@@ -406,7 +455,7 @@ ${orgContext}${annotationContext}${historyBlock}${dismissedBlock}`;
 			emitInsightsEvent("info", "generation.agent.completed", {
 				organization_id: params.organizationId,
 				website_id: params.websiteId,
-				duration_ms: Math.round(performance.now() - startedAt),
+				duration_ms: Math.round(performance.now() - params.startedAt),
 				raw_output_count: collected.length,
 				output_count: validated.length,
 				tool_call_count: toolCallCount,
@@ -422,7 +471,7 @@ ${orgContext}${annotationContext}${historyBlock}${dismissedBlock}`;
 		emitInsightsEvent("warn", "generation.agent.missing_output", {
 			organization_id: params.organizationId,
 			website_id: params.websiteId,
-			duration_ms: Math.round(performance.now() - startedAt),
+			duration_ms: Math.round(performance.now() - params.startedAt),
 			tool_call_count: toolCallCount,
 		});
 		return [];
@@ -430,7 +479,7 @@ ${orgContext}${annotationContext}${historyBlock}${dismissedBlock}`;
 		captureInsightsError(error, "generation.agent.failed", {
 			organization_id: params.organizationId,
 			website_id: params.websiteId,
-			duration_ms: Math.round(performance.now() - startedAt),
+			duration_ms: Math.round(performance.now() - params.startedAt),
 			error_type: (error as Error).constructor?.name,
 		});
 		return [];
@@ -546,7 +595,7 @@ export async function generateWebsiteInsights(
 		| { owner: string; repo: string }
 		| undefined;
 
-	const insights = await analyzeWebsite({
+	const analysis = await analyzeWebsite({
 		billingCustomerId,
 		config: input.config,
 		domain: site.domain,
@@ -558,7 +607,7 @@ export async function generateWebsiteInsights(
 		websiteId: site.id,
 	});
 
-	const candidates = insights.map(
+	const candidates = analysis.insights.map(
 		(insight): GeneratedWebsiteInsight => ({
 			...insight,
 			id: randomUUIDv7(),
@@ -575,6 +624,22 @@ export async function generateWebsiteInsights(
 		period,
 		runId: input.runId,
 	});
+
+	try {
+		await resolveInsightsForWebsite({
+			organizationId: input.organizationId,
+			websiteId: site.id,
+			runId: input.runId,
+			detectedSignals: analysis.detectedSignals,
+			canRecover: analysis.hadData && analysis.detectionSucceeded,
+		});
+	} catch (error) {
+		captureInsightsError(error, "generation.resolution.failed", {
+			organization_id: input.organizationId,
+			website_id: site.id,
+			run_id: input.runId,
+		});
+	}
 
 	storeWebsiteSummary(site, saved);
 

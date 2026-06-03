@@ -242,6 +242,12 @@ export const analyticsInsights = pgTable(
 		currentPeriodTo: text("current_period_to").notNull(),
 		previousPeriodFrom: text("previous_period_from").notNull(),
 		previousPeriodTo: text("previous_period_to").notNull(),
+		status: text().$type<"open" | "resolved">().notNull().default("open"),
+		resolvedAt: timestamp("resolved_at", {
+			precision: 3,
+			withTimezone: true,
+		}),
+		resolvedReason: text("resolved_reason").$type<"recovered" | "stale">(),
 		createdAt: timestamp("created_at", { precision: 3, withTimezone: true })
 			.defaultNow()
 			.notNull(),
@@ -249,6 +255,11 @@ export const analyticsInsights = pgTable(
 	(table) => [
 		index("analytics_insights_org_created_idx").on(
 			table.organizationId,
+			table.createdAt.desc()
+		),
+		index("analytics_insights_status_idx").on(
+			table.websiteId,
+			table.status,
 			table.createdAt.desc()
 		),
 		index("analytics_insights_website_created_idx").on(

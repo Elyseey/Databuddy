@@ -18,6 +18,7 @@ import {
 import {
 	analyticsInsights,
 	type InsightGenerationConfigSnapshot,
+	insightUserFeedback,
 } from "@databuddy/db/schema";
 import {
 	invalidateAgentContextSnapshotsForWebsite,
@@ -27,6 +28,13 @@ import dayjs from "dayjs";
 import { emitInsightsEvent } from "./lib/evlog-insights";
 
 const DEFAULT_MAX_INSIGHTS = 2;
+const DISMISSAL_SUPPRESSION_LOOKBACK_DAYS = 30;
+const MATERIALLY_WORSE_MULTIPLIER = 1.5;
+const SEVERITY_RANK: Record<string, number> = {
+	info: 0,
+	warning: 1,
+	critical: 2,
+};
 
 const REFRESHED_INSIGHT_COLUMNS = [
 	"title",
@@ -123,6 +131,81 @@ async function fetchInsightDedupeKeyToIdMap(
 	return map;
 }
 
+interface DismissedBaseline {
+	changePercent: number | null;
+	severity: string;
+}
+
+async function fetchDismissedBaselines(
+	organizationId: string
+): Promise<Map<string, DismissedBaseline>> {
+	const cutoff = dayjs()
+		.subtract(DISMISSAL_SUPPRESSION_LOOKBACK_DAYS, "day")
+		.toDate();
+	const rows = await db
+		.select({
+			dedupeKey: analyticsInsights.dedupeKey,
+			websiteId: analyticsInsights.websiteId,
+			type: analyticsInsights.type,
+			sentiment: analyticsInsights.sentiment,
+			subjectKey: analyticsInsights.subjectKey,
+			title: analyticsInsights.title,
+			severity: analyticsInsights.severity,
+			changePercent: analyticsInsights.changePercent,
+		})
+		.from(insightUserFeedback)
+		.innerJoin(
+			analyticsInsights,
+			eq(insightUserFeedback.insightId, analyticsInsights.id)
+		)
+		.where(
+			and(
+				eq(insightUserFeedback.organizationId, organizationId),
+				eq(insightUserFeedback.vote, "dismissed"),
+				gte(insightUserFeedback.createdAt, cutoff)
+			)
+		)
+		.orderBy(desc(insightUserFeedback.createdAt));
+
+	const map = new Map<string, DismissedBaseline>();
+	for (const row of rows) {
+		const key =
+			row.dedupeKey ??
+			insightDedupeKey({
+				websiteId: row.websiteId,
+				type: row.type as ParsedInsight["type"],
+				sentiment: row.sentiment as ParsedInsight["sentiment"],
+				changePercent: row.changePercent,
+				subjectKey: row.subjectKey,
+				title: row.title,
+			});
+		if (!map.has(key)) {
+			map.set(key, {
+				changePercent: row.changePercent,
+				severity: row.severity,
+			});
+		}
+	}
+	return map;
+}
+
+export function isMateriallyWorse(
+	candidate: { changePercent?: number | null; severity: string },
+	baseline: DismissedBaseline
+): boolean {
+	const candidateRank = SEVERITY_RANK[candidate.severity] ?? 0;
+	const baselineRank = SEVERITY_RANK[baseline.severity] ?? 0;
+	if (candidateRank > baselineRank) {
+		return true;
+	}
+	const baselineMagnitude = Math.abs(baseline.changePercent ?? 0);
+	const candidateMagnitude = Math.abs(candidate.changePercent ?? 0);
+	return (
+		baselineMagnitude > 0 &&
+		candidateMagnitude >= baselineMagnitude * MATERIALLY_WORSE_MULTIPLIER
+	);
+}
+
 export async function persistWebsiteInsights(params: {
 	config: InsightGenerationConfigSnapshot;
 	insights: GeneratedWebsiteInsight[];
@@ -131,13 +214,17 @@ export async function persistWebsiteInsights(params: {
 	runId: string;
 }): Promise<GeneratedWebsiteInsight[]> {
 	const startedAt = performance.now();
-	const dedupeKeyToId = await fetchInsightDedupeKeyToIdMap(
-		params.organizationId,
-		params.config.cooldownHours
-	);
+	const [dedupeKeyToId, dismissedBaselines] = await Promise.all([
+		fetchInsightDedupeKeyToIdMap(
+			params.organizationId,
+			params.config.cooldownHours
+		),
+		fetchDismissedBaselines(params.organizationId),
+	]);
 	const seenInBatch = new Set<string>();
 	const finalInsights: GeneratedWebsiteInsight[] = [];
 	let duplicateCandidates = 0;
+	let suppressedByDismissal = 0;
 
 	for (const insight of [...params.insights].sort(
 		(a, b) => b.priority - a.priority
@@ -148,11 +235,24 @@ export async function persistWebsiteInsights(params: {
 			continue;
 		}
 		seenInBatch.add(key);
+		const dismissed = dismissedBaselines.get(key);
+		if (dismissed && !isMateriallyWorse(insight, dismissed)) {
+			suppressedByDismissal += 1;
+			continue;
+		}
 		const existingId = dedupeKeyToId.get(key);
 		finalInsights.push(existingId ? { ...insight, id: existingId } : insight);
 		if (finalInsights.length >= maxInsights(params.config)) {
 			break;
 		}
+	}
+
+	if (suppressedByDismissal > 0) {
+		emitInsightsEvent("info", "generation.persistence.suppressed_dismissed", {
+			organization_id: params.organizationId,
+			run_id: params.runId,
+			suppressed_count: suppressedByDismissal,
+		});
 	}
 
 	if (finalInsights.length === 0) {
@@ -161,6 +261,7 @@ export async function persistWebsiteInsights(params: {
 			run_id: params.runId,
 			candidate_count: params.insights.length,
 			duplicate_candidate_count: duplicateCandidates,
+			suppressed_dismissed_count: suppressedByDismissal,
 			dedupe_window_count: dedupeKeyToId.size,
 		});
 		return [];
@@ -288,6 +389,7 @@ export async function persistWebsiteInsights(params: {
 		result_count: persistedInsights.length,
 		insert_count: toInsert.length,
 		refresh_count: toRefresh.length,
+		suppressed_dismissed_count: suppressedByDismissal,
 		invalidated_website_count: websiteInvalidations.length,
 	});
 

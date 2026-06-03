@@ -176,11 +176,13 @@ async function getInsightsFromDb(options: {
 	const whereClause = options.since
 		? and(
 				eq(analyticsInsights.organizationId, options.organizationId),
+				eq(analyticsInsights.status, "open"),
 				gte(analyticsInsights.createdAt, options.since),
 				isNull(websites.deletedAt)
 			)
 		: and(
 				eq(analyticsInsights.organizationId, options.organizationId),
+				eq(analyticsInsights.status, "open"),
 				isNull(websites.deletedAt)
 			);
 
@@ -314,6 +316,7 @@ const loadNarrativeCached = cacheable(
 			.where(
 				and(
 					eq(analyticsInsights.organizationId, organizationId),
+					eq(analyticsInsights.status, "open"),
 					gte(analyticsInsights.createdAt, cutoff),
 					isNull(websites.deletedAt)
 				)
@@ -679,13 +682,16 @@ export const insightsRouter = {
 					and(
 						eq(insightUserFeedback.userId, context.user.id),
 						eq(insightUserFeedback.organizationId, context.organizationId),
-						inArray(insightUserFeedback.insightId, input.insightIds)
+						inArray(insightUserFeedback.insightId, input.insightIds),
+						inArray(insightUserFeedback.vote, ["up", "down"])
 					)
 				);
 
 			const votes: Record<string, "up" | "down"> = {};
 			for (const row of rows) {
-				votes[row.insightId] = row.vote;
+				if (row.vote === "up" || row.vote === "down") {
+					votes[row.insightId] = row.vote;
+				}
 			}
 			return { votes };
 		}),
@@ -747,6 +753,97 @@ export const insightsRouter = {
 						updatedAt: now,
 					},
 				});
+
+			return { success: true as const };
+		}),
+
+	setDismissed: sessionProcedure
+		.route({
+			method: "POST",
+			path: "/insights/setDismissed",
+			tags: ["Insights"],
+			summary: "Dismiss or restore an insight",
+			description:
+				"Marks an insight as dismissed so its pattern is suppressed in future generation, or restores it when dismissed is false.",
+		})
+		.input(
+			z.object({
+				insightId: z.string().min(1).max(256),
+				dismissed: z.boolean(),
+			})
+		)
+		.output(z.object({ success: z.literal(true) }))
+		.handler(async ({ context, input }) => {
+			if (!context.organizationId) {
+				throw rpcError.badRequest("Organization context is required");
+			}
+
+			if (!input.dismissed) {
+				await context.db
+					.delete(insightUserFeedback)
+					.where(
+						and(
+							eq(insightUserFeedback.userId, context.user.id),
+							eq(insightUserFeedback.organizationId, context.organizationId),
+							eq(insightUserFeedback.insightId, input.insightId),
+							eq(insightUserFeedback.vote, "dismissed")
+						)
+					);
+				return { success: true as const };
+			}
+
+			const now = new Date();
+			await context.db
+				.insert(insightUserFeedback)
+				.values({
+					id: randomUUIDv7(),
+					userId: context.user.id,
+					organizationId: context.organizationId,
+					insightId: input.insightId,
+					vote: "dismissed",
+					createdAt: now,
+					updatedAt: now,
+				})
+				.onConflictDoUpdate({
+					target: [
+						insightUserFeedback.userId,
+						insightUserFeedback.organizationId,
+						insightUserFeedback.insightId,
+					],
+					set: {
+						vote: "dismissed",
+						updatedAt: now,
+					},
+				});
+
+			return { success: true as const };
+		}),
+
+	clearDismissed: sessionProcedure
+		.route({
+			method: "POST",
+			path: "/insights/clearDismissed",
+			tags: ["Insights"],
+			summary: "Clear all dismissed insights",
+			description:
+				"Removes every dismissal for the current user in the active organization.",
+		})
+		.input(z.object({}))
+		.output(z.object({ success: z.literal(true) }))
+		.handler(async ({ context }) => {
+			if (!context.organizationId) {
+				throw rpcError.badRequest("Organization context is required");
+			}
+
+			await context.db
+				.delete(insightUserFeedback)
+				.where(
+					and(
+						eq(insightUserFeedback.userId, context.user.id),
+						eq(insightUserFeedback.organizationId, context.organizationId),
+						eq(insightUserFeedback.vote, "dismissed")
+					)
+				);
 
 			return { success: true as const };
 		}),
