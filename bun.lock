@@ -343,6 +343,7 @@
         "dayjs": "^1.11.19",
         "elysia": "catalog:",
         "evlog": "catalog:",
+        "zod": "catalog:",
       },
       "devDependencies": {
         "@databuddy/test": "workspace:*",

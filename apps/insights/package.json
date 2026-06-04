@@ -19,7 +19,8 @@
     "bullmq": "^5.66.5",
     "dayjs": "^1.11.19",
     "elysia": "catalog:",
-    "evlog": "catalog:"
+    "evlog": "catalog:",
+    "zod": "catalog:"
   },
   "devDependencies": {
     "@databuddy/test": "workspace:*"

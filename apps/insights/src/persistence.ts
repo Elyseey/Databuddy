@@ -87,6 +87,30 @@ function dedupeKeyFor(insight: GeneratedWebsiteInsight): string {
 	});
 }
 
+interface DedupeKeyRow {
+	changePercent: number | null;
+	dedupeKey: string | null;
+	sentiment: string;
+	subjectKey: string;
+	title: string;
+	type: string;
+	websiteId: string;
+}
+
+function resolveDedupeKey(row: DedupeKeyRow): string {
+	return (
+		row.dedupeKey ??
+		insightDedupeKey({
+			websiteId: row.websiteId,
+			type: row.type as ParsedInsight["type"],
+			sentiment: row.sentiment as ParsedInsight["sentiment"],
+			changePercent: row.changePercent,
+			subjectKey: row.subjectKey,
+			title: row.title,
+		})
+	);
+}
+
 async function fetchInsightDedupeKeyToIdMap(
 	organizationId: string,
 	cooldownHours: number
@@ -114,16 +138,7 @@ async function fetchInsightDedupeKeyToIdMap(
 
 	const map = new Map<string, string>();
 	for (const row of rows) {
-		const key =
-			row.dedupeKey ??
-			insightDedupeKey({
-				websiteId: row.websiteId,
-				type: row.type as ParsedInsight["type"],
-				sentiment: row.sentiment as ParsedInsight["sentiment"],
-				changePercent: row.changePercent,
-				subjectKey: row.subjectKey,
-				title: row.title,
-			});
+		const key = resolveDedupeKey(row);
 		if (!map.has(key)) {
 			map.set(key, row.id);
 		}
@@ -169,16 +184,7 @@ async function fetchDismissedBaselines(
 
 	const map = new Map<string, DismissedBaseline>();
 	for (const row of rows) {
-		const key =
-			row.dedupeKey ??
-			insightDedupeKey({
-				websiteId: row.websiteId,
-				type: row.type as ParsedInsight["type"],
-				sentiment: row.sentiment as ParsedInsight["sentiment"],
-				changePercent: row.changePercent,
-				subjectKey: row.subjectKey,
-				title: row.title,
-			});
+		const key = resolveDedupeKey(row);
 		if (!map.has(key)) {
 			map.set(key, {
 				changePercent: row.changePercent,
@@ -290,10 +296,7 @@ export async function persistWebsiteInsights(params: {
 			evidence: insight.evidence ?? null,
 			investigationDepth: insight.investigationDepth ?? null,
 			actions: insight.actions ?? null,
-			metrics:
-				insight.metrics.length > 0
-					? (insight.metrics as InsightMetricRow[])
-					: null,
+			metrics: insight.metrics as InsightMetricRow[],
 			timezone: params.config.timezone,
 			currentPeriodFrom: params.period.current.from,
 			currentPeriodTo: params.period.current.to,

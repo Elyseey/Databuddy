@@ -402,21 +402,14 @@ const DEPTH_INSTRUCTIONS: Record<
 	deep: "Actively cross-check web, product, ops, and business context.",
 };
 
-const INVESTIGATION_RULE =
-	"\n- Investigate detected signals using tools. Call emit_insight for each finding. Drop noise.";
-
 export function buildSystemPrompt(
-	config: InsightGenerationConfigSnapshot,
-	options?: { investigationMode?: boolean }
+	config: InsightGenerationConfigSnapshot
 ): string {
 	const targetCount = Math.max(
 		1,
 		Math.min(10, config.maxInsightsPerWebsite ?? 2)
 	);
 	const depthInstruction = DEPTH_INSTRUCTIONS[config.depth];
-	const investigationRule = options?.investigationMode
-		? INVESTIGATION_RULE
-		: "";
 
 	return `You are an analytics investigator. Return up to ${targetCount} insights ranked by business impact. ${depthInstruction}
 
@@ -432,7 +425,8 @@ RULES:
 - Confidence > 0.7 requires segment isolation or temporal correlation.
 - Actions: include when fixable (fix_goal, add_custom_event, create_annotation, create_funnel, add_tracking, investigate_further, code_fix).
 - code_fix: when you find a bug with a clear fix, emit a code_fix action with params {prompt, file_hint, error_message}. The prompt should be paste-ready for Cursor or Claude Code — include the exact file to change, what to change, and why.
-- You have mutation tools: call create_annotation directly to mark deploys or incidents on the timeline. Call update_goal to fix goal target mismatches. Use confirmed=true to execute.${investigationRule}`;
+- You have mutation tools: call create_annotation directly to mark deploys or incidents on the timeline. Call update_goal to fix goal target mismatches. Use confirmed=true to execute.
+- Investigate detected signals using tools. Call emit_insight for each finding. Drop noise.`;
 }
 
 export function formatSignalBlock(
