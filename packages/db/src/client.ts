@@ -129,6 +129,7 @@ function getDb(): DB {
 				DEFAULT_CONNECTION_TIMEOUT_MS
 			),
 			application_name: process.env.SERVICE_NAME || "databuddy",
+			options: `-c statement_timeout=${statementTimeoutMs}`,
 		});
 		pool.on("error", (error) => {
 			if (_pgErrorFn) {
@@ -136,17 +137,6 @@ function getDb(): DB {
 				return;
 			}
 			console.error("[db] postgres pool error", error);
-		});
-		pool.on("connect", (client) => {
-			client
-				.query(`SET statement_timeout = ${statementTimeoutMs}`)
-				.catch((error) => {
-					if (_pgErrorFn) {
-						_pgErrorFn(error as Error);
-						return;
-					}
-					console.error("[db] failed to set statement_timeout", error);
-				});
 		});
 
 		_pool = instrumentedPool(pool);
