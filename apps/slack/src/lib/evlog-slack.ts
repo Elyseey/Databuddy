@@ -7,6 +7,7 @@ import type { DrainContext, RequestLogger } from "evlog";
 import { createLogger, log } from "evlog";
 import { createAxiomDrain } from "evlog/axiom";
 import { createFsDrain } from "evlog/fs";
+import { createOTLPDrain } from "evlog/otlp";
 import { createDrainPipeline } from "evlog/pipeline";
 
 type SlackLogValue = string | number | boolean;
@@ -16,15 +17,29 @@ const activeSlackLog = new AsyncLocalStorage<RequestLogger>();
 
 const axiomApiKey = env.AXIOM_API_KEY ?? env.AXIOM_TOKEN;
 
+const pipeline = createDrainPipeline<DrainContext>({
+	batch: { size: 50, intervalMs: 5000 },
+	maxBufferSize: 2000,
+});
+
 const batchedAxiomDrain = axiomApiKey
-	? createDrainPipeline<DrainContext>({
-			batch: { size: 50, intervalMs: 5000 },
-			maxBufferSize: 2000,
-		})(
+	? pipeline(
 			createAxiomDrain({
 				apiKey: axiomApiKey,
 				dataset: env.SLACK_AXIOM_DATASET,
 				...(env.AXIOM_ORG_ID ? { orgId: env.AXIOM_ORG_ID } : {}),
+			})
+		)
+	: null;
+
+const superlogApiKey = process.env.SUPERLOG_API_KEY;
+
+const batchedSuperlogDrain = superlogApiKey
+	? pipeline(
+			createOTLPDrain({
+				endpoint:
+					process.env.SUPERLOG_ENDPOINT || "https://intake.superlog.sh",
+				headers: { Authorization: `Bearer ${superlogApiKey}` },
 			})
 		)
 	: null;
@@ -58,10 +73,18 @@ export async function slackLoggerDrain(ctx: DrainContext): Promise<void> {
 	} catch {
 		// Drain failures must not break Slack event handling.
 	}
+	try {
+		await batchedSuperlogDrain?.(ctx);
+	} catch {
+		// Drain failures must not break Slack event handling.
+	}
 }
 
 export async function flushBatchedSlackDrain(): Promise<void> {
-	await batchedAxiomDrain?.flush();
+	await Promise.all([
+		batchedAxiomDrain?.flush(),
+		batchedSuperlogDrain?.flush(),
+	]);
 }
 
 export function createSlackEventLog(fields: SlackLogFields): RequestLogger {

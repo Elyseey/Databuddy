@@ -9,6 +9,7 @@ import {
 	createUserAgentEnricher,
 } from "evlog/enrichers";
 import { createFsDrain } from "evlog/fs";
+import { createOTLPDrain } from "evlog/otlp";
 import { createDrainPipeline } from "evlog/pipeline";
 
 const pipeline = createDrainPipeline<DrainContext>({
@@ -19,6 +20,18 @@ const pipeline = createDrainPipeline<DrainContext>({
 const axiomDrain = createAxiomDrain();
 
 const batchedAxiomDrain = pipeline(axiomDrain);
+
+const superlogApiKey = process.env.SUPERLOG_API_KEY;
+
+const batchedSuperlogDrain = superlogApiKey
+	? pipeline(
+			createOTLPDrain({
+				endpoint:
+					process.env.SUPERLOG_ENDPOINT || "https://intake.superlog.sh",
+				headers: { Authorization: `Bearer ${superlogApiKey}` },
+			})
+		)
+	: null;
 
 const devFsLogsDir = join(
 	dirname(fileURLToPath(import.meta.url)),
@@ -91,6 +104,7 @@ export async function apiLoggerDrain(ctx: DrainContext): Promise<void> {
 		await devFsDrain(ctx);
 	}
 	batchedAxiomDrain(ctx);
+	batchedSuperlogDrain?.(ctx);
 }
 
 const enrichers = [
@@ -106,5 +120,8 @@ export function enrichApiWideEvent(ctx: EnrichContext): void {
 }
 
 export async function flushBatchedApiDrain(): Promise<void> {
-	await batchedAxiomDrain.flush();
+	await Promise.all([
+		batchedAxiomDrain.flush(),
+		batchedSuperlogDrain?.flush(),
+	]);
 }

@@ -7,6 +7,7 @@ import type { DrainContext, RequestLogger } from "evlog";
 import { createLogger, log } from "evlog";
 import { createAxiomDrain } from "evlog/axiom";
 import { createFsDrain } from "evlog/fs";
+import { createOTLPDrain } from "evlog/otlp";
 import { createDrainPipeline } from "evlog/pipeline";
 
 type PrimitiveLogValue = string | number | boolean;
@@ -29,6 +30,18 @@ const batchedAxiomDrain = axiomApiKey
 				apiKey: axiomApiKey,
 				dataset: env.INSIGHTS_AXIOM_DATASET,
 				...(env.AXIOM_ORG_ID ? { orgId: env.AXIOM_ORG_ID } : {}),
+			})
+		)
+	: null;
+
+const superlogApiKey = process.env.SUPERLOG_API_KEY;
+
+const batchedSuperlogDrain = superlogApiKey
+	? pipeline(
+			createOTLPDrain({
+				endpoint:
+					process.env.SUPERLOG_ENDPOINT || "https://intake.superlog.sh",
+				headers: { Authorization: `Bearer ${superlogApiKey}` },
 			})
 		)
 	: null;
@@ -69,21 +82,27 @@ export async function insightsLoggerDrain(ctx: DrainContext): Promise<void> {
 	if (fsDrain) {
 		await fsDrain(ctx);
 	}
-	if (!batchedAxiomDrain) {
-		return;
+	if (batchedAxiomDrain) {
+		try {
+			await batchedAxiomDrain(ctx);
+		} catch {
+			// Drain failures must not break background workers.
+		}
 	}
-	try {
-		await batchedAxiomDrain(ctx);
-	} catch {
-		// Drain failures must not break background workers.
+	if (batchedSuperlogDrain) {
+		try {
+			await batchedSuperlogDrain(ctx);
+		} catch {
+			// Drain failures must not break background workers.
+		}
 	}
 }
 
 export async function flushBatchedInsightsDrain(): Promise<void> {
-	if (!batchedAxiomDrain) {
-		return;
-	}
-	await batchedAxiomDrain.flush();
+	await Promise.all([
+		batchedAxiomDrain?.flush(),
+		batchedSuperlogDrain?.flush(),
+	]);
 }
 
 export function createInsightsEventLog(fields: LogFields): RequestLogger {
