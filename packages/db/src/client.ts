@@ -11,7 +11,6 @@ interface Queryable {
 
 const DEFAULT_POOL_MAX = 30;
 const DEFAULT_CONNECTION_TIMEOUT_MS = 2000;
-const DEFAULT_STATEMENT_TIMEOUT_MS = 3000;
 const wrappedQueries = new WeakSet<object>();
 
 let _pgTraceFn: ((durationMs: number) => void) | null = null;
@@ -116,10 +115,6 @@ function getDb(): DB {
 			throw new Error("DATABASE_URL is not set");
 		}
 
-		const statementTimeoutMs = parsePositiveInt(
-			process.env.DB_STATEMENT_TIMEOUT_MS,
-			DEFAULT_STATEMENT_TIMEOUT_MS
-		);
 		const pool = new Pool({
 			connectionString: connectionStringForNodePg(databaseUrl),
 			max: parsePositiveInt(process.env.DB_POOL_MAX, DEFAULT_POOL_MAX),
@@ -129,7 +124,6 @@ function getDb(): DB {
 				DEFAULT_CONNECTION_TIMEOUT_MS
 			),
 			application_name: process.env.SERVICE_NAME || "databuddy",
-			options: `-c statement_timeout=${statementTimeoutMs}`,
 		});
 		pool.on("error", (error) => {
 			if (_pgErrorFn) {
@@ -138,7 +132,6 @@ function getDb(): DB {
 			}
 			console.error("[db] postgres pool error", error);
 		});
-
 		_pool = instrumentedPool(pool);
 
 		_db = drizzle({ client: _pool, relations, jit: true });
