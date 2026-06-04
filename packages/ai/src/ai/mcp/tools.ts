@@ -1619,18 +1619,14 @@ const manageInsightDigestTool = defineMcpTool(
 			};
 		}
 
-		if (input.frequency) {
-			await callRPCProcedure(
-				"insightGeneration",
-				"upsertConfig",
-				{ ...scopeInput, frequency: input.frequency },
-				rpcContext
-			);
-		}
 		const config = await callRPCProcedure(
 			"insightGeneration",
 			"addSlackDelivery",
-			{ ...scopeInput, channelId: input.channelId },
+			{
+				...scopeInput,
+				channelId: input.channelId,
+				frequency: input.frequency,
+			},
 			rpcContext
 		);
 		const summary = summarizeDigestConfig(config);

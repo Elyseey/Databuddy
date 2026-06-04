@@ -99,18 +99,10 @@ export function createInsightDigestTools() {
 					};
 				}
 
-				if (frequency) {
-					await callRPCProcedure(
-						"insightGeneration",
-						"upsertConfig",
-						{ ...scopeInput, frequency },
-						context
-					);
-				}
 				const config = await callRPCProcedure(
 					"insightGeneration",
 					"addSlackDelivery",
-					{ ...scopeInput, channelId },
+					{ ...scopeInput, channelId, frequency },
 					context
 				);
 				const summary = summarizeDigestConfig(config);
