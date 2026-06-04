@@ -102,8 +102,5 @@ export function enrichApiWideEvent(ctx: EnrichContext): void {
 }
 
 export async function flushBatchedApiDrain(): Promise<void> {
-	await Promise.all([
-		batchedAxiomDrain.flush(),
-		batchedSuperlogDrain?.flush(),
-	]);
+	await Promise.all([batchedAxiomDrain.flush(), batchedSuperlogDrain?.flush()]);
 }

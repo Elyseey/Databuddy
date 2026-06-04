@@ -103,8 +103,5 @@ export function enrichBasketWideEvent(ctx: EnrichContext): void {
 }
 
 export async function flushBatchedAxiomDrain(): Promise<void> {
-	await Promise.all([
-		batchedAxiomDrain.flush(),
-		batchedSuperlogDrain?.flush(),
-	]);
+	await Promise.all([batchedAxiomDrain.flush(), batchedSuperlogDrain?.flush()]);
 }
