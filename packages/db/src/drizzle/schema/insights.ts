@@ -50,6 +50,11 @@ export type InsightRunItemStatus =
 	| "failed"
 	| "skipped";
 
+export interface InsightDelivery {
+	channelId: string;
+	type: "slack";
+}
+
 export interface InsightGenerationConfigSnapshot {
 	allowedTools: InsightGenerationTool[];
 	cooldownHours: number;
@@ -90,6 +95,10 @@ export const insightGenerationConfigs = pgTable(
 		allowedTools: jsonb("allowed_tools")
 			.$type<InsightGenerationTool[]>()
 			.default([...INSIGHT_GENERATION_DEFAULT_TOOLS])
+			.notNull(),
+		deliveries: jsonb("deliveries")
+			.$type<InsightDelivery[]>()
+			.default([])
 			.notNull(),
 		nextRunAt: timestamp("next_run_at", {
 			precision: 3,

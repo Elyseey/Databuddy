@@ -10,6 +10,7 @@ import {
 } from "../../lib/supermemory";
 import { executeBatch } from "../../query";
 import { isAiGatewayConfigured } from "../config/models";
+import { summarizeDigestConfig } from "../tools/digest-summary";
 import { callRPCProcedure } from "../tools/utils";
 import {
 	LinkFolderSelectorSchema,
@@ -55,6 +56,7 @@ import {
 	buildRpcContext,
 	getCachedAccessibleWebsites,
 	getOrganizationId,
+	resolveOrganizationIds,
 } from "./tool-context";
 import { createToolRegistry } from "./registry";
 
@@ -1523,6 +1525,119 @@ const addUsersToFlagTool = defineMcpTool(
 	}
 );
 
+const DigestFrequencySchema = z.enum(["hourly", "daily", "weekly"]);
+
+const manageInsightDigestTool = defineMcpTool(
+	{
+		name: "manage_insight_digest",
+		description:
+			"Route, stop, or inspect Slack delivery of analytics insight digests. action=route sends digests to a channel, unroute stops it, status shows current routing.",
+		inputSchema: z.object({
+			...WebsiteSelectorSchema,
+			action: z
+				.enum(["route", "unroute", "status"])
+				.describe("route to a channel, unroute to stop, or status to inspect"),
+			channelId: z
+				.string()
+				.min(1)
+				.max(120)
+				.optional()
+				.describe("Slack channel ID. Required for route and unroute."),
+			frequency: DigestFrequencySchema.optional().describe(
+				"How often investigations run for this scope. Applied on route."
+			),
+			confirmed: ConfirmedSchema,
+		}),
+		outputSchema: MutationResultSchema,
+		resolveWebsite: "optional",
+		metadata: writeMetadata(["manage:websites"]),
+		ratelimit: { limit: 20, windowSec: 60 },
+	},
+	async (input, ctx) => {
+		const websiteId = ctx.websiteId;
+		const orgIds = await resolveOrganizationIds(websiteId, ctx);
+		if (orgIds instanceof Error) {
+			throw new McpToolError("not_found", orgIds.message);
+		}
+		const organizationId = orgIds[0];
+		const rpcContext = buildRpcContext(ctx);
+		const scopeInput = { organizationId, websiteId: websiteId ?? undefined };
+
+		if (input.action === "status") {
+			const config = await callRPCProcedure(
+				"insightGeneration",
+				"getConfig",
+				scopeInput,
+				rpcContext
+			);
+			const summary = summarizeDigestConfig(config);
+			return {
+				success: true,
+				message:
+					summary.channels.length > 0
+						? `Digest goes to ${summary.channels.length} Slack channel${summary.channels.length === 1 ? "" : "s"} on a ${summary.frequency} cadence.`
+						: "No Slack digest delivery is configured for this scope.",
+				digest: summary,
+			};
+		}
+
+		if (!input.channelId) {
+			throw new McpToolError(
+				"invalid_input",
+				"channelId is required to route or unroute a digest."
+			);
+		}
+
+		if (!input.confirmed) {
+			return {
+				preview: true,
+				confirmationRequired: true,
+				message:
+					input.action === "route"
+						? `Route insight digests to this Slack channel${input.frequency ? ` on a ${input.frequency} cadence` : ""}?`
+						: "Stop routing insight digests to this Slack channel?",
+				digest: {
+					action: input.action,
+					channelId: input.channelId,
+					frequency: input.frequency ?? null,
+					scope: websiteId ? "website" : "organization",
+				},
+			};
+		}
+
+		if (input.action === "unroute") {
+			const config = await callRPCProcedure(
+				"insightGeneration",
+				"removeSlackDelivery",
+				{ ...scopeInput, channelId: input.channelId },
+				rpcContext
+			);
+			return {
+				success: true,
+				message: "Stopped routing insight digests to this Slack channel.",
+				digest: summarizeDigestConfig(config),
+			};
+		}
+
+		const config = await callRPCProcedure(
+			"insightGeneration",
+			"addSlackDelivery",
+			{
+				...scopeInput,
+				channelId: input.channelId,
+				frequency: input.frequency,
+			},
+			rpcContext
+		);
+		const summary = summarizeDigestConfig(config);
+		return {
+			success: true,
+			message: `Insight digests will be delivered to this Slack channel on a ${summary.frequency} cadence.`,
+			digest: summary,
+		};
+	}
+);
+
 const searchMemoryTool = defineMcpTool(
 	{
 		name: "search_memory",
@@ -1671,6 +1786,7 @@ const TOOL_REGISTRY = createToolRegistry([
 	createFlagTool,
 	updateFlagTool,
 	addUsersToFlagTool,
+	manageInsightDigestTool,
 	...INSIGHT_TOOL_FACTORIES,
 	...(MEMORY_ENABLED
 		? [searchMemoryTool, saveMemoryTool, forgetMemoryTool]

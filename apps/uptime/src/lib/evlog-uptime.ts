@@ -108,8 +108,5 @@ export function enrichUptimeWideEvent(ctx: EnrichContext): void {
 }
 
 export async function flushBatchedUptimeDrain(): Promise<void> {
-	await Promise.all([
-		batchedAxiomDrain.flush(),
-		batchedSuperlogDrain?.flush(),
-	]);
+	await Promise.all([batchedAxiomDrain.flush(), batchedSuperlogDrain?.flush()]);
 }

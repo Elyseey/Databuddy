@@ -1,4 +1,13 @@
-import { and, db, desc, eq, inArray, isNull } from "@databuddy/db";
+import {
+	and,
+	db,
+	desc,
+	eq,
+	inArray,
+	isNull,
+	isUniqueViolationFor,
+	withTransaction,
+} from "@databuddy/db";
 import {
 	INSIGHT_GENERATION_DEFAULT_TOOLS,
 	insightGenerationConfigs,
@@ -31,13 +40,30 @@ const generationToolSchema = z.enum([
 ]);
 const depthSchema = z.enum(["light", "standard", "deep"]);
 const frequencySchema = z.enum(["hourly", "daily", "weekly", "custom"]);
+const scheduledFrequencySchema = z.enum(["hourly", "daily", "weekly"]);
 const modelTierSchema = z.enum(["fast", "balanced", "deep"]);
 const reasonSchema = z.enum(["manual", "scheduled", "cooldown_refresh"]);
+const deliverySchema = z.object({
+	channelId: z.string().min(1).max(120),
+	type: z.literal("slack"),
+});
+
+const MAX_SLACK_DELIVERIES = 10;
+const CONFIG_UNIQUE_CONSTRAINTS = [
+	"insight_generation_configs_org_default_uidx",
+	"insight_generation_configs_org_website_uidx",
+];
+
+type SlackDelivery = z.infer<typeof deliverySchema>;
+type ConfigExecutor =
+	| typeof db
+	| Parameters<Parameters<typeof withTransaction>[0]>[0];
 
 const configPatchSchema = z.object({
 	allowedTools: z.array(generationToolSchema).min(1).max(4).optional(),
 	cooldownHours: z.number().int().min(1).max(168).optional(),
 	cron: z.string().min(1).max(120).nullable().optional(),
+	deliveries: z.array(deliverySchema).max(10).optional(),
 	depth: depthSchema.optional(),
 	enabled: z.boolean().optional(),
 	frequency: frequencySchema.optional(),
@@ -54,6 +80,7 @@ const configOutputSchema = z.object({
 	cooldownHours: z.number(),
 	createdAt: z.union([z.date(), z.string()]).nullable(),
 	cron: z.string().nullable(),
+	deliveries: z.array(deliverySchema),
 	depth: depthSchema,
 	enabled: z.boolean(),
 	frequency: frequencySchema,
@@ -127,6 +154,7 @@ const DEFAULT_CONFIG: Omit<
 	allowedTools: [...INSIGHT_GENERATION_DEFAULT_TOOLS],
 	cooldownHours: 6,
 	cron: null,
+	deliveries: [],
 	depth: "standard",
 	enabled: true,
 	frequency: "weekly",
@@ -173,6 +201,7 @@ function rowToConfig(
 		cooldownHours: row.cooldownHours,
 		createdAt: row.createdAt,
 		cron: row.cron,
+		deliveries: row.deliveries,
 		depth: row.depth,
 		enabled: row.enabled,
 		frequency: row.frequency,
@@ -299,34 +328,38 @@ async function resolveScope(
 	return { organizationId, websiteId: null };
 }
 
+function scopeCondition(organizationId: string, websiteId: string | null) {
+	return websiteId
+		? and(
+				eq(insightGenerationConfigs.organizationId, organizationId),
+				eq(insightGenerationConfigs.websiteId, websiteId)
+			)
+		: and(
+				eq(insightGenerationConfigs.organizationId, organizationId),
+				isNull(insightGenerationConfigs.websiteId)
+			);
+}
+
 async function findConfig(
 	organizationId: string,
-	websiteId: string | null
+	websiteId: string | null,
+	executor: ConfigExecutor = db
 ): Promise<InsightGenerationConfig | null> {
-	const rows = await db
+	const rows = await executor
 		.select()
 		.from(insightGenerationConfigs)
-		.where(
-			websiteId
-				? and(
-						eq(insightGenerationConfigs.organizationId, organizationId),
-						eq(insightGenerationConfigs.websiteId, websiteId)
-					)
-				: and(
-						eq(insightGenerationConfigs.organizationId, organizationId),
-						isNull(insightGenerationConfigs.websiteId)
-					)
-		)
+		.where(scopeCondition(organizationId, websiteId))
 		.limit(1);
 	return rows[0] ?? null;
 }
 
 async function getEffectiveConfig(
 	organizationId: string,
-	websiteId: string | null
+	websiteId: string | null,
+	executor: ConfigExecutor = db
 ): Promise<z.infer<typeof configOutputSchema>> {
 	const fallback = defaultConfig(organizationId, websiteId);
-	const orgConfig = await findConfig(organizationId, null);
+	const orgConfig = await findConfig(organizationId, null, executor);
 	const orgEffective = rowToConfig(
 		orgConfig,
 		fallback,
@@ -336,12 +369,113 @@ async function getEffectiveConfig(
 		return orgEffective;
 	}
 
-	const websiteConfig = await findConfig(organizationId, websiteId);
+	const websiteConfig = await findConfig(organizationId, websiteId, executor);
 	return rowToConfig(
 		websiteConfig,
 		orgEffective,
 		websiteConfig ? "website" : orgEffective.source
 	);
+}
+
+async function writeEffectiveConfig(
+	scope: { organizationId: string; websiteId: string | null },
+	next: z.infer<typeof configOutputSchema>,
+	executor: ConfigExecutor = db,
+	deferCacheInvalidation = false
+): Promise<z.infer<typeof configOutputSchema>> {
+	const existing = await findConfig(
+		scope.organizationId,
+		scope.websiteId,
+		executor
+	);
+	const now = new Date();
+	const values = {
+		allowedTools: next.allowedTools,
+		cooldownHours: next.cooldownHours,
+		cron: next.cron,
+		deliveries: next.deliveries,
+		depth: next.depth,
+		enabled: next.enabled,
+		frequency: next.frequency,
+		lookbackDays: next.lookbackDays,
+		maxInsightsPerWebsite: next.maxInsightsPerWebsite,
+		maxSteps: next.maxSteps,
+		maxToolCalls: next.maxToolCalls,
+		modelTier: next.modelTier,
+		nextRunAt: getNextInsightRunAt(next, now),
+		timezone: next.timezone,
+	};
+
+	if (existing) {
+		await executor
+			.update(insightGenerationConfigs)
+			.set({ ...values, updatedAt: now })
+			.where(eq(insightGenerationConfigs.id, existing.id));
+	} else {
+		await executor.insert(insightGenerationConfigs).values({
+			id: randomUUIDv7(),
+			organizationId: scope.organizationId,
+			websiteId: scope.websiteId,
+			...values,
+		});
+	}
+
+	if (!deferCacheInvalidation) {
+		await invalidateInsightsCachesForOrganization(scope.organizationId).catch(
+			() => {
+				// Cache invalidation is best-effort after the config write succeeds.
+			}
+		);
+	}
+	return getEffectiveConfig(scope.organizationId, scope.websiteId, executor);
+}
+
+function runSlackDeliveryMutation(
+	scope: { organizationId: string; websiteId: string | null },
+	apply: (current: SlackDelivery[]) => SlackDelivery[],
+	patch?: InsightGenerationConfigPatch
+): Promise<z.infer<typeof configOutputSchema>> {
+	return withTransaction(async (tx) => {
+		await tx
+			.select({ id: insightGenerationConfigs.id })
+			.from(insightGenerationConfigs)
+			.where(scopeCondition(scope.organizationId, scope.websiteId))
+			.limit(1)
+			.for("update");
+		const current = await getEffectiveConfig(
+			scope.organizationId,
+			scope.websiteId,
+			tx
+		);
+		const base = patch ? applyPatch(current, patch) : current;
+		const deliveries = apply(current.deliveries);
+		return writeEffectiveConfig(scope, { ...base, deliveries }, tx, true);
+	});
+}
+
+async function mutateSlackDeliveries(
+	scope: { organizationId: string; websiteId: string | null },
+	apply: (current: SlackDelivery[]) => SlackDelivery[],
+	patch?: InsightGenerationConfigPatch
+): Promise<z.infer<typeof configOutputSchema>> {
+	let result: z.infer<typeof configOutputSchema>;
+	try {
+		result = await runSlackDeliveryMutation(scope, apply, patch);
+	} catch (error) {
+		const isFirstInsertRace = CONFIG_UNIQUE_CONSTRAINTS.some((constraint) =>
+			isUniqueViolationFor(error, constraint)
+		);
+		if (!isFirstInsertRace) {
+			throw error;
+		}
+		result = await runSlackDeliveryMutation(scope, apply, patch);
+	}
+	await invalidateInsightsCachesForOrganization(scope.organizationId).catch(
+		() => {
+			// Cache invalidation is best-effort after the config write commits.
+		}
+	);
+	return result;
 }
 
 export async function ensureOrganizationInsightGenerationConfig(
@@ -368,6 +502,7 @@ export async function ensureOrganizationInsightGenerationConfig(
 			allowedTools: next.allowedTools,
 			cooldownHours: next.cooldownHours,
 			cron: next.cron,
+			deliveries: next.deliveries,
 			depth: next.depth,
 			enabled: next.enabled,
 			frequency: next.frequency,
@@ -593,57 +728,74 @@ export const insightGenerationRouter = {
 				scope.websiteId
 			);
 			const next = applyPatch(current, input);
-			const existing = await findConfig(scope.organizationId, scope.websiteId);
-			const now = new Date();
-			const nextRunAt = getNextInsightRunAt(next, now);
+			return writeEffectiveConfig(scope, next);
+		}),
 
-			if (existing) {
-				await db
-					.update(insightGenerationConfigs)
-					.set({
-						allowedTools: next.allowedTools,
-						cooldownHours: next.cooldownHours,
-						cron: next.cron,
-						depth: next.depth,
-						enabled: next.enabled,
-						frequency: next.frequency,
-						lookbackDays: next.lookbackDays,
-						maxInsightsPerWebsite: next.maxInsightsPerWebsite,
-						maxSteps: next.maxSteps,
-						maxToolCalls: next.maxToolCalls,
-						modelTier: next.modelTier,
-						nextRunAt,
-						timezone: next.timezone,
-						updatedAt: now,
-					})
-					.where(eq(insightGenerationConfigs.id, existing.id));
-			} else {
-				await db.insert(insightGenerationConfigs).values({
-					id: randomUUIDv7(),
-					organizationId: scope.organizationId,
-					websiteId: scope.websiteId,
-					allowedTools: next.allowedTools,
-					cooldownHours: next.cooldownHours,
-					cron: next.cron,
-					depth: next.depth,
-					enabled: next.enabled,
-					frequency: next.frequency,
-					lookbackDays: next.lookbackDays,
-					maxInsightsPerWebsite: next.maxInsightsPerWebsite,
-					maxSteps: next.maxSteps,
-					maxToolCalls: next.maxToolCalls,
-					modelTier: next.modelTier,
-					nextRunAt,
-					timezone: next.timezone,
-				});
-			}
-
-			await invalidateInsightsCachesForOrganization(scope.organizationId).catch(
-				() => {
-					// Cache invalidation is best-effort after the config write succeeds.
-				}
+	addSlackDelivery: protectedProcedure
+		.route({
+			method: "POST",
+			path: "/insights/generation/addSlackDelivery",
+			summary: "Route an insight digest to a Slack channel",
+			tags: ["Insights"],
+		})
+		.input(
+			z.object({
+				channelId: z.string().min(1).max(120),
+				frequency: scheduledFrequencySchema.optional(),
+				organizationId: z.string().nullish(),
+				websiteId: z.string().nullish(),
+			})
+		)
+		.output(configOutputSchema)
+		.handler(async ({ context, input }) => {
+			const scope = await resolveScope(context, input, "update");
+			return mutateSlackDeliveries(
+				scope,
+				(current) => {
+					const filtered = current.filter(
+						(delivery) =>
+							!(
+								delivery.type === "slack" &&
+								delivery.channelId === input.channelId
+							)
+					);
+					if (filtered.length >= MAX_SLACK_DELIVERIES) {
+						throw rpcError.badRequest(
+							`Cannot route to more than ${MAX_SLACK_DELIVERIES} Slack channels`
+						);
+					}
+					return [...filtered, { channelId: input.channelId, type: "slack" }];
+				},
+				input.frequency ? { frequency: input.frequency } : undefined
 			);
-			return getEffectiveConfig(scope.organizationId, scope.websiteId);
+		}),
+
+	removeSlackDelivery: protectedProcedure
+		.route({
+			method: "POST",
+			path: "/insights/generation/removeSlackDelivery",
+			summary: "Stop routing an insight digest to a Slack channel",
+			tags: ["Insights"],
+		})
+		.input(
+			z.object({
+				channelId: z.string().min(1).max(120),
+				organizationId: z.string().nullish(),
+				websiteId: z.string().nullish(),
+			})
+		)
+		.output(configOutputSchema)
+		.handler(async ({ context, input }) => {
+			const scope = await resolveScope(context, input, "update");
+			return mutateSlackDeliveries(scope, (current) =>
+				current.filter(
+					(delivery) =>
+						!(
+							delivery.type === "slack" &&
+							delivery.channelId === input.channelId
+						)
+				)
+			);
 		}),
 
 	triggerRun: protectedProcedure

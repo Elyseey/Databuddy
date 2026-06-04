@@ -29,6 +29,9 @@ const ANALYTICS_TOOLS = [
 
 const MEMORY_TOOLS = ["search_memory", "save_memory", "forget_memory"];
 
+const OFFER_PHRASING =
+	"\\b(digest|weekly|daily|recurring|rundown|keep an eye|monitor|watch|ping you|drop (a|the)|send you|updates here|report here)\\b";
+
 const NO_SIDE_EFFECT_TOOLS = [...ANALYTICS_TOOLS, ...MEMORY_TOOLS];
 const THREAD_CONTEXT_ONLY = {
 	toolCallCounts: [
@@ -62,6 +65,7 @@ export const slackThreadCases: EvalCase[] = [
 	...dynamicSlackThreadCases(),
 	...fixedSlackQualityCases(),
 	...dynamicSlackQualityCases(),
+	...insightDigestCases(),
 ];
 
 function fixedSlackThreadCases(): EvalCase[] {
@@ -909,6 +913,125 @@ function buildDynamicCorrectionCase(
 			toolsNotCalled: NO_SIDE_EFFECT_TOOLS,
 		},
 	};
+}
+
+function insightDigestCases(): EvalCase[] {
+	return [
+		{
+			id: "digest-explicit-route-here",
+			category: "tool-routing",
+			name: "Routes a recurring digest to this channel on explicit request",
+			query: "can you drop a weekly rundown in this channel going forward?",
+			slack: thread({
+				currentUserId: ISSA,
+				messages: [
+					human(ISSA, "traffic's been climbing, want to stay on top of it"),
+				],
+			}),
+			surfaces: ["slack"],
+			tags: ["slack", "digest", "tool-routing"],
+			websiteId: WS,
+			expect: {
+				maxSteps: 4,
+				maxLatencyMs: 60_000,
+				toolsCalled: ["manage_insight_digest"],
+				toolInputs: [
+					{
+						tool: "manage_insight_digest",
+						includes: { action: "route" },
+					},
+				],
+			},
+		},
+		{
+			id: "digest-explicit-unroute-here",
+			category: "tool-routing",
+			name: "Stops a recurring digest when the user asks to turn it off",
+			query: "actually kill the weekly digest in here, too noisy",
+			slack: thread({
+				currentUserId: KAYLEE,
+				messages: [
+					human(ISSA, "we set up the weekly rundown last month"),
+					bot(
+						"Insight digests are delivered to this Slack channel on a weekly cadence."
+					),
+					human(KAYLEE, "it's a bit much tbh"),
+				],
+			}),
+			surfaces: ["slack"],
+			tags: ["slack", "digest", "tool-routing"],
+			websiteId: WS,
+			expect: {
+				maxSteps: 4,
+				maxLatencyMs: 60_000,
+				toolsCalled: ["manage_insight_digest"],
+				toolInputs: [
+					{
+						tool: "manage_insight_digest",
+						includes: { action: "unroute" },
+					},
+				],
+			},
+		},
+		{
+			id: "digest-no-offer-on-banter",
+			category: "behavioral",
+			name: "Does not pitch a digest on a pure banter turn",
+			query: "lol you're the best",
+			slack: thread({
+				currentUserId: ISSA,
+				messages: [
+					human(ISSA, "appreciate you databuddy"),
+					human(KAYLEE, "real"),
+				],
+			}),
+			surfaces: ["slack"],
+			tags: ["slack", "digest", "guardrail"],
+			websiteId: WS,
+			expect: {
+				maxSteps: 2,
+				maxLatencyMs: 30_000,
+				toolsNotCalled: ["manage_insight_digest"],
+				responseNotMatches: [
+					{
+						description: "no unsolicited digest pitch on banter",
+						pattern: OFFER_PHRASING,
+						flags: "i",
+					},
+				],
+			},
+		},
+		{
+			id: "digest-proactive-offer-after-report",
+			category: "behavioral",
+			name: "Appends a digest offer when delivering a fresh metrics report",
+			query: "how's traffic been the last 7 days?",
+			slack: {
+				currentUserId: ISSA,
+				channelId: "C_EVAL_THREAD",
+				teamId: "T_EVAL",
+				threadTs: "1778005033.664559",
+				trigger: "app_mention",
+				threadMessages: [],
+			},
+			surfaces: ["slack"],
+			tags: ["slack", "digest", "proactive-offer"],
+			websiteId: WS,
+			expect: {
+				maxSteps: 10,
+				maxLatencyMs: 90_000,
+				toolsCalled: ["get_data"],
+				toolsNotCalled: ["manage_insight_digest"],
+				responseMatches: [
+					{
+						description: "offers to set up a recurring digest in this channel",
+						pattern: OFFER_PHRASING,
+						flags: "i",
+					},
+				],
+			},
+		},
+	];
 }
 
 function thread(input: {

@@ -114,6 +114,7 @@ const ANALYTICS_MCP_BODY = `<agent-specific-rules>
 4. Product/session investigations: start with interesting_sessions, session_list, session_events, profile_list, or profile_sessions. session_flow is page-to-page transitions; session_pages is pages ranked by sessions.
 5. Custom events: use get_data custom_events_* builders; raw SQL is easy to scope incorrectly.
 6. Workspace mutations: preview with confirmed=false, then confirmed=true only after explicit approval.
+7. Recurring digests: manage_insight_digest routes investigation digests to a Slack channel (action=route to start, unroute to stop, status to inspect), with optional frequency hourly/daily/weekly and optional websiteId (omit = whole org). Investigations run on their own schedule regardless; this only controls where the digest is posted. The user never has to know the exact phrasing — infer intent from things like "keep an eye on this", "send me updates", "weekly report".
 
 **Data integrity:**
 - Every number must come from tools or arithmetic on tool results.
@@ -178,6 +179,7 @@ Slack rules:
 - Rewrite/exact copy => output only the final copy. Never start with "sure", "got it", "here's", labels, options, or explanation.
 - Banter/thanks/frustration/"nah that's wrong"/"nope"/"shut up"/meta => one short line, no tools, unless they explicitly say thread/above/that.
 - Default: answer first, 1-3 short sentences, <80 words, no headings/report formatting unless asked, no dashboard JSON, no invented numbers.
+- Proactive offer: when your OWN reply delivers concrete metrics/numbers (a report, summary, or recap of the data), end it with one short friendly line offering to post a recurring digest to THIS channel (use slack_channel_id), e.g. "want me to drop a weekly rundown here?" or "i can keep an eye on this and ping you here daily if useful". At most once per conversation. Never add it to a reply that contains no metrics — banter, acknowledgements ("glad it helped"), rewrites, and clarifications get no offer. If they say yes, call manage_insight_digest action=route with slack_channel_id and their cadence (preview confirmed=false, then confirmed=true).
 Examples: "which first?" with thread metrics => read thread and pick one. "nah that's wrong" => ask for correction.
 </slack-output>`;
 

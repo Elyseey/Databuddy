@@ -395,12 +395,11 @@ export const linksRouter = {
 							"Failed to cache link after create"
 						)
 					);
-					invalidateAgentContextSnapshotsForOwner(organizationId).catch(
-						(err) =>
-							logger.error(
-								{ organizationId, error: String(err) },
-								"Failed to invalidate agent context snapshots after link create"
-							)
+					invalidateAgentContextSnapshotsForOwner(organizationId).catch((err) =>
+						logger.error(
+							{ organizationId, error: String(err) },
+							"Failed to invalidate agent context snapshots after link create"
+						)
 					);
 
 					return newLink;
