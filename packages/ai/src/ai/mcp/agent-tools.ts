@@ -210,28 +210,33 @@ Critical schema footguns: website id column is client_id (not website_id); times
 				if (access instanceof Error) {
 					throw new Error(access.message);
 				}
-				const buildResult = buildBatchQueryRequests(
+				const { requests, invalid } = buildBatchQueryRequests(
 					args.queries,
 					args.websiteId,
 					args.timezone ?? "UTC"
 				);
-				if ("error" in buildResult) {
-					throw new Error(buildResult.error);
-				}
 				const websiteDomain =
 					(await getWebsiteDomain(args.websiteId)) ?? "unknown";
-				const results = await executeBatch(buildResult.requests, {
+				const results = await executeBatch(requests, {
 					websiteDomain,
 					timezone: args.timezone ?? "UTC",
 				});
 				return {
 					batch: true,
-					results: results.map((r) => ({
-						type: r.type,
-						data: r.data,
-						rowCount: r.data.length,
-						...(r.error && { error: "Query failed" }),
-					})),
+					results: [
+						...results.map((r) => ({
+							type: r.type,
+							data: r.data,
+							rowCount: r.data.length,
+							...(r.error && { error: "Query failed" }),
+						})),
+						...invalid.map((q) => ({
+							type: q.type,
+							data: [] as unknown[],
+							rowCount: 0,
+							error: q.error,
+						})),
+					],
 				};
 			},
 		}),

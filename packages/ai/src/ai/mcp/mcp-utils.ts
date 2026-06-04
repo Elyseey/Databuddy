@@ -76,12 +76,18 @@ function resolveQueryType(type: string): string {
 	return QUERY_TYPE_ALIASES[type] ?? type;
 }
 
+export interface InvalidBatchQuery {
+	error: string;
+	type: string;
+}
+
 export function buildBatchQueryRequests(
 	items: McpQueryItem[],
 	websiteId: string,
 	timezone: string
-): { requests: QueryRequest[] } | { error: string } {
+): { invalid: InvalidBatchQuery[]; requests: QueryRequest[] } {
 	const requests: QueryRequest[] = [];
+	const invalid: InvalidBatchQuery[] = [];
 	for (const q of items) {
 		const resolvedType = resolveQueryType(q.type);
 		if (!(resolvedType in QueryBuilders)) {
@@ -89,15 +95,18 @@ export function buildBatchQueryRequests(
 			const message = hint.length
 				? `Unknown type: ${q.type}. Did you mean: ${hint.join(", ")}?`
 				: `Unknown type: ${q.type}. Use the capabilities tool to see valid types.`;
-			return { error: message };
+			invalid.push({ error: message, type: q.type });
+			continue;
 		}
 		q.type = resolvedType;
 		let from = q.from;
 		let to = q.to;
 		if (!q.preset && Boolean(from) !== Boolean(to)) {
-			return {
+			invalid.push({
 				error: `Both 'from' and 'to' are required when one is provided. Got from=${q.from ?? "(unset)"}, to=${q.to ?? "(unset)"}. Use a 'preset' (e.g. last_7d) or pass both dates as YYYY-MM-DD.`,
-			};
+				type: q.type,
+			});
+			continue;
 		}
 		const preset = q.preset ?? (from && to ? undefined : "last_7d");
 		if (preset && MCP_DATE_PRESETS.includes(preset as DatePreset)) {
@@ -106,7 +115,11 @@ export function buildBatchQueryRequests(
 			to = resolved.to;
 		}
 		if (!(from && to)) {
-			return { error: "Either preset or both from and to required" };
+			invalid.push({
+				error: "Either preset or both from and to required",
+				type: q.type,
+			});
+			continue;
 		}
 		requests.push({
 			projectId: websiteId,
@@ -121,7 +134,7 @@ export function buildBatchQueryRequests(
 			orderBy: q.orderBy,
 		});
 	}
-	return { requests };
+	return { invalid, requests };
 }
 
 const SCHEMA_SUMMARY =

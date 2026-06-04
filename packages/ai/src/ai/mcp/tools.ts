@@ -438,12 +438,11 @@ const getDataTool = defineMcpTool(
 			);
 		}
 
-		const buildResult = buildBatchQueryRequests(items, websiteId, timezone);
-		if ("error" in buildResult) {
-			throw new McpToolError("invalid_input", buildResult.error);
-		}
-		const requests = buildResult.requests;
-		const isBatch = requests.length > 1;
+		const { requests, invalid } = buildBatchQueryRequests(
+			items,
+			websiteId,
+			timezone
+		);
 
 		// ctx.websiteDomain is guaranteed set by defineMcpTool when resolveWebsite is true
 		const websiteDomain = ctx.websiteDomain ?? "unknown";
@@ -452,19 +451,31 @@ const getDataTool = defineMcpTool(
 			timezone,
 		});
 
-		if (isBatch) {
-			return {
-				batch: true,
-				results: results.map((r) => ({
-					type: r.type,
-					data: r.data,
-					rowCount: r.data.length,
-					...(r.error && { error: r.error }),
-				})),
-			};
+		const merged: Array<{
+			data: unknown[];
+			error?: string;
+			rowCount: number;
+			type: string;
+		}> = [
+			...results.map((r) => ({
+				type: r.type,
+				data: r.data,
+				rowCount: r.data.length,
+				...(r.error && { error: r.error }),
+			})),
+			...invalid.map((q) => ({
+				type: q.type,
+				data: [] as unknown[],
+				rowCount: 0,
+				error: q.error,
+			})),
+		];
+
+		if (items.length > 1) {
+			return { batch: true, results: merged };
 		}
 
-		const first = results[0];
+		const first = merged[0];
 		if (!first) {
 			throw new McpToolError("internal", "No results returned");
 		}

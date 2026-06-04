@@ -66,7 +66,26 @@ export function suggestQueryTypes(input: string, limit = 5): string[] {
 	const substringMatches = all.filter(
 		(t) => !prefixMatches.includes(t) && t.toLowerCase().includes(lower)
 	);
-	return [...prefixMatches, ...substringMatches].slice(0, limit);
+	const ranked = [...prefixMatches, ...substringMatches];
+	if (ranked.length >= limit) {
+		return ranked.slice(0, limit);
+	}
+
+	const inputTokens = new Set(lower.split(/[\s_]+/).filter(Boolean));
+	const tokenMatches = all
+		.filter((t) => !ranked.includes(t))
+		.map((t) => ({
+			score: t
+				.toLowerCase()
+				.split("_")
+				.filter((token) => inputTokens.has(token)).length,
+			type: t,
+		}))
+		.filter((m) => m.score > 0)
+		.sort((a, b) => b.score - a.score)
+		.map((m) => m.type);
+
+	return [...ranked, ...tokenMatches].slice(0, limit);
 }
 
 function createBuilder(
