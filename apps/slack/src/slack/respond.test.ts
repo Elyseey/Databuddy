@@ -17,24 +17,40 @@ class SlackApiError extends Error {
 
 function createStreamClient(startTs: string | null = "stream_ts") {
 	const calls: Array<{ method: string; options: unknown }> = [];
+	let streamMode: "chunks" | "text" | null = null;
+
+	const guardMode = (options: unknown) => {
+		const opts = options as { chunks?: unknown; markdown_text?: unknown };
+		if (opts.chunks !== undefined && opts.markdown_text !== undefined) {
+			throw new SlackApiError("cannot_provide_both_markdown_text_and_chunks");
+		}
+		const callMode =
+			opts.chunks !== undefined
+				? "chunks"
+				: opts.markdown_text !== undefined
+					? "text"
+					: null;
+		if (callMode && streamMode && callMode !== streamMode) {
+			throw new SlackApiError("streaming_mode_mismatch");
+		}
+	};
+
 	const client: Pick<SlackAgentClient, "chat"> = {
 		chat: {
 			appendStream: async (options) => {
+				guardMode(options);
 				calls.push({ method: "chat.appendStream", options });
-				const opts = options as { chunks?: unknown; markdown_text?: unknown };
-				if (opts.chunks !== undefined && opts.markdown_text !== undefined) {
-					throw new SlackApiError(
-						"cannot_provide_both_markdown_text_and_chunks"
-					);
-				}
 				return { ok: true };
 			},
 			startStream: async (options) => {
 				calls.push({ method: "chat.startStream", options });
 				if (startTs === null) return { ok: false, error: "not_allowed" };
+				const opts = options as { chunks?: unknown; markdown_text?: unknown };
+				streamMode = opts.chunks !== undefined ? "chunks" : "text";
 				return { ok: true, ts: startTs };
 			},
 			stopStream: async (options) => {
+				guardMode(options);
 				calls.push({ method: "chat.stopStream", options });
 				return { ok: true };
 			},
@@ -118,10 +134,10 @@ describe("Databuddy Slack response streaming", () => {
 		expect(calls[2]).toEqual({
 			method: "chat.appendStream",
 			options: expect.objectContaining({
-				markdown_text: "Traffic is up 12%.",
+				chunks: [{ text: "Traffic is up 12%.", type: "markdown_text" }],
 			}),
 		});
-		expect(calls[2].options).not.toHaveProperty("chunks");
+		expect(calls[2].options).not.toHaveProperty("markdown_text");
 
 		expect(calls.map((c) => c.method)).toEqual([
 			"chat.startStream",
@@ -189,7 +205,7 @@ describe("Databuddy Slack response streaming", () => {
 		expect(thinkingResolve).toBeDefined();
 
 		const stopCall = calls.find((c) => c.method === "chat.stopStream");
-		expect(getStringOption(stopCall?.options, "markdown_text")).toBe(
+		expect(getChunkText(stopCall?.options)).toBe(
 			"You're out of Databunny credits this month. Upgrade or wait for the monthly reset.",
 		);
 	});
@@ -280,7 +296,7 @@ describe("Databuddy Slack response streaming", () => {
 		});
 
 		const sentText = calls
-			.map((call) => getStringOption(call.options, "markdown_text"))
+			.map((call) => getChunkText(call.options))
 			.filter((value): value is string => typeof value === "string")
 			.join("\n");
 		expect(sentText).toContain("*Top Pages*");
@@ -290,10 +306,19 @@ describe("Databuddy Slack response streaming", () => {
 	});
 });
 
-function getStringOption(value: unknown, key: string): string | undefined {
-	return isRecord(value) && typeof value[key] === "string"
-		? value[key]
-		: undefined;
+function getChunkText(value: unknown): string | undefined {
+	if (!isRecord(value) || !Array.isArray(value.chunks)) {
+		return undefined;
+	}
+	const texts = value.chunks
+		.filter(
+			(chunk): chunk is { text: string; type: string } =>
+				isRecord(chunk) &&
+				chunk.type === "markdown_text" &&
+				typeof chunk.text === "string"
+		)
+		.map((chunk) => chunk.text);
+	return texts.length > 0 ? texts.join("\n") : undefined;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

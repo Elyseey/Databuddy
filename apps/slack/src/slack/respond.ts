@@ -111,7 +111,7 @@ export async function streamAgentToSlack({
 				}
 				await client.chat.appendStream({
 					channel: run.channelId,
-					markdown_text: text,
+					chunks: [markdownChunk(text)],
 					ts: streamTs,
 				});
 			}
@@ -211,6 +211,10 @@ export async function streamAgentToSlack({
 			streamTs,
 		});
 	}
+}
+
+function markdownChunk(text: string) {
+	return { text, type: "markdown_text" as const };
 }
 
 function thinkingTaskChunk(status: "complete" | "error" | "in_progress") {
@@ -315,8 +319,10 @@ async function finishStreamedResponse(
 ): Promise<StreamAgentToSlackResult> {
 	await options.client.chat.stopStream({
 		channel: options.run.channelId,
-		markdown_text: options.finalText ? undefined : SLACK_COPY.noAnswer,
 		ts: options.streamTs,
+		...(options.finalText
+			? {}
+			: { chunks: [markdownChunk(SLACK_COPY.noAnswer)] }),
 	});
 	logSuccess(options, { slack_streamed: true });
 	return {
@@ -361,7 +367,7 @@ async function flushAndStop(
 		await client.chat
 			.appendStream({
 				channel: channelId,
-				markdown_text: pending.slice(0, STREAM_APPEND_LIMIT_CHARS),
+				chunks: [markdownChunk(pending.slice(0, STREAM_APPEND_LIMIT_CHARS))],
 				ts: streamTs,
 			})
 			.catch((e) => logger.warn("Failed to flush partial Slack stream", e));
@@ -370,7 +376,7 @@ async function flushAndStop(
 		.stopStream({
 			channel: channelId,
 			ts: streamTs,
-			...(stopText ? { markdown_text: stopText } : {}),
+			...(stopText ? { chunks: [markdownChunk(stopText)] } : {}),
 		})
 		.catch((e) => logger.warn("Failed to stop Slack stream", e));
 }
