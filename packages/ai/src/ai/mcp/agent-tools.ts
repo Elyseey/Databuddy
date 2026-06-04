@@ -10,6 +10,7 @@ import { createAnnotationTools } from "../tools/annotations";
 import { createFlagTools } from "../tools/flags";
 import { createFunnelTools } from "../tools/funnels";
 import { createGoalTools } from "../tools/goals";
+import { createInsightDigestTools } from "../tools/insight-digest";
 import { createLinksTools } from "../tools/links";
 import { createMemoryTools } from "../tools/memory";
 import { executeAgentSqlForWebsite } from "../tools/execute-sql-query";
@@ -241,6 +242,7 @@ Critical schema footguns: website id column is client_id (not website_id); times
 		...createGoalTools(),
 		...createAnnotationTools(),
 		...createLinksTools(),
+		...createInsightDigestTools(),
 		...createSlackConversationTools(options.slackContext),
 	};
 }
