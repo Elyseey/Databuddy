@@ -25,6 +25,7 @@ import { stepCountIs, tool, ToolLoopAgent, type ToolSet } from "ai";
 import { randomUUIDv7 } from "bun";
 import dayjs from "dayjs";
 import { resolveInsightsBilling } from "./billing";
+import { deliverInsightDigests } from "./delivery";
 import { type DetectedSignal, detectSignals, wowWindow } from "./detection";
 import { detectFunnelGoalSignals } from "./funnel-detection";
 import { enrichSignals } from "./enrichment";
@@ -608,6 +609,23 @@ export async function generateWebsiteInsights(
 	}
 
 	storeWebsiteSummary(site, saved);
+
+	if (saved.length > 0) {
+		try {
+			await deliverInsightDigests({
+				organizationId: input.organizationId,
+				websiteId: site.id,
+				websiteDomain: site.domain,
+				insights: saved,
+			});
+		} catch (error) {
+			captureInsightsError(error, "generation.delivery.failed", {
+				organization_id: input.organizationId,
+				website_id: site.id,
+				run_id: input.runId,
+			});
+		}
+	}
 
 	emitInsightsEvent("info", "generation.website.completed", {
 		organization_id: input.organizationId,
