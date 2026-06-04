@@ -1,6 +1,7 @@
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { readBooleanEnv } from "@databuddy/env/boolean";
+import { createBatchedSuperlogDrain } from "@databuddy/shared/evlog-superlog";
 import type { DrainContext, EnrichContext } from "evlog";
 import { createAxiomDrain } from "evlog/axiom";
 import {
@@ -9,29 +10,14 @@ import {
 	createUserAgentEnricher,
 } from "evlog/enrichers";
 import { createFsDrain } from "evlog/fs";
-import { createOTLPDrain } from "evlog/otlp";
 import { createDrainPipeline } from "evlog/pipeline";
 
-const pipeline = createDrainPipeline<DrainContext>({
+const batchedAxiomDrain = createDrainPipeline<DrainContext>({
 	batch: { size: 50, intervalMs: 5000 },
 	maxBufferSize: 2000,
-});
+})(createAxiomDrain());
 
-const axiomDrain = createAxiomDrain();
-
-const batchedAxiomDrain = pipeline(axiomDrain);
-
-const superlogApiKey = process.env.SUPERLOG_API_KEY;
-
-const batchedSuperlogDrain = superlogApiKey
-	? pipeline(
-			createOTLPDrain({
-				endpoint:
-					process.env.SUPERLOG_ENDPOINT || "https://intake.superlog.sh",
-				headers: { Authorization: `Bearer ${superlogApiKey}` },
-			})
-		)
-	: null;
+const batchedSuperlogDrain = createBatchedSuperlogDrain();
 
 const devFsLogsDir = join(
 	dirname(fileURLToPath(import.meta.url)),
@@ -88,10 +74,6 @@ function parseDurationMs(duration: unknown): number | undefined {
 		: Math.round(Number.parseFloat(match[1]));
 }
 
-/**
- * In development, writes NDJSON wide events to `apps/api/.evlog/logs/` (analyze-logs skill)
- * and still sends to Axiom via the batched pipeline. Production: Axiom only.
- */
 export async function apiLoggerDrain(ctx: DrainContext): Promise<void> {
 	normalizeWideEventForAxiom(ctx.event as Record<string, unknown>);
 

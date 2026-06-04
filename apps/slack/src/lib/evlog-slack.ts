@@ -3,11 +3,11 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { readBooleanEnv } from "@databuddy/env/boolean";
 import { env } from "@databuddy/env/slack";
+import { createBatchedSuperlogDrain } from "@databuddy/shared/evlog-superlog";
 import type { DrainContext, RequestLogger } from "evlog";
 import { createLogger, log } from "evlog";
 import { createAxiomDrain } from "evlog/axiom";
 import { createFsDrain } from "evlog/fs";
-import { createOTLPDrain } from "evlog/otlp";
 import { createDrainPipeline } from "evlog/pipeline";
 
 type SlackLogValue = string | number | boolean;
@@ -17,13 +17,11 @@ const activeSlackLog = new AsyncLocalStorage<RequestLogger>();
 
 const axiomApiKey = env.AXIOM_API_KEY ?? env.AXIOM_TOKEN;
 
-const pipeline = createDrainPipeline<DrainContext>({
-	batch: { size: 50, intervalMs: 5000 },
-	maxBufferSize: 2000,
-});
-
 const batchedAxiomDrain = axiomApiKey
-	? pipeline(
+	? createDrainPipeline<DrainContext>({
+			batch: { size: 50, intervalMs: 5000 },
+			maxBufferSize: 2000,
+		})(
 			createAxiomDrain({
 				apiKey: axiomApiKey,
 				dataset: env.SLACK_AXIOM_DATASET,
@@ -32,17 +30,7 @@ const batchedAxiomDrain = axiomApiKey
 		)
 	: null;
 
-const superlogApiKey = process.env.SUPERLOG_API_KEY;
-
-const batchedSuperlogDrain = superlogApiKey
-	? pipeline(
-			createOTLPDrain({
-				endpoint:
-					process.env.SUPERLOG_ENDPOINT || "https://intake.superlog.sh",
-				headers: { Authorization: `Bearer ${superlogApiKey}` },
-			})
-		)
-	: null;
+const batchedSuperlogDrain = createBatchedSuperlogDrain();
 
 const fsDrain =
 	env.NODE_ENV === "development" || readBooleanEnv("SLACK_EVLOG_FS")
@@ -68,15 +56,15 @@ export async function slackLoggerDrain(ctx: DrainContext): Promise<void> {
 	if (fsDrain) {
 		await fsDrain(ctx);
 	}
-	try {
-		await batchedAxiomDrain?.(ctx);
-	} catch {
-		// Drain failures must not break Slack event handling.
-	}
-	try {
-		await batchedSuperlogDrain?.(ctx);
-	} catch {
-		// Drain failures must not break Slack event handling.
+	for (const drain of [batchedAxiomDrain, batchedSuperlogDrain]) {
+		if (!drain) {
+			continue;
+		}
+		try {
+			await drain(ctx);
+		} catch {
+			// Drain failures must not break Slack event handling.
+		}
 	}
 }
 

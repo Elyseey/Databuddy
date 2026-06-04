@@ -3,11 +3,11 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { readBooleanEnv } from "@databuddy/env/boolean";
 import { env } from "@databuddy/env/insights";
+import { createBatchedSuperlogDrain } from "@databuddy/shared/evlog-superlog";
 import type { DrainContext, RequestLogger } from "evlog";
 import { createLogger, log } from "evlog";
 import { createAxiomDrain } from "evlog/axiom";
 import { createFsDrain } from "evlog/fs";
-import { createOTLPDrain } from "evlog/otlp";
 import { createDrainPipeline } from "evlog/pipeline";
 
 type PrimitiveLogValue = string | number | boolean;
@@ -34,17 +34,7 @@ const batchedAxiomDrain = axiomApiKey
 		)
 	: null;
 
-const superlogApiKey = process.env.SUPERLOG_API_KEY;
-
-const batchedSuperlogDrain = superlogApiKey
-	? pipeline(
-			createOTLPDrain({
-				endpoint:
-					process.env.SUPERLOG_ENDPOINT || "https://intake.superlog.sh",
-				headers: { Authorization: `Bearer ${superlogApiKey}` },
-			})
-		)
-	: null;
+const batchedSuperlogDrain = createBatchedSuperlogDrain();
 
 const fsDrain =
 	process.env.NODE_ENV === "development" || readBooleanEnv("INSIGHTS_EVLOG_FS")
@@ -82,16 +72,12 @@ export async function insightsLoggerDrain(ctx: DrainContext): Promise<void> {
 	if (fsDrain) {
 		await fsDrain(ctx);
 	}
-	if (batchedAxiomDrain) {
-		try {
-			await batchedAxiomDrain(ctx);
-		} catch {
-			// Drain failures must not break background workers.
+	for (const drain of [batchedAxiomDrain, batchedSuperlogDrain]) {
+		if (!drain) {
+			continue;
 		}
-	}
-	if (batchedSuperlogDrain) {
 		try {
-			await batchedSuperlogDrain(ctx);
+			await drain(ctx);
 		} catch {
 			// Drain failures must not break background workers.
 		}

@@ -338,6 +338,7 @@
         "@databuddy/env": "workspace:*",
         "@databuddy/redis": "workspace:*",
         "@databuddy/rpc": "workspace:*",
+        "@databuddy/shared": "workspace:*",
         "ai": "^6.0.188",
         "bullmq": "^5.66.5",
         "dayjs": "^1.11.19",
@@ -379,6 +380,7 @@
         "@databuddy/env": "workspace:*",
         "@databuddy/redis": "workspace:*",
         "@databuddy/rpc": "workspace:*",
+        "@databuddy/shared": "workspace:*",
         "@slack/bolt": "^4.7.2",
         "@slack/web-api": "7.16.0",
         "evlog": "catalog:",
@@ -720,6 +722,7 @@
       "name": "@databuddy/shared",
       "version": "0.0.1",
       "dependencies": {
+        "evlog": "catalog:",
         "ua-parser-js": "catalog:",
         "undici": "^8.2.0",
         "zod": "catalog:",
