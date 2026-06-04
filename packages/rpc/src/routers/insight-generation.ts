@@ -5,6 +5,7 @@ import {
 	eq,
 	inArray,
 	isNull,
+	isUniqueViolationFor,
 	withTransaction,
 } from "@databuddy/db";
 import {
@@ -47,6 +48,10 @@ const deliverySchema = z.object({
 });
 
 const MAX_SLACK_DELIVERIES = 10;
+const CONFIG_UNIQUE_CONSTRAINTS = [
+	"insight_generation_configs_org_default_uidx",
+	"insight_generation_configs_org_website_uidx",
+];
 
 type SlackDelivery = z.infer<typeof deliverySchema>;
 type ConfigExecutor =
@@ -374,7 +379,8 @@ async function getEffectiveConfig(
 async function writeEffectiveConfig(
 	scope: { organizationId: string; websiteId: string | null },
 	next: z.infer<typeof configOutputSchema>,
-	executor: ConfigExecutor = db
+	executor: ConfigExecutor = db,
+	deferCacheInvalidation = false
 ): Promise<z.infer<typeof configOutputSchema>> {
 	const existing = await findConfig(
 		scope.organizationId,
@@ -413,17 +419,20 @@ async function writeEffectiveConfig(
 		});
 	}
 
-	await invalidateInsightsCachesForOrganization(scope.organizationId).catch(
-		() => {
-			// Cache invalidation is best-effort after the config write succeeds.
-		}
-	);
+	if (!deferCacheInvalidation) {
+		await invalidateInsightsCachesForOrganization(scope.organizationId).catch(
+			() => {
+				// Cache invalidation is best-effort after the config write succeeds.
+			}
+		);
+	}
 	return getEffectiveConfig(scope.organizationId, scope.websiteId, executor);
 }
 
-function mutateSlackDeliveries(
+function runSlackDeliveryMutation(
 	scope: { organizationId: string; websiteId: string | null },
-	apply: (current: SlackDelivery[]) => SlackDelivery[]
+	apply: (current: SlackDelivery[]) => SlackDelivery[],
+	patch?: InsightGenerationConfigPatch
 ): Promise<z.infer<typeof configOutputSchema>> {
 	return withTransaction(async (tx) => {
 		await tx
@@ -437,9 +446,35 @@ function mutateSlackDeliveries(
 			scope.websiteId,
 			tx
 		);
+		const base = patch ? applyPatch(current, patch) : current;
 		const deliveries = apply(current.deliveries);
-		return writeEffectiveConfig(scope, { ...current, deliveries }, tx);
+		return writeEffectiveConfig(scope, { ...base, deliveries }, tx, true);
 	});
+}
+
+async function mutateSlackDeliveries(
+	scope: { organizationId: string; websiteId: string | null },
+	apply: (current: SlackDelivery[]) => SlackDelivery[],
+	patch?: InsightGenerationConfigPatch
+): Promise<z.infer<typeof configOutputSchema>> {
+	let result: z.infer<typeof configOutputSchema>;
+	try {
+		result = await runSlackDeliveryMutation(scope, apply, patch);
+	} catch (error) {
+		const isFirstInsertRace = CONFIG_UNIQUE_CONSTRAINTS.some((constraint) =>
+			isUniqueViolationFor(error, constraint)
+		);
+		if (!isFirstInsertRace) {
+			throw error;
+		}
+		result = await runSlackDeliveryMutation(scope, apply, patch);
+	}
+	await invalidateInsightsCachesForOrganization(scope.organizationId).catch(
+		() => {
+			// Cache invalidation is best-effort after the config write commits.
+		}
+	);
+	return result;
 }
 
 export async function ensureOrganizationInsightGenerationConfig(
@@ -705,6 +740,7 @@ export const insightGenerationRouter = {
 		.input(
 			z.object({
 				channelId: z.string().min(1).max(120),
+				frequency: frequencySchema.optional(),
 				organizationId: z.string().nullish(),
 				websiteId: z.string().nullish(),
 			})
@@ -712,21 +748,25 @@ export const insightGenerationRouter = {
 		.output(configOutputSchema)
 		.handler(async ({ context, input }) => {
 			const scope = await resolveScope(context, input, "update");
-			return mutateSlackDeliveries(scope, (current) => {
-				const filtered = current.filter(
-					(delivery) =>
-						!(
-							delivery.type === "slack" &&
-							delivery.channelId === input.channelId
-						)
-				);
-				if (filtered.length >= MAX_SLACK_DELIVERIES) {
-					throw rpcError.badRequest(
-						`Cannot route to more than ${MAX_SLACK_DELIVERIES} Slack channels`
+			return mutateSlackDeliveries(
+				scope,
+				(current) => {
+					const filtered = current.filter(
+						(delivery) =>
+							!(
+								delivery.type === "slack" &&
+								delivery.channelId === input.channelId
+							)
 					);
-				}
-				return [...filtered, { channelId: input.channelId, type: "slack" }];
-			});
+					if (filtered.length >= MAX_SLACK_DELIVERIES) {
+						throw rpcError.badRequest(
+							`Cannot route to more than ${MAX_SLACK_DELIVERIES} Slack channels`
+						);
+					}
+					return [...filtered, { channelId: input.channelId, type: "slack" }];
+				},
+				input.frequency ? { frequency: input.frequency } : undefined
+			);
 		}),
 
 	removeSlackDelivery: protectedProcedure
