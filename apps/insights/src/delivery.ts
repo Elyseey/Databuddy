@@ -140,8 +140,12 @@ export async function deliverInsightDigests(params: {
 		params.organizationId,
 		params.websiteId
 	);
-	const slackDeliveries = deliveries.filter((d) => d.type === "slack");
-	if (slackDeliveries.length === 0) {
+	const slackChannelIds = [
+		...new Set(
+			deliveries.filter((d) => d.type === "slack").map((d) => d.channelId)
+		),
+	];
+	if (slackChannelIds.length === 0) {
 		return;
 	}
 
@@ -150,27 +154,27 @@ export async function deliverInsightDigests(params: {
 		emitInsightsEvent("warn", "delivery.slack.skipped_no_integration", {
 			organization_id: params.organizationId,
 			website_id: params.websiteId,
-			delivery_count: slackDeliveries.length,
+			delivery_count: slackChannelIds.length,
 		});
 		return;
 	}
 
 	const blocks = buildBlocks(params.websiteDomain, params.insights);
 	const text = `Insights for ${params.websiteDomain}`;
-	for (const delivery of slackDeliveries) {
+	for (const channelId of slackChannelIds) {
 		try {
-			await postToSlack(token, delivery.channelId, blocks, text);
+			await postToSlack(token, channelId, blocks, text);
 			emitInsightsEvent("info", "delivery.slack.posted", {
 				organization_id: params.organizationId,
 				website_id: params.websiteId,
-				slack_channel_id: delivery.channelId,
+				slack_channel_id: channelId,
 				insight_count: Math.min(params.insights.length, MAX_DIGEST_INSIGHTS),
 			});
 		} catch (error) {
 			captureInsightsError(error, "delivery.slack.failed", {
 				organization_id: params.organizationId,
 				website_id: params.websiteId,
-				slack_channel_id: delivery.channelId,
+				slack_channel_id: channelId,
 			});
 		}
 	}
