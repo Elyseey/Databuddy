@@ -12,6 +12,7 @@ const insightsEnvSchema = z.object({
 	AXIOM_API_KEY: optionalString,
 	AXIOM_TOKEN: optionalString,
 	AXIOM_ORG_ID: optionalString,
+	DATABUDDY_ENCRYPTION_KEY: optionalString,
 });
 
 export const env = createEnv(insightsEnvSchema, {
