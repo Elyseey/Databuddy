@@ -105,15 +105,15 @@ export async function streamAgentToSlack({
 			lastFlushAt = Date.now();
 
 			if (text.trim()) {
+				if (!thinkingResolved) {
+					await resolveThinking(client, run.channelId, streamTs, "complete");
+					thinkingResolved = true;
+				}
 				await client.chat.appendStream({
 					channel: run.channelId,
-					chunks: thinkingResolved
-						? undefined
-						: [thinkingTaskChunk("complete")],
 					markdown_text: text,
 					ts: streamTs,
 				});
-				thinkingResolved = true;
 			}
 		} while (force && pending);
 	};

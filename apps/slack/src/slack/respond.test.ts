@@ -5,12 +5,28 @@ import { SLACK_COPY } from "@/slack/messages";
 import { streamAgentToSlack } from "@/slack/respond";
 import type { SlackAgentClient } from "@/slack/types";
 
+class SlackApiError extends Error {
+	code = "slack_webapi_platform_error";
+	data: { error: string; ok: boolean };
+	constructor(slackError: string) {
+		super(`An API error occurred: ${slackError}`);
+		this.name = "SlackApiError";
+		this.data = { error: slackError, ok: false };
+	}
+}
+
 function createStreamClient(startTs: string | null = "stream_ts") {
 	const calls: Array<{ method: string; options: unknown }> = [];
 	const client: Pick<SlackAgentClient, "chat"> = {
 		chat: {
 			appendStream: async (options) => {
 				calls.push({ method: "chat.appendStream", options });
+				const opts = options as { chunks?: unknown; markdown_text?: unknown };
+				if (opts.chunks !== undefined && opts.markdown_text !== undefined) {
+					throw new SlackApiError(
+						"cannot_provide_both_markdown_text_and_chunks"
+					);
+				}
 				return { ok: true };
 			},
 			startStream: async (options) => {
@@ -89,7 +105,6 @@ describe("Databuddy Slack response streaming", () => {
 		expect(calls[1]).toEqual({
 			method: "chat.appendStream",
 			options: expect.objectContaining({
-				markdown_text: "Traffic is up 12%.",
 				chunks: [
 					expect.objectContaining({
 						type: "task_update",
@@ -98,9 +113,19 @@ describe("Databuddy Slack response streaming", () => {
 				],
 			}),
 		});
+		expect(calls[1].options).not.toHaveProperty("markdown_text");
+
+		expect(calls[2]).toEqual({
+			method: "chat.appendStream",
+			options: expect.objectContaining({
+				markdown_text: "Traffic is up 12%.",
+			}),
+		});
+		expect(calls[2].options).not.toHaveProperty("chunks");
 
 		expect(calls.map((c) => c.method)).toEqual([
 			"chat.startStream",
+			"chat.appendStream",
 			"chat.appendStream",
 			"chat.stopStream",
 		]);
