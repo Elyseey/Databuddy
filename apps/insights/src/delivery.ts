@@ -10,6 +10,12 @@ import { captureInsightsError, emitInsightsEvent } from "./lib/evlog-insights";
 
 const SLACK_POST_URL = "https://slack.com/api/chat.postMessage";
 const MAX_DIGEST_INSIGHTS = 5;
+const SLACK_HEADER_MAX = 150;
+const SLACK_SECTION_TEXT_MAX = 3000;
+
+function truncate(value: string, max: number): string {
+	return value.length > max ? `${value.slice(0, max - 1)}…` : value;
+}
 
 interface DigestInsight {
 	description: string;
@@ -89,7 +95,10 @@ function buildBlocks(
 	const blocks: SlackBlock[] = [
 		{
 			type: "header",
-			text: { type: "plain_text", text: `Insights for ${websiteDomain}` },
+			text: {
+				type: "plain_text",
+				text: truncate(`Insights for ${websiteDomain}`, SLACK_HEADER_MAX),
+			},
 		},
 	];
 	for (const insight of insights.slice(0, MAX_DIGEST_INSIGHTS)) {
@@ -97,7 +106,10 @@ function buildBlocks(
 			type: "section",
 			text: {
 				type: "mrkdwn",
-				text: `*${escapeMrkdwn(insight.title)}*\n${escapeMrkdwn(insight.description)}\n_${escapeMrkdwn(insight.suggestion)}_`,
+				text: truncate(
+					`*${escapeMrkdwn(insight.title)}*\n${escapeMrkdwn(insight.description)}\n_${escapeMrkdwn(insight.suggestion)}_`,
+					SLACK_SECTION_TEXT_MAX
+				),
 			},
 		});
 	}
