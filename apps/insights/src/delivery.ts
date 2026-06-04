@@ -23,6 +23,13 @@ interface SlackBlock {
 	type: string;
 }
 
+function escapeMrkdwn(value: string): string {
+	return value
+		.replaceAll("&", "&amp;")
+		.replaceAll("<", "&lt;")
+		.replaceAll(">", "&gt;");
+}
+
 async function resolveDeliveries(
 	organizationId: string,
 	websiteId: string
@@ -90,7 +97,7 @@ function buildBlocks(
 			type: "section",
 			text: {
 				type: "mrkdwn",
-				text: `*${insight.title}*\n${insight.description}\n_${insight.suggestion}_`,
+				text: `*${escapeMrkdwn(insight.title)}*\n${escapeMrkdwn(insight.description)}\n_${escapeMrkdwn(insight.suggestion)}_`,
 			},
 		});
 	}
