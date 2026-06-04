@@ -421,7 +421,7 @@ async function writeEffectiveConfig(
 	return getEffectiveConfig(scope.organizationId, scope.websiteId, executor);
 }
 
-async function mutateSlackDeliveries(
+function mutateSlackDeliveries(
 	scope: { organizationId: string; websiteId: string | null },
 	apply: (current: SlackDelivery[]) => SlackDelivery[]
 ): Promise<z.infer<typeof configOutputSchema>> {

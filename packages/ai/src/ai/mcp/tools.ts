@@ -10,6 +10,7 @@ import {
 } from "../../lib/supermemory";
 import { executeBatch } from "../../query";
 import { isAiGatewayConfigured } from "../config/models";
+import { summarizeDigestConfig } from "../tools/digest-summary";
 import { callRPCProcedure } from "../tools/utils";
 import {
 	LinkFolderSelectorSchema,
@@ -1525,38 +1526,6 @@ const addUsersToFlagTool = defineMcpTool(
 );
 
 const DigestFrequencySchema = z.enum(["hourly", "daily", "weekly"]);
-
-function summarizeDigestConfig(config: unknown): {
-	channels: string[];
-	enabled: boolean;
-	frequency: string;
-	nextRunAt: string | null;
-	scope: string;
-} {
-	const record = asRecord(config);
-	const deliveries = Array.isArray(record.deliveries) ? record.deliveries : [];
-	const channels = deliveries
-		.map((delivery) => asRecord(delivery))
-		.filter(
-			(delivery) =>
-				delivery.type === "slack" && typeof delivery.channelId === "string"
-		)
-		.map((delivery) => delivery.channelId as string);
-	const nextRunAt = record.nextRunAt;
-	return {
-		channels,
-		enabled: record.enabled !== false,
-		frequency:
-			typeof record.frequency === "string" ? record.frequency : "weekly",
-		nextRunAt:
-			nextRunAt instanceof Date
-				? nextRunAt.toISOString()
-				: typeof nextRunAt === "string"
-					? nextRunAt
-					: null,
-		scope: typeof record.source === "string" ? record.source : "default",
-	};
-}
 
 const manageInsightDigestTool = defineMcpTool(
 	{
