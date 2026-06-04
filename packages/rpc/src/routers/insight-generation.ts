@@ -1,4 +1,12 @@
-import { and, db, desc, eq, inArray, isNull } from "@databuddy/db";
+import {
+	and,
+	db,
+	desc,
+	eq,
+	inArray,
+	isNull,
+	withTransaction,
+} from "@databuddy/db";
 import {
 	INSIGHT_GENERATION_DEFAULT_TOOLS,
 	insightGenerationConfigs,
@@ -37,6 +45,13 @@ const deliverySchema = z.object({
 	channelId: z.string().min(1).max(120),
 	type: z.literal("slack"),
 });
+
+const MAX_SLACK_DELIVERIES = 10;
+
+type SlackDelivery = z.infer<typeof deliverySchema>;
+type ConfigExecutor =
+	| typeof db
+	| Parameters<Parameters<typeof withTransaction>[0]>[0];
 
 const configPatchSchema = z.object({
 	allowedTools: z.array(generationToolSchema).min(1).max(4).optional(),
@@ -307,34 +322,38 @@ async function resolveScope(
 	return { organizationId, websiteId: null };
 }
 
+function scopeCondition(organizationId: string, websiteId: string | null) {
+	return websiteId
+		? and(
+				eq(insightGenerationConfigs.organizationId, organizationId),
+				eq(insightGenerationConfigs.websiteId, websiteId)
+			)
+		: and(
+				eq(insightGenerationConfigs.organizationId, organizationId),
+				isNull(insightGenerationConfigs.websiteId)
+			);
+}
+
 async function findConfig(
 	organizationId: string,
-	websiteId: string | null
+	websiteId: string | null,
+	executor: ConfigExecutor = db
 ): Promise<InsightGenerationConfig | null> {
-	const rows = await db
+	const rows = await executor
 		.select()
 		.from(insightGenerationConfigs)
-		.where(
-			websiteId
-				? and(
-						eq(insightGenerationConfigs.organizationId, organizationId),
-						eq(insightGenerationConfigs.websiteId, websiteId)
-					)
-				: and(
-						eq(insightGenerationConfigs.organizationId, organizationId),
-						isNull(insightGenerationConfigs.websiteId)
-					)
-		)
+		.where(scopeCondition(organizationId, websiteId))
 		.limit(1);
 	return rows[0] ?? null;
 }
 
 async function getEffectiveConfig(
 	organizationId: string,
-	websiteId: string | null
+	websiteId: string | null,
+	executor: ConfigExecutor = db
 ): Promise<z.infer<typeof configOutputSchema>> {
 	const fallback = defaultConfig(organizationId, websiteId);
-	const orgConfig = await findConfig(organizationId, null);
+	const orgConfig = await findConfig(organizationId, null, executor);
 	const orgEffective = rowToConfig(
 		orgConfig,
 		fallback,
@@ -344,7 +363,7 @@ async function getEffectiveConfig(
 		return orgEffective;
 	}
 
-	const websiteConfig = await findConfig(organizationId, websiteId);
+	const websiteConfig = await findConfig(organizationId, websiteId, executor);
 	return rowToConfig(
 		websiteConfig,
 		orgEffective,
@@ -354,9 +373,14 @@ async function getEffectiveConfig(
 
 async function writeEffectiveConfig(
 	scope: { organizationId: string; websiteId: string | null },
-	next: z.infer<typeof configOutputSchema>
+	next: z.infer<typeof configOutputSchema>,
+	executor: ConfigExecutor = db
 ): Promise<z.infer<typeof configOutputSchema>> {
-	const existing = await findConfig(scope.organizationId, scope.websiteId);
+	const existing = await findConfig(
+		scope.organizationId,
+		scope.websiteId,
+		executor
+	);
 	const now = new Date();
 	const values = {
 		allowedTools: next.allowedTools,
@@ -376,12 +400,12 @@ async function writeEffectiveConfig(
 	};
 
 	if (existing) {
-		await db
+		await executor
 			.update(insightGenerationConfigs)
 			.set({ ...values, updatedAt: now })
 			.where(eq(insightGenerationConfigs.id, existing.id));
 	} else {
-		await db.insert(insightGenerationConfigs).values({
+		await executor.insert(insightGenerationConfigs).values({
 			id: randomUUIDv7(),
 			organizationId: scope.organizationId,
 			websiteId: scope.websiteId,
@@ -394,7 +418,28 @@ async function writeEffectiveConfig(
 			// Cache invalidation is best-effort after the config write succeeds.
 		}
 	);
-	return getEffectiveConfig(scope.organizationId, scope.websiteId);
+	return getEffectiveConfig(scope.organizationId, scope.websiteId, executor);
+}
+
+async function mutateSlackDeliveries(
+	scope: { organizationId: string; websiteId: string | null },
+	apply: (current: SlackDelivery[]) => SlackDelivery[]
+): Promise<z.infer<typeof configOutputSchema>> {
+	return withTransaction(async (tx) => {
+		await tx
+			.select({ id: insightGenerationConfigs.id })
+			.from(insightGenerationConfigs)
+			.where(scopeCondition(scope.organizationId, scope.websiteId))
+			.limit(1)
+			.for("update");
+		const current = await getEffectiveConfig(
+			scope.organizationId,
+			scope.websiteId,
+			tx
+		);
+		const deliveries = apply(current.deliveries);
+		return writeEffectiveConfig(scope, { ...current, deliveries }, tx);
+	});
 }
 
 export async function ensureOrganizationInsightGenerationConfig(
@@ -667,21 +712,21 @@ export const insightGenerationRouter = {
 		.output(configOutputSchema)
 		.handler(async ({ context, input }) => {
 			const scope = await resolveScope(context, input, "update");
-			const current = await getEffectiveConfig(
-				scope.organizationId,
-				scope.websiteId
-			);
-			const deliveries = [
-				...current.deliveries.filter(
+			return mutateSlackDeliveries(scope, (current) => {
+				const filtered = current.filter(
 					(delivery) =>
 						!(
 							delivery.type === "slack" &&
 							delivery.channelId === input.channelId
 						)
-				),
-				{ channelId: input.channelId, type: "slack" as const },
-			];
-			return writeEffectiveConfig(scope, { ...current, deliveries });
+				);
+				if (filtered.length >= MAX_SLACK_DELIVERIES) {
+					throw rpcError.badRequest(
+						`Cannot route to more than ${MAX_SLACK_DELIVERIES} Slack channels`
+					);
+				}
+				return [...filtered, { channelId: input.channelId, type: "slack" }];
+			});
 		}),
 
 	removeSlackDelivery: protectedProcedure
@@ -701,15 +746,15 @@ export const insightGenerationRouter = {
 		.output(configOutputSchema)
 		.handler(async ({ context, input }) => {
 			const scope = await resolveScope(context, input, "update");
-			const current = await getEffectiveConfig(
-				scope.organizationId,
-				scope.websiteId
+			return mutateSlackDeliveries(scope, (current) =>
+				current.filter(
+					(delivery) =>
+						!(
+							delivery.type === "slack" &&
+							delivery.channelId === input.channelId
+						)
+				)
 			);
-			const deliveries = current.deliveries.filter(
-				(delivery) =>
-					!(delivery.type === "slack" && delivery.channelId === input.channelId)
-			);
-			return writeEffectiveConfig(scope, { ...current, deliveries });
 		}),
 
 	triggerRun: protectedProcedure
