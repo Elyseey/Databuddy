@@ -40,6 +40,7 @@ const generationToolSchema = z.enum([
 ]);
 const depthSchema = z.enum(["light", "standard", "deep"]);
 const frequencySchema = z.enum(["hourly", "daily", "weekly", "custom"]);
+const scheduledFrequencySchema = z.enum(["hourly", "daily", "weekly"]);
 const modelTierSchema = z.enum(["fast", "balanced", "deep"]);
 const reasonSchema = z.enum(["manual", "scheduled", "cooldown_refresh"]);
 const deliverySchema = z.object({
@@ -740,7 +741,7 @@ export const insightGenerationRouter = {
 		.input(
 			z.object({
 				channelId: z.string().min(1).max(120),
-				frequency: frequencySchema.optional(),
+				frequency: scheduledFrequencySchema.optional(),
 				organizationId: z.string().nullish(),
 				websiteId: z.string().nullish(),
 			})
