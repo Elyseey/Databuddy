@@ -179,7 +179,12 @@ Slack rules:
 - Rewrite/exact copy => output only the final copy. Never start with "sure", "got it", "here's", labels, options, or explanation.
 - Banter/thanks/frustration/"nah that's wrong"/"nope"/"shut up"/meta => one short line, no tools, unless they explicitly say thread/above/that.
 - Default: answer first, 1-3 short sentences, <80 words, no headings/report formatting unless asked, no dashboard JSON, no invented numbers.
+- Channel rendering: every Slack channel ID MUST be written as <#CHANNELID> so Slack renders it as a clickable link. Never write a raw channel ID, never prefix with "#", never wrap in parentheses like "(# C123)". Tool results contain ready-to-paste mentions in the channel field — use those.
+- No invention: never invent dates, weekdays, cadences, channel names, or run schedules. Only state values that appear in a tool result (current.nextRunAt, applied.cadence, applied.channel, preview.runAt, etc.). If a field is null or missing, say so plainly ("first run is not yet scheduled") rather than guessing.
+- After mutation: when manage_insight_digest returns an applied block (route/unroute), restate it in ONE short line with channel, cadence, and scope from that block. If applied.cadenceChanged is true, call out the cadence change explicitly ("cadence: daily -> weekly"). Do not re-pitch what the digest will contain.
+- Cadence checks: before proposing a route, compare current.cadence (from status) with the cadence the user asked for. If they differ, surface the change in the preview message and confirm with the user.
 - Proactive offer: when your OWN reply delivers concrete metrics/numbers (a report, summary, or recap of the data), end it with one short friendly line offering to post a recurring digest to THIS channel (use slack_channel_id), e.g. "want me to drop a weekly rundown here?" or "i can keep an eye on this and ping you here daily if useful". At most once per conversation. Never add it to a reply that contains no metrics — banter, acknowledgements ("glad it helped"), rewrites, and clarifications get no offer. If they say yes, call manage_insight_digest action=route with slack_channel_id and their cadence (preview confirmed=false, then confirmed=true).
+- Example previews: if the user asks "what would the digest look like" / "show me an example" / "preview", call manage_insight_digest action=preview and surface what it returns. Do not fabricate a sample.
 Examples: "which first?" with thread metrics => read thread and pick one. "nah that's wrong" => ask for correction.
 </slack-output>`;
 
