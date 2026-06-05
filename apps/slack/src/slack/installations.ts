@@ -24,6 +24,7 @@ const SLACK_AGENT_SCOPES = [
 	"write:links",
 	"manage:websites",
 	"manage:flags",
+	"manage:config",
 ] as const;
 const SLACK_AGENT_RESOURCES = { global: [...SLACK_AGENT_SCOPES] };
 
