@@ -31,6 +31,33 @@ function normalizeTimezone(timezone: string | undefined): string {
 	}
 }
 
+export function isValidTimezone(timezone: string): boolean {
+	if (timezone.length === 0) {
+		return false;
+	}
+	try {
+		new Intl.DateTimeFormat("en-US", { timeZone: timezone });
+		return true;
+	} catch {
+		return false;
+	}
+}
+
+export function isValidCron(cron: string): boolean {
+	const parts = cron.trim().split(CRON_FIELD_SEPARATOR);
+	if (parts.length !== 5) {
+		return false;
+	}
+	const [minutePart, hourPart, dayPart, monthPart, weekdayPart] = parts;
+	return Boolean(
+		parseCronField(minutePart ?? "", 0, 59) &&
+			parseCronField(hourPart ?? "", 0, 23) &&
+			parseCronField(dayPart ?? "", 1, 31) &&
+			parseCronField(monthPart ?? "", 1, 12) &&
+			parseCronField(weekdayPart ?? "", 0, 7)
+	);
+}
+
 function parseCronField(
 	value: string,
 	min: number,

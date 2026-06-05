@@ -1,5 +1,58 @@
 import { describe, expect, it } from "bun:test";
-import { getNextInsightRunAt } from "./insight-schedule";
+import {
+	getNextInsightRunAt,
+	isValidCron,
+	isValidTimezone,
+} from "./insight-schedule";
+
+describe("isValidCron", () => {
+	it("accepts standard five-field expressions", () => {
+		expect(isValidCron("0 8 * * 5")).toBe(true);
+		expect(isValidCron("0 9 * * 1")).toBe(true);
+		expect(isValidCron("*/15 * * * *")).toBe(true);
+		expect(isValidCron("0,30 * * * *")).toBe(true);
+	});
+
+	it("trims surrounding whitespace before parsing", () => {
+		expect(isValidCron("  0 8 * * 5  ")).toBe(true);
+	});
+
+	it("rejects expressions with the wrong number of fields", () => {
+		expect(isValidCron("0 8 * *")).toBe(false);
+		expect(isValidCron("0 8 * * 5 *")).toBe(false);
+		expect(isValidCron("")).toBe(false);
+	});
+
+	it("rejects out-of-range numbers", () => {
+		expect(isValidCron("60 0 * * *")).toBe(false);
+		expect(isValidCron("0 24 * * *")).toBe(false);
+		expect(isValidCron("0 0 32 * *")).toBe(false);
+		expect(isValidCron("0 0 * 13 *")).toBe(false);
+		expect(isValidCron("0 0 * * 8")).toBe(false);
+	});
+
+	it("rejects malformed tokens like letters or @aliases", () => {
+		expect(isValidCron("@weekly")).toBe(false);
+		expect(isValidCron("0 8 * * FRI")).toBe(false);
+		expect(isValidCron("0 8 * * mon-fri")).toBe(false);
+	});
+});
+
+describe("isValidTimezone", () => {
+	it("accepts common IANA names", () => {
+		expect(isValidTimezone("Europe/Berlin")).toBe(true);
+		expect(isValidTimezone("America/New_York")).toBe(true);
+		expect(isValidTimezone("UTC")).toBe(true);
+		expect(isValidTimezone("Asia/Singapore")).toBe(true);
+	});
+
+	it("rejects empty strings and unknown names", () => {
+		expect(isValidTimezone("")).toBe(false);
+		expect(isValidTimezone("GMT+2")).toBe(false);
+		expect(isValidTimezone("Mars/Olympus")).toBe(false);
+		expect(isValidTimezone("Europe/Atlantis")).toBe(false);
+	});
+});
 
 describe("getNextInsightRunAt", () => {
 	it("returns null when scheduling is disabled", () => {
