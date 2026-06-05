@@ -1031,6 +1031,190 @@ function insightDigestCases(): EvalCase[] {
 				],
 			},
 		},
+		{
+			id: "digest-reschedule-friday-morning-berlin",
+			category: "tool-routing",
+			name: "Reschedules the digest to Friday 8 AM Europe/Berlin on natural-language ask",
+			query: "can you set the digest to fire every Friday morning at 8 AM Berlin time?",
+			slack: thread({
+				currentUserId: ISSA,
+				messages: [
+					human(ISSA, "@databuddy what's the digest"),
+					bot(
+						"Weekly digest is routed to <#C_DIGEST>, next run at 2026-06-12T06:00:00.000Z."
+					),
+				],
+			}),
+			surfaces: ["slack"],
+			tags: ["slack", "digest", "reschedule", "tool-routing"],
+			websiteId: WS,
+			expect: {
+				maxSteps: 4,
+				maxLatencyMs: 60_000,
+				toolsCalled: ["manage_insight_digest"],
+				toolInputs: [
+					{
+						tool: "manage_insight_digest",
+						includes: {
+							action: "reschedule",
+							timezone: "Europe/Berlin",
+							confirmed: false,
+						},
+					},
+				],
+				confirmationFlow: true,
+			},
+		},
+		{
+			id: "digest-reschedule-cadence-daily",
+			category: "tool-routing",
+			name: "Reschedules cadence only when user says 'make it daily'",
+			query: "actually make the digest daily instead of weekly",
+			slack: thread({
+				currentUserId: ISSA,
+				messages: [
+					human(ISSA, "the weekly cadence isn't enough"),
+					bot("Insight digests are delivered weekly to <#C_DIGEST>."),
+				],
+			}),
+			surfaces: ["slack"],
+			tags: ["slack", "digest", "reschedule", "tool-routing"],
+			websiteId: WS,
+			expect: {
+				maxSteps: 4,
+				maxLatencyMs: 60_000,
+				toolsCalled: ["manage_insight_digest"],
+				toolInputs: [
+					{
+						tool: "manage_insight_digest",
+						includes: {
+							action: "reschedule",
+							frequency: "daily",
+							confirmed: false,
+						},
+					},
+				],
+				confirmationFlow: true,
+			},
+		},
+		{
+			id: "digest-does-not-deny-schedule-config",
+			category: "behavioral",
+			name: "Never claims the digest time is fixed when asked to change it",
+			query: "can you change when the digest runs?",
+			slack: thread({
+				currentUserId: ISSA,
+				messages: [
+					human(ISSA, "the digest hits at a weird hour"),
+					bot(
+						"Insight digests are delivered to <#C_DIGEST> on a weekly cadence."
+					),
+				],
+			}),
+			surfaces: ["slack"],
+			tags: ["slack", "digest", "reschedule", "guardrail"],
+			websiteId: WS,
+			expect: {
+				maxSteps: 4,
+				maxLatencyMs: 45_000,
+				responseNotMatches: [
+					{
+						description:
+							"agent must not claim the schedule is fixed, hard-coded, or out of its control",
+						pattern:
+							"\\b(fixed on (databuddy|my|our) (end|side)|not configurable|can'?t (change|configure|adjust) (the )?(time|schedule|when)|isn'?t (something I can|configurable)|out of (my|our) control|don'?t have (a way|the ability) to (change|set))\\b",
+						flags: "i",
+					},
+				],
+			},
+		},
+		{
+			id: "digest-test-run-on-explicit-ask",
+			category: "tool-routing",
+			name: "Triggers a test digest run when the user asks to run one now",
+			query: "run a test digest right now so I can see what it looks like",
+			slack: thread({
+				currentUserId: ISSA,
+				messages: [
+					human(ISSA, "we set up the digest last week"),
+					bot("Insight digests are routed to <#C_DIGEST> on a weekly cadence."),
+				],
+			}),
+			surfaces: ["slack"],
+			tags: ["slack", "digest", "test-run", "tool-routing"],
+			websiteId: WS,
+			expect: {
+				maxSteps: 4,
+				maxLatencyMs: 60_000,
+				toolsCalled: ["manage_insight_digest"],
+				toolInputs: [
+					{
+						tool: "manage_insight_digest",
+						includes: {
+							action: "test",
+							confirmed: false,
+						},
+					},
+				],
+				confirmationFlow: true,
+			},
+		},
+		{
+			id: "digest-test-banter-guard",
+			category: "behavioral",
+			name: "Does not fire a test digest run on banter or vague enthusiasm",
+			query: "yo databuddy how's it going",
+			slack: thread({
+				currentUserId: ISSA,
+				messages: [
+					human(ISSA, "love the digest btw"),
+					human(KAYLEE, "fr it slaps"),
+				],
+			}),
+			surfaces: ["slack"],
+			tags: ["slack", "digest", "test-run", "guardrail"],
+			websiteId: WS,
+			expect: {
+				maxSteps: 2,
+				maxLatencyMs: 30_000,
+				toolsNotCalled: ["manage_insight_digest"],
+			},
+		},
+		{
+			id: "digest-status-quotes-cron-and-timezone",
+			category: "behavioral",
+			name: "Quotes cron and timezone verbatim from status, never invents them",
+			query: "what's the digest schedule right now",
+			slack: thread({
+				currentUserId: ISSA,
+				messages: [
+					human(ISSA, "I forget when this thing fires"),
+				],
+			}),
+			surfaces: ["slack"],
+			tags: ["slack", "digest", "status"],
+			websiteId: WS,
+			expect: {
+				maxSteps: 4,
+				maxLatencyMs: 45_000,
+				toolsCalled: ["manage_insight_digest"],
+				toolInputs: [
+					{
+						tool: "manage_insight_digest",
+						includes: { action: "status" },
+					},
+				],
+				responseNotMatches: [
+					{
+						description:
+							"must not invent a cron expression or timezone — only restate canonical values",
+						pattern:
+							"\\b(probably|might be|i think|usually|by default).*(utc|cron|timezone)\\b",
+						flags: "i",
+					},
+				],
+			},
+		},
 	];
 }
 
