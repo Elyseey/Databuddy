@@ -36,6 +36,26 @@ describe("isValidCron", () => {
 		expect(isValidCron("0 8 * * FRI")).toBe(false);
 		expect(isValidCron("0 8 * * mon-fri")).toBe(false);
 	});
+
+	it("accepts numeric ranges in any field (e.g. weekdays 1-5)", () => {
+		expect(isValidCron("0 9 * * 1-5")).toBe(true);
+		expect(isValidCron("0 0-6 * * *")).toBe(true);
+		expect(isValidCron("0 9 1-15 * *")).toBe(true);
+		expect(isValidCron("0 9 * 1-6 *")).toBe(true);
+	});
+
+	it("accepts ranges combined with steps and comma lists", () => {
+		expect(isValidCron("0 9 * * 1-5/2")).toBe(true);
+		expect(isValidCron("0 0,12 * * *")).toBe(true);
+		expect(isValidCron("0 9 * * 1-5,0")).toBe(true);
+		expect(isValidCron("*/5 9-17 * * 1-5")).toBe(true);
+	});
+
+	it("rejects inverted or out-of-range ranges", () => {
+		expect(isValidCron("0 9 * * 5-1")).toBe(false);
+		expect(isValidCron("0 25-30 * * *")).toBe(false);
+		expect(isValidCron("0 9 32-34 * *")).toBe(false);
+	});
 });
 
 describe("isValidTimezone", () => {

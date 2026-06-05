@@ -15,8 +15,7 @@ export interface InsightScheduleConfig {
 }
 
 const CRON_FIELD_SEPARATOR = /\s+/;
-const CRON_NUMERIC_FIELD_REGEX = /^\d+(,\d+)*$/;
-const CRON_STEP_FIELD_REGEX = /^\d+$/;
+const CRON_INTEGER_REGEX = /^\d+$/;
 const DEFAULT_TIMEZONE = "UTC";
 
 function normalizeTimezone(timezone: string | undefined): string {
@@ -58,43 +57,87 @@ export function isValidCron(cron: string): boolean {
 	);
 }
 
+function parseCronToken(
+	token: string,
+	min: number,
+	max: number
+): number[] | null {
+	if (token.length === 0) {
+		return null;
+	}
+
+	const slashIndex = token.indexOf("/");
+	const base = slashIndex === -1 ? token : token.slice(0, slashIndex);
+	const stepPart = slashIndex === -1 ? null : token.slice(slashIndex + 1);
+
+	let step = 1;
+	if (stepPart !== null) {
+		if (!CRON_INTEGER_REGEX.test(stepPart)) {
+			return null;
+		}
+		step = Number(stepPart);
+		if (!Number.isSafeInteger(step) || step <= 0) {
+			return null;
+		}
+	}
+
+	let start: number;
+	let end: number;
+	if (base === "*") {
+		start = min;
+		end = max;
+	} else if (base.includes("-")) {
+		const dashIndex = base.indexOf("-");
+		const startStr = base.slice(0, dashIndex);
+		const endStr = base.slice(dashIndex + 1);
+		if (
+			!(CRON_INTEGER_REGEX.test(startStr) && CRON_INTEGER_REGEX.test(endStr))
+		) {
+			return null;
+		}
+		start = Number(startStr);
+		end = Number(endStr);
+		if (start > end) {
+			return null;
+		}
+	} else {
+		if (!CRON_INTEGER_REGEX.test(base)) {
+			return null;
+		}
+		start = Number(base);
+		end = stepPart === null ? start : max;
+	}
+
+	if (start < min || end > max) {
+		return null;
+	}
+
+	const out: number[] = [];
+	for (let n = start; n <= end; n += step) {
+		out.push(n);
+	}
+	return out;
+}
+
 function parseCronField(
 	value: string,
 	min: number,
 	max: number
 ): number[] | null {
-	if (value === "*") {
-		return Array.from({ length: max - min + 1 }, (_, index) => min + index);
-	}
-
-	if (value.startsWith("*/")) {
-		const stepValue = value.slice(2);
-		if (!CRON_STEP_FIELD_REGEX.test(stepValue)) {
-			return null;
-		}
-		const step = Number(stepValue);
-		if (!Number.isSafeInteger(step) || step <= 0) {
-			return null;
-		}
-		return Array.from(
-			{ length: max - min + 1 },
-			(_, index) => min + index
-		).filter((item) => (item - min) % step === 0);
-	}
-
-	if (!CRON_NUMERIC_FIELD_REGEX.test(value)) {
+	if (value.length === 0) {
 		return null;
 	}
-
-	const values = value.split(",").map((part) => Number(part));
-	if (
-		values.some(
-			(item) => !Number.isSafeInteger(item) || item < min || item > max
-		)
-	) {
-		return null;
+	const out = new Set<number>();
+	for (const token of value.split(",")) {
+		const parsed = parseCronToken(token, min, max);
+		if (!parsed) {
+			return null;
+		}
+		for (const n of parsed) {
+			out.add(n);
+		}
 	}
-	return [...new Set(values)].sort((a, b) => a - b);
+	return [...out].sort((a, b) => a - b);
 }
 
 function nextRunFromCron(
