@@ -54,6 +54,7 @@ export function createMcpAgentConfig(context: {
 		tools: createMcpAgentTools({ slackContext: context.slackContext }),
 		activeTools: context.activeTools,
 		stopWhen: stepCountIs(TIER_CONFIG.balanced.maxSteps),
+		forceTextReplyAfterStep: TIER_CONFIG.balanced.maxSteps - 2,
 		temperature: 0.1,
 		experimental_context: {
 			apiKey: context.apiKey,
