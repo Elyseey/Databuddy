@@ -122,10 +122,22 @@ function asIsoDate(value: unknown): string | null {
 	return asString(value);
 }
 
+const GROUND_TRUTH_STATUS =
+	"This `current` block is the canonical digest configuration. Restate values verbatim from current.message, current.channels, current.cadence, current.nextRunAt. Do not paraphrase, do not invent fields. If a field is null, say so plainly.";
+
+const GROUND_TRUTH_PREVIEW =
+	"This `preview` block is the last real digest run for this scope. Restate preview.message verbatim and summarize items only from preview.items. Do not fabricate insights. If preview.runs is 0, tell the user there is nothing to show yet.";
+
+const GROUND_TRUTH_APPLIED =
+	"This `applied` block reflects the saved configuration after the mutation. Restate applied.channel (already in <#ID> form), applied.cadence, and applied.scopeLabel. If applied.cadenceChanged is true, append `Cadence: ${applied.cadenceWas} -> ${applied.cadence}`. Do not re-pitch what the digest contains.";
+
+const GROUND_TRUTH_PROPOSED =
+	"This is a preview; nothing has been saved. Restate the `message` field verbatim to the user and wait for explicit confirmation. Do not paraphrase the channel or cadence.";
+
 export function createInsightDigestTools() {
 	const manageInsightDigestTool = tool({
 		description:
-			"Inspect, preview, or change Slack delivery of the analytics insight digest. action=status reads current routing (safe). action=preview shows the most recent past digest run for this scope. action=route starts posting digests to a Slack channel. action=unroute stops posting. For route and unroute, call once with confirmed=false to preview, wait for the user to explicitly confirm, then call again with confirmed=true. Quote `current`, `applied`, and `preview` blocks from the result verbatim — never invent dates, cadences, or channel names; the tool result is the source of truth. Render every channel ID as <#CHANNELID>.",
+			"Inspect, preview, or change Slack delivery of the analytics insight digest. action=status reads current routing (safe). action=preview shows the most recent past digest run for this scope. action=route starts posting digests to a Slack channel. action=unroute stops posting. For route and unroute, call once with confirmed=false to preview, wait for the user to explicitly confirm, then call again with confirmed=true. The result's `current` / `applied` / `preview` blocks are CANONICAL state — each result also carries a `groundTruth` instruction telling you exactly which fields to quote verbatim. Never invent dates, weekdays, cadences, channel names, or run schedules. Channels arrive pre-formatted as <#CHANNELID> in the `channel` and `channels` fields — paste those, do not construct mentions by hand.",
 		inputSchema: manageDigestInputSchema,
 		execute: async (
 			{ action, channelId, frequency, websiteId, confirmed },
@@ -168,6 +180,7 @@ export function createInsightDigestTools() {
 							summary.channels.length > 0
 								? `${scope} sends digests to ${describeChannels(summary.channels)} on a ${summary.frequency} cadence.`
 								: `No Slack digest delivery is configured for ${scope}. Investigations still run on a ${summary.frequency} cadence at the ${summary.scope} level.`,
+						groundTruth: GROUND_TRUTH_STATUS,
 					};
 				} catch (error) {
 					logger.error("Failed to read insight digest config", {
@@ -193,6 +206,7 @@ export function createInsightDigestTools() {
 							action: "preview" as const,
 							preview: { runs: 0 },
 							message: `No past digest runs to preview for ${scope} yet. Once the first digest runs you can call action=preview to see it.`,
+							groundTruth: GROUND_TRUTH_PREVIEW,
 						};
 					}
 
@@ -224,6 +238,7 @@ export function createInsightDigestTools() {
 							items.length > 0
 								? `Most recent digest for ${scope} had ${items.length} insight${items.length === 1 ? "" : "s"}.`
 								: `Most recent digest for ${scope} produced no insights.`,
+						groundTruth: GROUND_TRUTH_PREVIEW,
 					};
 				} catch (error) {
 					logger.error("Failed to preview insight digest", {
@@ -282,6 +297,7 @@ export function createInsightDigestTools() {
 							: `Stop routing insight digests for ${scope} to ${channelMention(channelId)}. Reply to confirm.`,
 					instruction:
 						"Wait for the user to explicitly confirm before calling this tool again with confirmed=true.",
+					groundTruth: GROUND_TRUTH_PROPOSED,
 				};
 			}
 
@@ -307,6 +323,7 @@ export function createInsightDigestTools() {
 							nextRunAt: summary.nextRunAt,
 						},
 						message: `Stopped routing insight digests to ${channelMention(channelId)}.`,
+						groundTruth: GROUND_TRUTH_APPLIED,
 					};
 				}
 
@@ -331,6 +348,7 @@ export function createInsightDigestTools() {
 						nextRunAt: summary.nextRunAt,
 					},
 					message: `Routed insight digests to ${channelMention(channelId)} on a ${summary.frequency} cadence.`,
+					groundTruth: GROUND_TRUTH_APPLIED,
 				};
 			} catch (error) {
 				logger.error("Failed to manage insight digest", {
