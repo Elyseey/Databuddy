@@ -5,44 +5,120 @@ import { callRPCProcedure, createToolLogger, getAppContext } from "./utils";
 
 const logger = createToolLogger("Insight Digest Tools");
 
+const SLACK_CHANNEL_ID_RE = /^[CGD][A-Z0-9]{8,}$/i;
+
 const digestFrequencySchema = z.enum(["hourly", "daily", "weekly"]);
 
 const manageDigestInputSchema = z.object({
-	action: z.enum(["route", "unroute", "status"]),
+	action: z
+		.enum(["route", "unroute", "status"])
+		.describe(
+			"status: read current routing (safe, no confirmation). route: start posting digests to a Slack channel. unroute: stop posting to a Slack channel."
+		),
 	channelId: z
 		.string()
 		.min(1)
 		.max(120)
 		.optional()
 		.describe(
-			"Slack channel ID. Required for route and unroute. Use the current slack_channel_id from context for 'here'."
+			"Slack channel ID like 'C082WC4PPGS'. Required for route and unroute. For the current channel use slack_channel_id from context. Not a channel name (do not pass '#general')."
 		),
 	frequency: digestFrequencySchema
 		.optional()
-		.describe("How often investigations run for this scope. Applied on route."),
+		.describe(
+			"Cadence for investigations on a new route (hourly, daily, weekly). Ignored for status and unroute."
+		),
 	websiteId: z
 		.string()
 		.optional()
-		.describe("Scope to one website. Omit to apply to the whole organization."),
-	confirmed: z.boolean().describe("false=preview, true=apply"),
+		.describe(
+			"Scope to one website. Omit to apply to the whole organization."
+		),
+	confirmed: z
+		.boolean()
+		.describe(
+			"Required for route and unroute. Always call with confirmed=false first to preview; only set confirmed=true after the user has explicitly said yes. Ignored for status."
+		),
 });
+
+type DigestAction = z.infer<typeof manageDigestInputSchema>["action"];
+
+function scopeLabel(websiteId: string | undefined): string {
+	return websiteId ? "this website" : "this organization";
+}
+
+function channelMention(channelId: string): string {
+	return `<#${channelId}>`;
+}
+
+function describeChannels(channels: string[]): string {
+	if (channels.length === 0) {
+		return "no Slack channels";
+	}
+	if (channels.length === 1) {
+		return channelMention(channels[0] as string);
+	}
+	return `${channels.length} Slack channels (${channels.map(channelMention).join(", ")})`;
+}
+
+function invalidChannelIdError(channelId: string, action: DigestAction) {
+	return {
+		success: false,
+		code: "INVALID_CHANNEL_ID",
+		message: `"${channelId}" doesn't look like a Slack channel ID. Channel IDs start with C, G, or D followed by uppercase letters and digits (for example C082WC4PPGS). For the current channel use slack_channel_id from context. Refusing to ${action}.`,
+	} as const;
+}
+
+function missingChannelIdError(action: DigestAction) {
+	return {
+		success: false,
+		code: "MISSING_CHANNEL_ID",
+		message: `channelId is required to ${action} a digest. Provide a Slack channel ID like C082WC4PPGS, or use slack_channel_id from context for the current channel.`,
+	} as const;
+}
+
+function missingOrganizationError(action: DigestAction) {
+	return {
+		success: false,
+		code: "NO_ORGANIZATION",
+		message: `Cannot ${action} a digest without an organization in context. Identify the organization first.`,
+	} as const;
+}
+
+function rpcFailure(action: DigestAction, error: unknown) {
+	const message =
+		error instanceof Error
+			? error.message
+			: `Failed to ${action} insight digest.`;
+	return {
+		success: false,
+		code: "RPC_FAILED",
+		message,
+	} as const;
+}
 
 export function createInsightDigestTools() {
 	const manageInsightDigestTool = tool({
 		description:
-			"Route, stop, or inspect Slack delivery of analytics insight digests. action=route sends digests to a Slack channel, unroute stops it, status shows current routing. Investigations run on their schedule regardless; this only controls where the digest is posted.",
+			"Inspect or change Slack delivery of the analytics insight digest. action=status reads current routing (safe, no confirmation needed). action=route starts posting digests to a Slack channel. action=unroute stops posting to a Slack channel. For route and unroute, call once with confirmed=false to preview, wait for the user to explicitly confirm, then call again with confirmed=true. Investigations run on their own schedule regardless of routing - this only controls where the digest is posted.",
 		inputSchema: manageDigestInputSchema,
 		execute: async (
 			{ action, channelId, frequency, websiteId, confirmed },
 			options
 		) => {
 			const context = getAppContext(options);
+			if (!context.organizationId) {
+				return missingOrganizationError(action);
+			}
+
 			const scopeInput = {
 				organizationId: context.organizationId,
 				websiteId: websiteId ?? undefined,
 			};
-			try {
-				if (action === "status") {
+			const scope = scopeLabel(websiteId);
+
+			if (action === "status") {
+				try {
 					const config = await callRPCProcedure(
 						"insightGeneration",
 						"getConfig",
@@ -52,39 +128,49 @@ export function createInsightDigestTools() {
 					const summary = summarizeDigestConfig(config);
 					return {
 						success: true,
+						scope,
 						message:
 							summary.channels.length > 0
-								? `Digests go to ${summary.channels.length} Slack channel${summary.channels.length === 1 ? "" : "s"} on a ${summary.frequency} cadence.`
-								: "No Slack digest delivery is configured for this scope.",
+								? `${scope} sends digests to ${describeChannels(summary.channels)} on a ${summary.frequency} cadence.`
+								: `No Slack digest delivery is configured for ${scope}.`,
 						digest: summary,
 					};
+				} catch (error) {
+					logger.error("Failed to read insight digest config", {
+						websiteId,
+						error,
+					});
+					return rpcFailure(action, error);
 				}
+			}
 
-				if (!channelId) {
-					throw new Error(
-						"channelId is required to route or unroute a digest."
-					);
-				}
+			if (!channelId) {
+				return missingChannelIdError(action);
+			}
+			if (!SLACK_CHANNEL_ID_RE.test(channelId)) {
+				return invalidChannelIdError(channelId, action);
+			}
 
-				if (!confirmed) {
-					return {
-						preview: true,
-						confirmationRequired: true,
-						message:
-							action === "route"
-								? `Route insight digests to this Slack channel${frequency ? ` on a ${frequency} cadence` : ""}? Confirm to apply.`
-								: "Stop routing insight digests to this Slack channel? Confirm to apply.",
-						digest: {
-							action,
-							channelId,
-							frequency: frequency ?? null,
-							scope: websiteId ? "website" : "organization",
-						},
-						instruction:
-							"The user must explicitly confirm before you call this tool again with confirmed=true.",
-					};
-				}
+			if (!confirmed) {
+				return {
+					preview: true,
+					confirmationRequired: true,
+					message:
+						action === "route"
+							? `Route insight digests for ${scope} to ${channelMention(channelId)}${frequency ? ` on a ${frequency} cadence` : ""}? Reply to confirm.`
+							: `Stop routing insight digests for ${scope} to ${channelMention(channelId)}? Reply to confirm.`,
+					digest: {
+						action,
+						channelId,
+						frequency: frequency ?? null,
+						scope: websiteId ? "website" : "organization",
+					},
+					instruction:
+						"Wait for the user to explicitly confirm before calling this tool again with confirmed=true.",
+				};
+			}
 
+			try {
 				if (action === "unroute") {
 					const config = await callRPCProcedure(
 						"insightGeneration",
@@ -94,7 +180,7 @@ export function createInsightDigestTools() {
 					);
 					return {
 						success: true,
-						message: "Stopped routing insight digests to this Slack channel.",
+						message: `Stopped routing insight digests to ${channelMention(channelId)}.`,
 						digest: summarizeDigestConfig(config),
 					};
 				}
@@ -108,18 +194,17 @@ export function createInsightDigestTools() {
 				const summary = summarizeDigestConfig(config);
 				return {
 					success: true,
-					message: `Insight digests will be delivered to this Slack channel on a ${summary.frequency} cadence.`,
+					message: `Insight digests will be delivered to ${channelMention(channelId)} on a ${summary.frequency} cadence.`,
 					digest: summary,
 				};
 			} catch (error) {
 				logger.error("Failed to manage insight digest", {
 					action,
 					websiteId,
+					channelId,
 					error,
 				});
-				throw error instanceof Error
-					? error
-					: new Error("Failed to manage insight digest. Please try again.");
+				return rpcFailure(action, error);
 			}
 		},
 	});

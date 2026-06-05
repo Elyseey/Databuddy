@@ -1,4 +1,5 @@
 import { ORPCError } from "@orpc/server";
+import type { PreResolvedAuth } from "@databuddy/rpc";
 import { createServiceAuth } from "@databuddy/rpc";
 import { getServerRPCClient } from "../../../lib/orpc-server";
 import type { AppContext } from "../../config/context";
@@ -25,12 +26,7 @@ export async function callRPCProcedure(
 		}
 
 		const headers = context.requestHeaders ?? new Headers();
-		const preResolved = context.serviceAuth
-			? createServiceAuth(
-					context.serviceAuth.organizationId,
-					context.serviceAuth.scopes
-				)
-			: undefined;
+		const preResolved = resolvePreResolvedAuth(context);
 		const client = await getServerRPCClient(headers, preResolved);
 
 		const router = client[routerName as keyof typeof client] as
@@ -94,4 +90,19 @@ export async function callRPCProcedure(
 
 function isMutationMethod(method: string): boolean {
 	return MUTATION_METHOD_RE.test(method);
+}
+
+function resolvePreResolvedAuth(
+	context: AppContext
+): PreResolvedAuth | undefined {
+	if (context.serviceAuth) {
+		return createServiceAuth(
+			context.serviceAuth.organizationId,
+			context.serviceAuth.scopes
+		);
+	}
+	if (context.apiKey) {
+		return { apiKey: context.apiKey, session: null };
+	}
+	return undefined;
 }
