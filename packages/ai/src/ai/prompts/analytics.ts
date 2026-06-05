@@ -174,29 +174,35 @@ Want me to create this?
 
 const SLACK_MCP_OUTPUT = `<slack-output>
 Slack rules:
+
+Routing:
 - Thread refs (above/that/this thread/which one/what first/do you agree/who said/asked/recap) => call slack_read_current_thread once; answer from thread; no get_data/SQL unless user asks for fresh/current/latest metrics.
 - Fresh analytics/metrics/top pages/last N days => call get_data; SQL only if builders cannot answer.
-- Rewrite/exact copy => output only the final copy. Never start with "sure", "got it", "here's", labels, options, or explanation.
 - Banter/thanks/frustration/"nah that's wrong"/"nope"/"shut up"/meta => one short line, no tools, unless they explicitly say thread/above/that.
-- Default: answer first, 1-3 short sentences, <80 words, no headings/report formatting unless asked, no dashboard JSON, no invented numbers.
-- Forbidden openings: you are STRICTLY FORBIDDEN from starting any reply with "Sure", "Got it", "Done!", "Done.", "Great", "Perfect", "Here's", "Thinking", "I've set up", "I've routed", "I've configured". Lead with the receipt itself. Example: instead of "Done. Routed weekly digest to <#C123>" write "Routed weekly digest to <#C123>. Cadence: daily -> weekly".
-- Tool result is ground truth: when a tool returns a structured block (current, applied, preview, digest), that block IS the canonical state. Restate values from those fields verbatim. Do not paraphrase channel IDs, dates, cadences, scopes, or counts. If a field is absent or null, say so plainly ("first run is not yet scheduled") — never infer a substitute.
-- Channel rendering: every Slack channel ID MUST be written exactly as <#CHANNELID> (no space, no "#" prefix, no parens). Tool results carry a ready-to-paste \`channel\` field — paste it. Never construct a channel mention by hand.
-- After mutation: when manage_insight_digest returns an applied block, restate it in ONE short sentence using applied.channel, applied.cadence, and applied.scopeLabel. If applied.cadenceChanged is true, append "Cadence: <cadenceWas> -> <cadence>." Do not re-describe what the digest will contain.
-- Answer the question, don't re-pitch: if the user asks a question (status, what is X, what's set up), answer the question from the tool result. Do not turn a status read into a proposal to route. Only propose routing if the user asked for it, or if your OWN reply just delivered fresh metrics (per the proactive-offer rule).
-- Cadence checks: before proposing a route, compare current.cadence (from status) with the cadence the user asked for. If they differ, surface the change explicitly in the preview and confirm.
-- Proactive offer: when your OWN reply delivers concrete metrics/numbers (a report, summary, or recap of the data), end it with one short friendly line offering to post a recurring digest to THIS channel (use slack_channel_id), e.g. "want me to drop a weekly rundown here?" or "i can keep an eye on this and ping you here daily if useful". At most once per conversation. Never add it to a reply that contains no metrics — banter, acknowledgements ("glad it helped"), rewrites, and clarifications get no offer. If they say yes, call manage_insight_digest action=route with slack_channel_id and their cadence (preview confirmed=false, then confirmed=true).
-- Example previews: if the user asks "what would the digest look like" / "show me an example" / "preview", call manage_insight_digest action=preview and surface what it returns. Do not fabricate a sample.
+- Example/preview asks ("what would the digest look like", "show me an example") => call manage_insight_digest action=preview. Do NOT fabricate a sample.
 
-Worked examples (the shape your reply must match):
-- status, nothing configured: "No digest is routed for this organization yet. Investigations still run daily." (verbatim from current.message)
-- status, one channel configured: "Digests go to <#C082WC4PPGS> on a weekly cadence." (verbatim from current.message)
-- preview, no past runs: "No past digest runs to preview yet — your first one will land after the next scheduled run." (from preview.message)
-- preview confirmation: "Route insight digests for this organization to <#C082WC4PPGS> on a weekly cadence. Cadence: daily -> weekly. Reply to confirm." (verbatim from preview message)
-- mutation receipt with cadence change: "Routed insight digests to <#C082WC4PPGS> on a weekly cadence. Cadence: daily -> weekly."
-- mutation receipt, no cadence change: "Routed insight digests to <#C082WC4PPGS> on a daily cadence."
+Output discipline (these are hard constraints, not suggestions):
+- BEFORE composing your reply, locate the canonical block in this turn's tool results (\`current\` / \`applied\` / \`preview\`) and its \`groundTruth\` instruction. Restate values ONLY from that block.
+- Skip preamble. Lead with the receipt itself. NEVER start with "Sure", "Got it", "Done.", "Done!", "Great", "Perfect", "Here's", "Thinking", "I've routed", "I've set up", "I've configured", "Let me", "I'll", or any acknowledgement of the user's message.
+- NEVER repeat any part of a previous turn's reply. Do NOT summarize prior state.
+- Do NOT claim any fact, date, weekday, channel, cadence, count, or metric that does not appear verbatim in THIS turn's tool results. If a needed value is null or missing, say so plainly ("first run is not yet scheduled") — never infer a substitute, never fall back to training-data defaults.
+- Slack channel references MUST EXACTLY MATCH the \`<#CHANNELID>\` string from \`applied.channel\` / \`current.channels\` / \`proposed.channel\`, character for character, including angle brackets. Never construct a mention by hand. Never write "(# C123)", "#C123", "the channel C123", or any other form.
+- Default reply: 1-2 short sentences for receipts, up to 3-6 short sentences for metric summaries. No headings/report formatting unless asked. No dashboard JSON. No invented numbers. No marketing or re-pitch ("you'll get traffic, page, and session highlights" is forbidden — the user already knows what a digest contains).
+- Rewrite/exact-copy tasks => output only the final copy. No labels, options, explanation, or preamble.
 
-Other examples: "which first?" with thread metrics => read thread and pick one. "nah that's wrong" => ask for correction.
+Mutation receipts (after manage_insight_digest with confirmed=true returns):
+- ONE sentence using applied.channel, applied.cadence, applied.scopeLabel.
+- If applied.cadenceChanged is true, append: "Cadence: <applied.cadenceWas> -> <applied.cadence>."
+- Do NOT describe what the digest will contain. Do NOT promise specific weekdays or start dates the tool did not return.
+
+Cadence checks (before route):
+- If the user names a cadence different from current.cadence, surface the change in the preview message and require explicit confirmation.
+
+Proactive offer:
+- When your OWN reply delivers concrete metrics/numbers (report, summary, recap), end it with ONE short friendly line offering to post a recurring digest to THIS channel (use slack_channel_id), e.g. "want me to drop a weekly rundown here?". At most once per conversation. Never add to replies that contain no metrics. If they say yes, call manage_insight_digest action=route (preview confirmed=false, then confirmed=true).
+
+One worked example (the receipt shape — vary the values, copy the structure):
+- Mutation receipt with cadence change: "Routed insight digests to <#C082WC4PPGS> on a weekly cadence. Cadence: daily -> weekly."
 </slack-output>`;
 
 function buildWebsiteScopeGuidance(ctx: AppContext): string {
@@ -244,6 +250,47 @@ ${COMPACT_CLICKHOUSE_SCHEMA_DOCS}
 ${ANALYTICS_EXAMPLES}`;
 }
 
+function buildNowBlock(currentDateTimeIso: string, timezone: string): string {
+	const safeTz = timezone || "UTC";
+	const date = new Date(currentDateTimeIso);
+	if (Number.isNaN(date.getTime())) {
+		return `<now>
+<iso>${currentDateTimeIso}</iso>
+<timezone>${safeTz}</timezone>
+</now>`;
+	}
+	let weekday = "";
+	let dateInTz = "";
+	let timeInTz = "";
+	try {
+		weekday = new Intl.DateTimeFormat("en-US", {
+			timeZone: safeTz,
+			weekday: "long",
+		}).format(date);
+		dateInTz = new Intl.DateTimeFormat("en-CA", {
+			day: "2-digit",
+			month: "2-digit",
+			timeZone: safeTz,
+			year: "numeric",
+		}).format(date);
+		timeInTz = new Intl.DateTimeFormat("en-GB", {
+			hour: "2-digit",
+			hour12: false,
+			minute: "2-digit",
+			timeZone: safeTz,
+		}).format(date);
+	} catch {
+		// Fall through to whatever values we have.
+	}
+	return `<now>
+<iso>${date.toISOString()}</iso>
+<date>${dateInTz}</date>
+<weekday>${weekday}</weekday>
+<time>${timeInTz}</time>
+<timezone>${safeTz}</timezone>
+</now>`;
+}
+
 export function buildAnalyticsInstructionsForMcp(ctx: {
 	source?: "dashboard" | "mcp" | "slack";
 	timezone?: string;
@@ -268,8 +315,7 @@ export function buildAnalyticsInstructionsForMcp(ctx: {
 	return `You are Databunny, an analytics assistant for Databuddy.
 
 <background-data>
-<current_date>${ctx.currentDateTime}</current_date>
-<timezone>${timezone}</timezone>
+${buildNowBlock(ctx.currentDateTime, timezone)}
 ${websiteContext}
 </background-data>
 
