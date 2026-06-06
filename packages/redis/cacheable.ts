@@ -17,22 +17,6 @@ const REDIS_TIMEOUT_MS = 2000;
 let redisAvailable = true;
 let lastRedisCheck = 0;
 
-type TraceFn = (fields: Record<string, unknown>) => void;
-let _traceFn: TraceFn | null = null;
-
-export function setCacheTraceFn(fn: TraceFn) {
-	_traceFn = fn;
-}
-
-function traceCache(prefix: string, hit: boolean, ms: number) {
-	if (_traceFn) {
-		_traceFn({
-			[`cache.${prefix}`]: hit ? "hit" : "miss",
-			[`cache.${prefix}.ms`]: ms,
-		});
-	}
-}
-
 type CacheTagger<
 	T extends (...args: Parameters<T>) => Promise<Awaited<ReturnType<T>>>,
 > = (
@@ -255,10 +239,7 @@ export function cacheable<
 	const cachedFn = async (
 		...args: Parameters<T>
 	): Promise<Awaited<ReturnType<T>>> => {
-		const cacheStart = performance.now();
-
 		if (shouldSkipRedis()) {
-			traceCache(prefix, false, 0);
 			return fn(...args);
 		}
 
@@ -271,21 +252,10 @@ export function cacheable<
 			markRedisHealthy();
 		} catch {
 			markRedisUnhealthy();
-			traceCache(
-				prefix,
-				false,
-				Math.round((performance.now() - cacheStart) * 100) / 100
-			);
 			return fn(...args);
 		}
 
 		if (cached) {
-			traceCache(
-				prefix,
-				true,
-				Math.round((performance.now() - cacheStart) * 100) / 100
-			);
-
 			if (staleWhileRevalidate && staleTime > 0) {
 				triggerBackgroundRevalidation(
 					key,
@@ -332,11 +302,6 @@ export function cacheable<
 				}
 			}
 
-			traceCache(
-				prefix,
-				false,
-				Math.round((performance.now() - cacheStart) * 100) / 100
-			);
 			return result;
 		} finally {
 			inflightRequests.delete(key);
