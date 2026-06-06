@@ -230,4 +230,132 @@ export const toolRoutingCases: EvalCase[] = [
 			],
 		},
 	},
+	// Adversarial / edge probes for execute_sql_query behavior.
+	{
+		id: "adv-sql-pageview-event-name",
+		category: "tool-routing",
+		name: "Path-overlap query must use event_name='screen_view', not 'pageview'",
+		query:
+			"For the last 7 days, how many sessions visited BOTH /pricing and /docs at any point in the session? Use SQL — get_data can't express the set intersection.",
+		websiteId: WS,
+		tags: ["adversarial", "execute_sql"],
+		expect: {
+			maxSteps: 8,
+			maxLatencyMs: 180_000,
+			toolsCalled: ["execute_sql_query"],
+			toolInputs: [
+				{
+					tool: "execute_sql_query",
+					excludes: ["event_name = 'pageview'"],
+				},
+			],
+			responseNotMatches: [
+				{
+					description:
+						"agent must not surface 'event_name = pageview' anywhere in the response",
+					pattern: "event_name\\s*=\\s*['\"]pageview['\"]",
+				},
+			],
+		},
+	},
+	{
+		id: "adv-sql-events-timestamp-column",
+		category: "tool-routing",
+		name: "Queries on analytics.events must filter on 'time', not 'timestamp'",
+		query:
+			"Run SQL to find the 5 longest individual page views from the last 30 days — show path, time_on_page, browser, country. Just the analytics.events table.",
+		websiteId: WS,
+		tags: ["adversarial", "execute_sql"],
+		expect: {
+			maxSteps: 8,
+			maxLatencyMs: 180_000,
+			toolsCalled: ["execute_sql_query"],
+			toolInputs: [
+				{
+					tool: "execute_sql_query",
+					excludes: ["events.timestamp", "e.timestamp"],
+				},
+			],
+		},
+	},
+	{
+		id: "adv-sql-revenue-uses-owner-id",
+		category: "tool-routing",
+		name: "Revenue table must end up filtered with owner_id (validator now rejects client_id)",
+		query:
+			"Pull total revenue in the last 30 days grouped by provider, using SQL on the revenue table.",
+		websiteId: WS,
+		tags: ["adversarial", "execute_sql"],
+		expect: {
+			maxSteps: 10,
+			maxLatencyMs: 240_000,
+			toolsCalled: ["execute_sql_query"],
+			responseNotMatches: [
+				{
+					description:
+						"agent must not claim no revenue data without resolving the tenant filter — the SQL succeeds when owner_id is used; an honest 'no data found via owner_id' is fine, but 'no data because tool errored' isn't",
+					pattern:
+						"\\b(tool errored|validation failed|couldn'?t (run|query|execute) (the |that |any )?sql|sql (failed|rejected|blocked))\\b",
+					flags: "i",
+				},
+			],
+		},
+	},
+	{
+		id: "adv-sql-uniq-not-count-distinct",
+		category: "tool-routing",
+		name: "Counting unique visitors must use uniq(), not COUNT(DISTINCT ...)",
+		query:
+			"Use SQL to count unique sessions per country for the last 7 days, ordered by sessions desc, limit 10.",
+		websiteId: WS,
+		tags: ["adversarial", "execute_sql"],
+		expect: {
+			maxSteps: 8,
+			maxLatencyMs: 180_000,
+			toolsCalled: ["execute_sql_query"],
+			toolInputs: [
+				{
+					tool: "execute_sql_query",
+					excludes: ["COUNT(DISTINCT", "count(distinct"],
+				},
+			],
+		},
+	},
+	{
+		id: "adv-sql-decimal-needs-tofloat64",
+		category: "tool-routing",
+		name: "quantile over revenue.amount must not crash on the Decimal type",
+		query:
+			"Show me the median and p90 revenue transaction amount in the last 30 days, by provider. Use SQL.",
+		websiteId: WS,
+		tags: ["adversarial", "execute_sql"],
+		expect: {
+			maxSteps: 12,
+			maxLatencyMs: 300_000,
+			toolsCalled: ["execute_sql_query"],
+			responseNotMatches: [
+				{
+					description:
+						"agent must not propagate ClickHouse Decimal-type errors back to the user uninterpreted",
+					pattern:
+						"\\b(ILLEGAL_TYPE_OF_ARGUMENT|Argument for function .*must be Float|cannot be used with arguments of type Decimal)\\b",
+					flags: "i",
+				},
+			],
+		},
+	},
+	{
+		id: "adv-sql-escalation-guard",
+		category: "tool-routing",
+		name: "Simple 'top pages' ask should go via get_data, not SQL",
+		query: "show me top pages last 7 days",
+		websiteId: WS,
+		tags: ["adversarial", "execute_sql"],
+		expect: {
+			maxSteps: 4,
+			maxLatencyMs: 60_000,
+			toolsCalled: ["get_data"],
+			toolsNotCalled: ["execute_sql_query"],
+		},
+	},
 ];
