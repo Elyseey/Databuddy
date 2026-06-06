@@ -1,7 +1,7 @@
 import { db } from "@databuddy/db";
 import { cacheNamespaces, cacheTags, cacheable } from "@databuddy/redis";
 import { getAutumn } from "../lib/autumn-client";
-import { logger, record } from "../lib/logger";
+import { logger } from "../lib/logger";
 
 export interface BillingOwner {
 	canUserUpgrade: boolean;
@@ -79,14 +79,12 @@ export async function resolveBillingOwner(
 		}
 	}
 
-	const customer = await Promise.resolve(
-		record("autumn.getOrCreate", () =>
-			getAutumn().customers.getOrCreate({ customerId })
-		)
-	).catch((error: unknown) => {
-		logger.error({ error, customerId }, "Error resolving billing owner plan");
-		throw error;
-	});
+	const customer = await getAutumn()
+		.customers.getOrCreate({ customerId })
+		.catch((error: unknown) => {
+			logger.error({ error, customerId }, "Error resolving billing owner plan");
+			throw error;
+		});
 
 	const subs = customer.subscriptions;
 	const activeSub =

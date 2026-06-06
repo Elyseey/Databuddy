@@ -27,7 +27,7 @@ import {
 } from "@databuddy/validation";
 import { z } from "zod";
 import { rpcError } from "../errors";
-import { logger, record } from "../lib/logger";
+import { logger } from "../lib/logger";
 import { protectedProcedure, publicProcedure, trackedProcedure } from "../orpc";
 import { setTrackProperties } from "../middleware/track-mutation";
 import { withWorkspace } from "../procedures/with-workspace";
@@ -507,31 +507,23 @@ export const websitesRouter = {
 		.input(z.object({ organizationId: z.string().optional() }).default({}))
 		.output(listWithChartsOutputSchema)
 		.handler(async ({ context, input }) => {
-			const workspace = await record("withWorkspace", () =>
-				withWorkspace(context, {
-					organizationId: input.organizationId,
-					resource: "website",
-					permissions: ["read"],
-				})
-			);
+			const workspace = await withWorkspace(context, {
+				organizationId: input.organizationId,
+				resource: "website",
+				permissions: ["read"],
+			});
 
 			if (!workspace.organizationId) {
 				throw rpcError.badRequest("Organization ID is required");
 			}
 
-			const websitesList = await record("websiteService.list", () =>
-				websiteService.list(workspace.organizationId)
-			);
+			const websitesList = await websiteService.list(workspace.organizationId);
 
 			const websiteIds = websitesList.map((site) => site.id);
-			const [chartData, activeUsers] = await record(
-				"fetchChartsAndActiveUsers",
-				() =>
-					Promise.all([
-						fetchChartData(websiteIds),
-						fetchActiveUsers(websiteIds),
-					])
-			);
+			const [chartData, activeUsers] = await Promise.all([
+				fetchChartData(websiteIds),
+				fetchActiveUsers(websiteIds),
+			]);
 
 			return { websites: websitesList, chartData, activeUsers };
 		}),

@@ -16,7 +16,7 @@ import {
 import { z } from "zod";
 import { rpcError } from "../errors";
 import { getAutumn } from "../lib/autumn-client";
-import { logger, record } from "../lib/logger";
+import { logger } from "../lib/logger";
 import { setTrackProperties } from "../middleware/track-mutation";
 import {
 	protectedProcedure,
@@ -359,9 +359,10 @@ export const organizationsRouter = {
 			const canUserUpgrade = billing?.canUserUpgrade ?? true;
 
 			try {
-				const response = await record("autumn.check", () =>
-					getAutumn().check({ customerId, featureId: "events" })
-				);
+				const response = await getAutumn().check({
+					customerId,
+					featureId: "events",
+				});
 
 				const b = response.balance;
 				const unlimited = b?.unlimited ?? false;
@@ -458,9 +459,7 @@ export const organizationsRouter = {
 			}
 
 			try {
-				const customer = await record("autumn.getOrCreate", () =>
-					getAutumn().customers.getOrCreate({ customerId })
-				);
+				const customer = await getAutumn().customers.getOrCreate({ customerId });
 
 				const subs = customer.subscriptions;
 				const activeSub =

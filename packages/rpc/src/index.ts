@@ -2,7 +2,6 @@
 
 export { rpcError } from "./errors";
 export { getAutumn } from "./lib/autumn-client";
-export { setRpcRecordFn } from "./lib/logger";
 export {
 	createAbortSignalInterceptor,
 	enrichRpcWideEventContext,

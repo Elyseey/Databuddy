@@ -8,7 +8,6 @@ import { db } from "@databuddy/db";
 import { cacheNamespaces, cacheTags, cacheable } from "@databuddy/redis";
 import type { Website } from "@databuddy/db/schema";
 import { validateTimezone } from "@databuddy/validation";
-import { record } from "./tracing";
 
 export interface WebsiteContext {
 	session: unknown;
@@ -149,9 +148,7 @@ async function deriveWithApiKey(request: Request) {
 	const url = new URL(request.url);
 	const siteId = url.searchParams.get("website_id");
 
-	const key = await record("getApiKeyFromHeader", () =>
-		getApiKeyFromHeader(request.headers)
-	);
+	const key = await getApiKeyFromHeader(request.headers);
 	if (!key) {
 		throw jsonError(401, "Invalid or expired API key", "AUTH_REQUIRED");
 	}
@@ -162,7 +159,7 @@ async function deriveWithApiKey(request: Request) {
 	}
 
 	const [site, timezone] = await Promise.all([
-		record("getCachedWebsite", () => getCachedWebsite(siteId)),
+		getCachedWebsite(siteId),
 		getTimezone(request, null),
 	]);
 
@@ -189,9 +186,7 @@ async function deriveWithApiKey(request: Request) {
 async function deriveWithSession(request: Request) {
 	const url = new URL(request.url);
 	const websiteId = url.searchParams.get("website_id");
-	const session = await record("getSession", () =>
-		auth.api.getSession({ headers: request.headers })
-	);
+	const session = await auth.api.getSession({ headers: request.headers });
 
 	if (!websiteId) {
 		if (!session?.user) {

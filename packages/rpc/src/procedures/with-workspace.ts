@@ -10,7 +10,6 @@ import { cacheNamespaces, cacheable } from "@databuddy/redis";
 import type { PlanId } from "@databuddy/shared/types/features";
 import { z } from "zod";
 import { rpcError } from "../errors";
-import { record } from "../lib/logger";
 import { type Context, os } from "../orpc";
 
 type Website = NonNullable<Awaited<ReturnType<typeof getWebsiteById>>>;
@@ -191,11 +190,11 @@ export async function withWorkspace<R extends ResourceType = "organization">(
 
 	let website: Website | null = null;
 
-	const planPromise = record("ws.getPlan", () => getPlan(context));
+	const planPromise = getPlan(context);
 
 	if (websiteId) {
 		const [found, plan] = await Promise.all([
-			record("ws.getWebsiteById", () => getWebsiteById(websiteId)),
+			getWebsiteById(websiteId),
 			planPromise,
 		]);
 		if (!found) {
@@ -247,9 +246,7 @@ export async function withWorkspace<R extends ResourceType = "organization">(
 		const userId = context.user.id;
 		const [plan, role] = await Promise.all([
 			planPromise,
-			record("ws.getOrgRole", () =>
-				getOrganizationRole(userId, organizationId)
-			),
+			getOrganizationRole(userId, organizationId),
 		]);
 		requirePlan(plan, requiredPlans);
 

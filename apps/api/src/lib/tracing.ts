@@ -15,26 +15,6 @@ export function mergeWideEvent(
 }
 
 /**
- * Run a named operation and attach its duration (ms) to the active wide event
- * as `timing.<name>`. Nested calls accumulate — the wide event ends up with one
- * `timing.*` field per `record()` call in the request.
- */
-export async function record<T>(
-	name: string,
-	fn: () => Promise<T> | T
-): Promise<T> {
-	const start = performance.now();
-	try {
-		return await fn();
-	} finally {
-		const ms = Math.round((performance.now() - start) * 100) / 100;
-		try {
-			getRequestLogger().set({ [`timing.${name}`]: ms });
-		} catch {}
-	}
-}
-
-/**
  * Attach an error to the active request wide event when inside the evlog
  * middleware; otherwise emit a global structured log line.
  */

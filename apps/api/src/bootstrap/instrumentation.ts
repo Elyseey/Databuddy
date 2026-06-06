@@ -1,18 +1,12 @@
 import { setAiRequestLoggerProvider } from "@databuddy/ai/lib/request-logger";
 import { setPgErrorFn } from "@databuddy/db";
-import {
-	setRpcRecordFn,
-	setRpcRequestLoggerProvider,
-	setTrackingFn,
-} from "@databuddy/rpc";
+import { setRpcRequestLoggerProvider, setTrackingFn } from "@databuddy/rpc";
 import { log } from "evlog";
 import { useLogger } from "evlog/elysia";
 import { trackMutationEvent } from "@/lib/databuddy";
 import { initTccTracing } from "@/lib/tcc-otel";
-import { record } from "@/lib/tracing";
 
 export function configureApiInstrumentation() {
-	setRpcRecordFn(record);
 	setTrackingFn(trackMutationEvent);
 	setRpcRequestLoggerProvider(useLogger);
 	setAiRequestLoggerProvider(useLogger);
