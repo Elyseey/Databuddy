@@ -147,6 +147,8 @@ const TENANT_FILTER_PATTERN =
 	/\b(?:client_id|owner_id)\s*=\s*\{websiteId\s*:\s*String\}/i;
 const ALIASED_TENANT_FILTER_PATTERN =
 	/(?:\b([a-zA-Z_][a-zA-Z0-9_]*)\.)?\b(?:client_id|owner_id)\s*=\s*\{websiteId\s*:\s*String\}/gi;
+const ALIASED_TENANT_FILTER_WITH_COLUMN_PATTERN =
+	/(?:\b([a-zA-Z_][a-zA-Z0-9_]*)\.)?\b(client_id|owner_id)\s*=\s*\{websiteId\s*:\s*String\}/gi;
 const SELECT_KEYWORD_PATTERN = /\bSELECT\b/gi;
 const FROM_KEYWORD_PATTERN = /\bFROM\b/gi;
 const WHERE_KEYWORD_PATTERN = /\bWHERE\b/gi;
@@ -357,6 +359,24 @@ function topLevelTenantFilterAliases(whereBody: string): Set<string> {
 	return aliases;
 }
 
+function topLevelTenantColumnsByAlias(
+	whereBody: string
+): Map<string, Set<string>> {
+	const flat = flattenToTopLevel(whereBody);
+	const columnsByAlias = new Map<string, Set<string>>();
+	ALIASED_TENANT_FILTER_WITH_COLUMN_PATTERN.lastIndex = 0;
+	let match = ALIASED_TENANT_FILTER_WITH_COLUMN_PATTERN.exec(flat);
+	while (match) {
+		const alias = (match[1] ?? "").toLowerCase();
+		const column = (match[2] ?? "").toLowerCase();
+		const set = columnsByAlias.get(alias) ?? new Set<string>();
+		set.add(column);
+		columnsByAlias.set(alias, set);
+		match = ALIASED_TENANT_FILTER_WITH_COLUMN_PATTERN.exec(flat);
+	}
+	return columnsByAlias;
+}
+
 function hasTopLevelOr(whereBody: string): boolean {
 	return TOP_LEVEL_OR_PATTERN.test(flattenToTopLevel(whereBody));
 }
@@ -499,10 +519,11 @@ export function validateAgentSQL(sql: string): {
 		};
 	}
 
+	const outerNonCteRefs = refs.filter(
+		(ref) => ref.depth === 0 && !cteNames.has(ref.name)
+	);
 	const outerNonCteRelationAliases = new Set(
-		refs
-			.filter((ref) => ref.depth === 0 && !cteNames.has(ref.name))
-			.map((ref) => ref.alias.toLowerCase())
+		outerNonCteRefs.map((ref) => ref.alias.toLowerCase())
 	);
 	const requirePerAliasTenantFilter = outerNonCteRelationAliases.size > 1;
 
@@ -521,6 +542,10 @@ export function validateAgentSQL(sql: string): {
 					"Top-level OR in WHERE is not allowed; wrap OR predicates inside parentheses so the tenant filter remains AND-ed.",
 			};
 		}
+
+		const columnsByAlias = topLevelTenantColumnsByAlias(body);
+		const unaliasedColumns = columnsByAlias.get("") ?? new Set<string>();
+
 		if (requirePerAliasTenantFilter) {
 			const filteredAliases = topLevelTenantFilterAliases(body);
 			for (const alias of outerNonCteRelationAliases) {
@@ -530,6 +555,25 @@ export function validateAgentSQL(sql: string): {
 						reason: `Multi-table query: each non-CTE table needs its own tenant filter \`${alias}.client_id = {websiteId:String}\` AND-ed at the top level. Missing for alias "${alias}".`,
 					};
 				}
+			}
+		}
+
+		for (const ref of outerNonCteRefs) {
+			const requiredColumn = AGENT_TENANT_COLUMN_BY_TABLE[ref.name];
+			if (!requiredColumn) {
+				continue;
+			}
+			const aliasColumns =
+				columnsByAlias.get(ref.alias.toLowerCase()) ?? new Set<string>();
+			const seenColumns = new Set([...aliasColumns, ...unaliasedColumns]);
+			if (!seenColumns.has(requiredColumn)) {
+				const aliasPrefix = requirePerAliasTenantFilter
+					? `${ref.alias}.`
+					: "";
+				return {
+					valid: false,
+					reason: `Table ${ref.raw} requires tenant filter \`${aliasPrefix}${requiredColumn} = {websiteId:String}\`. Using ${requiredColumn === "owner_id" ? "client_id" : "owner_id"} silently returns zero rows because the server-side filter is on ${requiredColumn}.`,
+				};
 			}
 		}
 	}

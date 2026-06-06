@@ -39,6 +39,46 @@ describe("validateAgentSQL", () => {
 		expect(result.valid).toBe(true);
 	});
 
+	it("rejects analytics.revenue filtered with client_id (silent-empty footgun)", () => {
+		const result = validateAgentSQL(
+			"SELECT provider, sum(amount) FROM analytics.revenue WHERE client_id = {websiteId:String} GROUP BY provider"
+		);
+		expect(result.valid).toBe(false);
+		expect(result.reason).toContain("owner_id");
+		expect(result.reason).toContain("zero rows");
+	});
+
+	it("rejects analytics.custom_events filtered with client_id", () => {
+		const result = validateAgentSQL(
+			"SELECT event_name, count() FROM analytics.custom_events WHERE client_id = {websiteId:String} GROUP BY event_name"
+		);
+		expect(result.valid).toBe(false);
+		expect(result.reason).toContain("owner_id");
+	});
+
+	it("rejects analytics.events filtered with owner_id (wrong direction)", () => {
+		const result = validateAgentSQL(
+			"SELECT count() FROM analytics.events WHERE owner_id = {websiteId:String}"
+		);
+		expect(result.valid).toBe(false);
+		expect(result.reason).toContain("client_id");
+	});
+
+	it("accepts mixed-table JOIN when each alias uses its required tenant column", () => {
+		const result = validateAgentSQL(
+			"SELECT r.provider, count() FROM analytics.revenue r JOIN analytics.events e ON r.transaction_id = e.session_id WHERE r.owner_id = {websiteId:String} AND e.client_id = {websiteId:String} GROUP BY r.provider"
+		);
+		expect(result.valid).toBe(true);
+	});
+
+	it("rejects mixed-table JOIN when revenue alias uses client_id", () => {
+		const result = validateAgentSQL(
+			"SELECT r.provider, count() FROM analytics.revenue r JOIN analytics.events e ON r.transaction_id = e.session_id WHERE r.client_id = {websiteId:String} AND e.client_id = {websiteId:String} GROUP BY r.provider"
+		);
+		expect(result.valid).toBe(false);
+		expect(result.reason).toContain("owner_id");
+	});
+
 	it("rejects inline SETTINGS that could override server-side tenant filter", () => {
 		const result = validateAgentSQL(
 			`SELECT count() FROM analytics.events ${TENANT} SETTINGS additional_table_filters = {}`
