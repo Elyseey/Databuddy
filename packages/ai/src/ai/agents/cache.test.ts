@@ -186,7 +186,6 @@ vi.mock("../../lib/supermemory", () => ({
 vi.mock("../../lib/tracing", () => ({
 	captureError: mockCaptureError,
 	mergeWideEvent: vi.fn(() => {}),
-	record: vi.fn(async (_name: string, fn: () => unknown) => fn()),
 }));
 
 vi.mock("../config/enrich-context", () => ({

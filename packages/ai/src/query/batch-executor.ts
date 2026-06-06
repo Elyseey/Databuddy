@@ -1,5 +1,5 @@
 import { chQuery } from "@databuddy/db/clickhouse";
-import { captureError, mergeWideEvent, record } from "../lib/tracing";
+import { captureError, mergeWideEvent } from "../lib/tracing";
 import { QueryBuilders } from "./builders";
 import {
 	getClickHouseQuerySettings,
@@ -233,42 +233,40 @@ function getSchemaSignature(
 	return probeSignature(type, config);
 }
 
-function runSingle(
+async function runSingle(
 	req: BatchRequest,
 	opts?: BatchOptions
 ): Promise<BatchResult> {
 	const config = QueryBuilders[req.type];
 	if (!config) {
-		return Promise.resolve({
+		return {
 			type: req.type,
 			data: [],
 			error: `Unknown query type: ${req.type}`,
-		});
+		};
 	}
 
-	return record(`query.${req.type}`, async () => {
-		try {
-			const builder = new SimpleQueryBuilder(
-				config,
-				{ ...req, timezone: opts?.timezone ?? req.timezone },
-				opts?.websiteDomain
-			);
-			const data = await builder.execute();
+	try {
+		const builder = new SimpleQueryBuilder(
+			config,
+			{ ...req, timezone: opts?.timezone ?? req.timezone },
+			opts?.websiteDomain
+		);
+		const data = await builder.execute();
 
-			mergeWideEvent({
-				query_type: req.type,
-				query_from: req.from,
-				query_to: req.to,
-				query_rows: data.length,
-			});
+		mergeWideEvent({
+			query_type: req.type,
+			query_from: req.from,
+			query_to: req.to,
+			query_rows: data.length,
+		});
 
-			return { type: req.type, data };
-		} catch (e) {
-			const error = e instanceof Error ? e.message : "Query failed";
-			mergeWideEvent({ query_error: error });
-			return { type: req.type, data: [], error };
-		}
-	});
+		return { type: req.type, data };
+	} catch (e) {
+		const error = e instanceof Error ? e.message : "Query failed";
+		mergeWideEvent({ query_error: error });
+		return { type: req.type, data: [], error };
+	}
 }
 
 function groupBySchema(
@@ -346,105 +344,101 @@ function splitResults(
 	return byIndex;
 }
 
-export function executeBatch(
+export async function executeBatch(
 	requests: BatchRequest[],
 	opts?: BatchOptions
 ): Promise<BatchResult[]> {
 	if (requests.length === 0) {
-		return Promise.resolve([]);
+		return [];
 	}
 
-	return record("executeBatch", async () => {
-		mergeWideEvent({
-			batch_size: requests.length,
-			batch_types: requests.map((r) => r.type).join(","),
-		});
-
-		if (requests.length === 1 && requests[0]) {
-			return [await runSingle(requests[0], opts)];
-		}
-
-		const groups = groupBySchema(requests);
-		const results: BatchResult[] = Array.from({ length: requests.length });
-
-		async function runGroup(
-			groupItems: { index: number; req: BatchRequest }[]
-		): Promise<{ unionCount: number; singleCount: number }> {
-			if (groupItems.length === 0) {
-				return { unionCount: 0, singleCount: 0 };
-			}
-
-			if (groupItems.length === 1 && groupItems[0]) {
-				const { index, req } = groupItems[0];
-				results[index] = await runSingle(req, opts);
-				return { unionCount: 0, singleCount: 1 };
-			}
-
-			try {
-				const { sql, params, indices } = buildUnionQuery(groupItems, opts);
-				const groupNoCache = groupItems.some(
-					({ req }) => QueryBuilders[req.type]?.noCache
-				);
-				const rawRows = await record("chUnionQuery", () =>
-					chQuery(sql, params, {
-						clickhouse_settings: getClickHouseQuerySettings(groupNoCache),
-					})
-				);
-
-				mergeWideEvent({
-					batch_union_query_count: indices.length,
-					batch_union_rows: rawRows.length,
-				});
-
-				const split = splitResults(
-					rawRows as Array<Record<string, unknown> & { __query_idx: number }>,
-					indices
-				);
-
-				for (const { index, req } of groupItems) {
-					const config = QueryBuilders[req.type];
-					const raw = split.get(index) || [];
-					results[index] = {
-						type: req.type,
-						data: config ? applyPlugins(raw, config, opts?.websiteDomain) : raw,
-					};
-				}
-				return { unionCount: 1, singleCount: 0 };
-			} catch (error) {
-				captureError(error, {
-					operation: "batch_union",
-					batch_types: groupItems.map((g) => g.req.type).join(","),
-					batch_size: groupItems.length,
-				});
-				mergeWideEvent({
-					batch_union_fallback: 1,
-					batch_union_error:
-						error instanceof Error ? error.message : "Union query failed",
-				});
-				for (const { index, req } of groupItems) {
-					results[index] = await runSingle(req, opts);
-				}
-				return { unionCount: 0, singleCount: groupItems.length };
-			}
-		}
-
-		const groupResults = await mapWithConcurrency(
-			Array.from(groups.values()),
-			BATCH_GROUP_CONCURRENCY,
-			runGroup
-		);
-		const unionCount = groupResults.reduce((s, r) => s + r.unionCount, 0);
-		const singleCount = groupResults.reduce((s, r) => s + r.singleCount, 0);
-
-		mergeWideEvent({
-			batch_union_groups: unionCount,
-			batch_single_queries: singleCount,
-		});
-
-		return results.map(
-			(r, i) => r || { type: requests[i]?.type || "unknown", data: [] }
-		);
+	mergeWideEvent({
+		batch_size: requests.length,
+		batch_types: requests.map((r) => r.type).join(","),
 	});
+
+	if (requests.length === 1 && requests[0]) {
+		return [await runSingle(requests[0], opts)];
+	}
+
+	const groups = groupBySchema(requests);
+	const results: BatchResult[] = Array.from({ length: requests.length });
+
+	async function runGroup(
+		groupItems: { index: number; req: BatchRequest }[]
+	): Promise<{ unionCount: number; singleCount: number }> {
+		if (groupItems.length === 0) {
+			return { unionCount: 0, singleCount: 0 };
+		}
+
+		if (groupItems.length === 1 && groupItems[0]) {
+			const { index, req } = groupItems[0];
+			results[index] = await runSingle(req, opts);
+			return { unionCount: 0, singleCount: 1 };
+		}
+
+		try {
+			const { sql, params, indices } = buildUnionQuery(groupItems, opts);
+			const groupNoCache = groupItems.some(
+				({ req }) => QueryBuilders[req.type]?.noCache
+			);
+			const rawRows = await chQuery(sql, params, {
+				clickhouse_settings: getClickHouseQuerySettings(groupNoCache),
+			});
+
+			mergeWideEvent({
+				batch_union_query_count: indices.length,
+				batch_union_rows: rawRows.length,
+			});
+
+			const split = splitResults(
+				rawRows as Array<Record<string, unknown> & { __query_idx: number }>,
+				indices
+			);
+
+			for (const { index, req } of groupItems) {
+				const config = QueryBuilders[req.type];
+				const raw = split.get(index) || [];
+				results[index] = {
+					type: req.type,
+					data: config ? applyPlugins(raw, config, opts?.websiteDomain) : raw,
+				};
+			}
+			return { unionCount: 1, singleCount: 0 };
+		} catch (error) {
+			captureError(error, {
+				operation: "batch_union",
+				batch_types: groupItems.map((g) => g.req.type).join(","),
+				batch_size: groupItems.length,
+			});
+			mergeWideEvent({
+				batch_union_fallback: 1,
+				batch_union_error:
+					error instanceof Error ? error.message : "Union query failed",
+			});
+			for (const { index, req } of groupItems) {
+				results[index] = await runSingle(req, opts);
+			}
+			return { unionCount: 0, singleCount: groupItems.length };
+		}
+	}
+
+	const groupResults = await mapWithConcurrency(
+		Array.from(groups.values()),
+		BATCH_GROUP_CONCURRENCY,
+		runGroup
+	);
+	const unionCount = groupResults.reduce((s, r) => s + r.unionCount, 0);
+	const singleCount = groupResults.reduce((s, r) => s + r.singleCount, 0);
+
+	mergeWideEvent({
+		batch_union_groups: unionCount,
+		batch_single_queries: singleCount,
+	});
+
+	return results.map(
+		(r, i) => r || { type: requests[i]?.type || "unknown", data: [] }
+	);
 }
 
 export function areQueriesCompatible(type1: string, type2: string): boolean {

@@ -1,45 +1,18 @@
 import { EvlogError, log } from "evlog";
 import { getActiveAiRequestLogger } from "./request-logger";
 
-/**
- * Merge structured fields into the active request wide event (evlog).
- */
-export function mergeWideEvent(
-	fields: Record<string, string | number | boolean>
-): void {
+export function mergeWideEvent(fields: Record<string, unknown>): void {
 	const requestLogger = getActiveAiRequestLogger();
 	if (requestLogger) {
-		requestLogger.set(fields as Record<string, unknown>);
+		requestLogger.set(fields);
 		return;
 	}
 	log.info({ service: "api", ...fields });
 }
 
-/**
- * Run a named operation and attach its duration (ms) to the active wide event
- * as `timing.<name>`. Nested calls accumulate — the wide event ends up with one
- * `timing.*` field per `record()` call in the request.
- */
-export async function record<T>(
-	name: string,
-	fn: () => Promise<T> | T
-): Promise<T> {
-	const start = performance.now();
-	try {
-		return await fn();
-	} finally {
-		const ms = Math.round((performance.now() - start) * 100) / 100;
-		getActiveAiRequestLogger()?.set({ [`timing.${name}`]: ms });
-	}
-}
-
-/**
- * Attach an error to the active request wide event when inside the evlog
- * middleware; otherwise emit a global structured log line.
- */
 export function captureError(
 	error: unknown,
-	fields?: Record<string, string | number | boolean>
+	fields?: Record<string, unknown>
 ): void {
 	const err = error instanceof Error ? error : new Error(String(error));
 	const requestLog = getActiveAiRequestLogger();
@@ -55,7 +28,7 @@ export function captureError(
 			error_message: err.message,
 		});
 		if (fields) {
-			requestLog.warn(err.message, fields as Record<string, unknown>);
+			requestLog.warn(err.message, fields);
 		} else {
 			requestLog.warn(err.message);
 		}
@@ -63,7 +36,7 @@ export function captureError(
 	}
 	if (requestLog) {
 		if (fields) {
-			requestLog.error(err, fields as Record<string, unknown>);
+			requestLog.error(err, fields);
 		} else {
 			requestLog.error(err);
 		}
