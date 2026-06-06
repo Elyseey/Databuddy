@@ -77,9 +77,20 @@ export async function executeAgentSqlForWebsite({
 export const executeSqlQueryTool = tool({
 	description: `Read-only ClickHouse SQL for session-level joins, path analysis, or cross-table correlations. Prefer get_data query builders for anything they cover. SELECT/WITH only, CTEs instead of subqueries/UNION.
 
-Tenant filter: every WHERE needs client_id = {websiteId:String} (for events, error_spans, vitals, blocked_traffic) or owner_id = {websiteId:String} (for custom_events, revenue). Use {paramName:Type} placeholders only.
+CRITICAL TENANT RULE — pick column by TABLE, not by habit:
+- analytics.revenue        → WHERE owner_id  = {websiteId:String}
+- analytics.custom_events  → WHERE owner_id  = {websiteId:String}
+- analytics.events         → WHERE client_id = {websiteId:String}
+- analytics.error_spans    → WHERE client_id = {websiteId:String}
+- analytics.web_vitals_spans → WHERE client_id = {websiteId:String}
+- analytics.outgoing_links → WHERE client_id = {websiteId:String}
+- analytics.blocked_traffic → WHERE client_id = {websiteId:String}
 
-Tables:
+Wrong column does NOT error — it silently matches zero rows because the server adds a table-level filter on the correct column. If a revenue or custom_events query returns 0 rows but the user expects data, your first hypothesis must be "I used client_id instead of owner_id", retry with owner_id before reporting no data.
+
+Use {paramName:Type} placeholders only.
+
+Table columns:
 - analytics.events: session_id, time, path, referrer, browser_name, os_name, device_type, country, region, city, utm_source, utm_medium, utm_campaign, time_on_page, scroll_depth, event_name
 - analytics.error_spans: session_id, timestamp, path, message, filename, lineno, stack, error_type
 - analytics.web_vitals_spans: timestamp, path, metric_name (FCP/LCP/CLS/INP/TTFB/FPS), metric_value
@@ -87,7 +98,7 @@ Tables:
 - analytics.revenue: transaction_id, amount Decimal(18,4), currency, provider, type, customer_id, created
 - analytics.outgoing_links: timestamp, path, href, text
 
-Gotchas: timestamp column is "time" in events, "timestamp" elsewhere. Pageviews = event_name = 'screen_view'. Use uniq() not COUNT(DISTINCT). quantileTDigest on Decimal needs toFloat64() cast.`,
+Gotchas: timestamp column is "time" in analytics.events, "timestamp" elsewhere. Pageviews = event_name = 'screen_view'. Use uniq() not COUNT(DISTINCT). quantileTDigest on Decimal needs toFloat64() cast.`,
 	strict: true,
 	inputSchema: z.object({
 		sql: z
