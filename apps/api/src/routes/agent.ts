@@ -67,7 +67,7 @@ import { getAILogger } from "../lib/ai-logger";
 import { trackAgentEvent } from "../lib/databuddy";
 import { getResolvedAuth } from "../lib/auth-wide-event";
 import { captureError, mergeWideEvent } from "../lib/tracing";
-import { getAccessibleWebsites } from "../lib/accessible-websites";
+import { getAccessibleWebsites } from "@databuddy/ai/lib/accessible-websites";
 
 function jsonError(status: number, code: string, message: string): Response {
 	return new Response(

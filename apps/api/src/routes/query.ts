@@ -32,10 +32,13 @@ import {
 } from "@databuddy/ai/query/date-utils";
 import type { Filter, QueryRequest } from "@databuddy/ai/query/types";
 import { Elysia, t } from "elysia";
-import { getAccessibleWebsites } from "../lib/accessible-websites";
+import { getAccessibleWebsites } from "@databuddy/ai/lib/accessible-websites";
+import {
+	getCachedWebsiteDomain,
+	getWebsiteDomain,
+} from "@databuddy/ai/lib/website-utils";
 import { resolveDatePreset } from "../lib/date-presets";
 import { mergeWideEvent } from "../lib/tracing";
-import { getCachedWebsiteDomain, getWebsiteDomain } from "../lib/website-utils";
 import {
 	CompileRequestSchema,
 	type CompileRequestType,

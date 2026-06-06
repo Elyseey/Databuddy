@@ -7,7 +7,7 @@ import { auth } from "@databuddy/auth";
 import { db } from "@databuddy/db";
 import { Elysia } from "elysia";
 import { getResolvedAuth } from "../lib/auth-wide-event";
-import { getCachedWebsite, getTimezone } from "../lib/website-utils";
+import { getCachedWebsite, getTimezone } from "@databuddy/ai/lib/website-utils";
 
 interface SessionUser {
 	email: string;
