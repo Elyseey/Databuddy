@@ -1,26 +1,17 @@
 import { EvlogError, log } from "evlog";
 import { useLogger as getRequestLogger } from "evlog/elysia";
 
-/**
- * Merge structured fields into the active request wide event (evlog).
- */
-export function mergeWideEvent(
-	fields: Record<string, string | number | boolean>
-): void {
+export function mergeWideEvent(fields: Record<string, unknown>): void {
 	try {
-		getRequestLogger().set(fields as Record<string, unknown>);
+		getRequestLogger().set(fields);
 	} catch {
 		log.info({ service: "api", ...fields });
 	}
 }
 
-/**
- * Attach an error to the active request wide event when inside the evlog
- * middleware; otherwise emit a global structured log line.
- */
 export function captureError(
 	error: unknown,
-	fields?: Record<string, string | number | boolean>
+	fields?: Record<string, unknown>
 ): void {
 	const err = error instanceof Error ? error : new Error(String(error));
 	try {
@@ -32,14 +23,14 @@ export function captureError(
 				error_message: err.message,
 			});
 			if (fields) {
-				requestLog.warn(err.message, fields as Record<string, unknown>);
+				requestLog.warn(err.message, fields);
 			} else {
 				requestLog.warn(err.message);
 			}
 			return;
 		}
 		if (fields) {
-			requestLog.error(err, fields as Record<string, unknown>);
+			requestLog.error(err, fields);
 		} else {
 			requestLog.error(err);
 		}
