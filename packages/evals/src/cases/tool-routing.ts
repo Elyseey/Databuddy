@@ -93,4 +93,141 @@ export const toolRoutingCases: EvalCase[] = [
 			],
 		},
 	},
+	// Adversarial / edge probes for get_data behavior.
+	{
+		id: "adv-getdata-batch-three-breakdowns",
+		category: "tool-routing",
+		name: "Three breakdowns in one ask should be batched, not sequential",
+		query:
+			"Give me top pages, top countries, and top referrers for the last 7 days. One table per breakdown.",
+		websiteId: WS,
+		tags: ["adversarial", "get_data"],
+		expect: {
+			maxSteps: 6,
+			maxLatencyMs: 120_000,
+			toolsCalled: ["get_data"],
+			toolCallCounts: [{ tool: "get_data", min: 1, max: 2 }],
+			batchedQueries: true,
+		},
+	},
+	{
+		id: "adv-getdata-week-over-week-comparison",
+		category: "tool-routing",
+		name: "Week-over-week comparison must use two date ranges, not one",
+		query:
+			"Compare this week's traffic to last week — sessions and bounce rate.",
+		websiteId: WS,
+		tags: ["adversarial", "get_data"],
+		expect: {
+			maxSteps: 6,
+			maxLatencyMs: 120_000,
+			toolsCalled: ["get_data"],
+			responseMatches: [
+				{
+					description:
+						"response should mention both periods so the comparison is grounded",
+					pattern:
+						"\\b(this week|last week|previous week|7-?day|prior week|week over week|wow)\\b",
+					flags: "i",
+				},
+			],
+		},
+	},
+	{
+		id: "adv-getdata-nonexistent-dimension-asks-clarification",
+		category: "tool-routing",
+		name: "Ask for a dimension that doesn't exist ('by job title') must clarify, not fabricate",
+		query: "show me bounce rate by user job title for last 30 days",
+		websiteId: WS,
+		tags: ["adversarial", "get_data"],
+		expect: {
+			maxSteps: 8,
+			maxLatencyMs: 120_000,
+			responseNotMatches: [
+				{
+					description:
+						"must not invent specific job-title bounce-rate percentages",
+					pattern:
+						"\\b(engineer|product manager|designer|executive|founder)\\b.*\\b\\d+(\\.\\d+)?\\s*%",
+					flags: "i",
+				},
+			],
+		},
+	},
+	{
+		id: "adv-getdata-empty-result-honest",
+		category: "tool-routing",
+		name: "Asking about feature_flag_evaluated when no events fire must say so, not invent counts",
+		query:
+			"how many feature flag evaluations happened in the last 7 days, by flag key?",
+		websiteId: WS,
+		tags: ["adversarial", "get_data"],
+		expect: {
+			maxSteps: 6,
+			maxLatencyMs: 90_000,
+			toolsCalled: ["get_data"],
+			responseNotMatches: [
+				{
+					description:
+						"must not fabricate specific flag-key counts when the underlying event isn't tracked",
+					pattern:
+						"\\b(flag[_-]?key|feature[_-]?flag)\\s*[:=]?\\s*['\"]?[a-z0-9_-]+['\"]?\\s*[:=-]?\\s*\\d+",
+					flags: "i",
+				},
+			],
+		},
+	},
+	{
+		id: "adv-getdata-unknown-query-type-recovery",
+		category: "tool-routing",
+		name: "Invalid query type must not produce fabricated 'popularity score' data",
+		query:
+			"what's my most popular page yesterday? Use the page_popularity_score query.",
+		websiteId: WS,
+		tags: ["adversarial", "get_data"],
+		expect: {
+			maxSteps: 8,
+			maxLatencyMs: 120_000,
+			toolsCalled: ["get_data"],
+			responseNotMatches: [
+				{
+					description:
+						"must not invent a popularity score number out of thin air",
+					pattern:
+						"\\bpopularity[ _-]?score\\b[\\s\\S]*?\\b\\d+(\\.\\d+)?\\b",
+					flags: "i",
+				},
+			],
+			responseMatches: [
+				{
+					description:
+						"agent must either pivot to a valid type (top_pages, pageviews) or surface that the requested type isn't valid",
+					pattern:
+						"\\b(top[_ -]?pages|pageviews|invalid|not (a |)valid|isn'?t (a |)valid|unknown query|doesn'?t exist|no such (query|type))\\b",
+					flags: "i",
+				},
+			],
+		},
+	},
+	{
+		id: "adv-getdata-relative-time-resolution",
+		category: "tool-routing",
+		name: "'Two Tuesdays ago' should resolve to a concrete date range or be asked about",
+		query: "what were our top pages two Tuesdays ago?",
+		websiteId: WS,
+		tags: ["adversarial", "get_data"],
+		expect: {
+			maxSteps: 8,
+			maxLatencyMs: 120_000,
+			responseMatches: [
+				{
+					description:
+						"agent should restate the concrete date it picked or ask the user to confirm",
+					pattern:
+						"\\b(202[4-9]-\\d{2}-\\d{2}|tuesday|may|jun|just to confirm|do you mean)\\b",
+					flags: "i",
+				},
+			],
+		},
+	},
 ];
