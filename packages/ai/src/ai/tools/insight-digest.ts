@@ -85,27 +85,6 @@ interface ActionContext {
 	websiteId: string | undefined;
 }
 
-const GROUND_TRUTH_STATUS =
-	"This `current` block is the canonical digest configuration. Restate values verbatim from current.message, current.channels, current.cadence, current.cron, current.timezone, current.nextRunAt. Do not paraphrase, do not invent fields. If a field is null, say so plainly. The schedule IS configurable via action=reschedule — never claim otherwise.";
-
-const GROUND_TRUTH_PREVIEW =
-	"This `preview` block is the last real digest run for this scope. Restate preview.message verbatim and summarize items only from preview.items. Do not fabricate insights. If preview.runs is 0, tell the user there is nothing to show yet.";
-
-const GROUND_TRUTH_APPLIED =
-	"This `applied` block reflects the saved configuration after the mutation. Restate applied.channel (already in <#ID> form), applied.cadence, and applied.scopeLabel. If applied.cadenceChanged is true, append `Cadence: ${applied.cadenceWas} -> ${applied.cadence}`. Do not re-pitch what the digest contains.";
-
-const GROUND_TRUTH_RESCHEDULED =
-	"This `applied` block reflects the saved schedule after the mutation. Restate applied.scopeLabel, applied.cadence, applied.cron (null means cron is unused), applied.timezone, and applied.nextRunAt verbatim. If applied.cronChanged, applied.timezoneChanged, or applied.cadenceChanged is true, mention each change as `was -> now`. Do not re-pitch what the digest contains.";
-
-const GROUND_TRUTH_PROPOSED =
-	"This is a preview; nothing has been saved. Restate the `message` field verbatim to the user and wait for explicit confirmation. Do not paraphrase the channel, cadence, cron, timezone, or proposed.nextRunAt. If proposed.nextRunAt is present, quote it so the user can verify the predicted schedule before confirming.";
-
-const GROUND_TRUTH_TEST_QUEUED =
-	"This `applied` block reflects a queued test run. Restate applied.runId verbatim, applied.queuedItems, applied.targetScope, and applied.channels (already in <#ID> form; may be empty). Tell the user the run is processing asynchronously and they can call action=preview after it finishes to see the digest content. Do not invent insight text — none exists yet.";
-
-const GROUND_TRUTH_TEST_REUSED =
-	"This `applied` block tells you a run was already in flight, so triggerRun returned the existing run instead of queuing a new one. Restate applied.runId verbatim and tell the user a run was already in progress, so the existing one will be inspected. Suggest action=preview after it finishes.";
-
 function fail<C extends string>(code: C, message: string) {
 	return { success: false, code, message } as const;
 }
@@ -227,7 +206,6 @@ async function handleStatus({
 				nextRunAt: summary.nextRunAt,
 			},
 			message,
-			groundTruth: GROUND_TRUTH_STATUS,
 		};
 	} catch (error) {
 		logger.error("Failed to read insight digest config", { websiteId, error });
@@ -251,7 +229,6 @@ async function handlePreview({ context, scope, websiteId }: ActionContext) {
 				action: "preview" as const,
 				preview: { runs: 0 },
 				message: `No past digest runs to preview for ${scope} yet. Once the first digest runs you can call action=preview to see it.`,
-				groundTruth: GROUND_TRUTH_PREVIEW,
 			};
 		}
 
@@ -283,7 +260,6 @@ async function handlePreview({ context, scope, websiteId }: ActionContext) {
 				items.length > 0
 					? `Most recent digest for ${scope} had ${items.length} insight${items.length === 1 ? "" : "s"}.`
 					: `Most recent digest for ${scope} produced no insights.`,
-			groundTruth: GROUND_TRUTH_PREVIEW,
 		};
 	} catch (error) {
 		logger.error("Failed to preview insight digest", { websiteId, error });
@@ -374,7 +350,6 @@ async function handleReschedule(
 			message: `Reschedule digest for ${scope}: ${proposal.changes.join(", ")}. ${proposedNextRunAt ? `Next run would be ${proposedNextRunAt}.` : "Next run cannot be computed for the proposed schedule — double-check cron/frequency."} Reply to confirm.`,
 			instruction:
 				"Wait for the user to explicitly confirm before calling this tool again with confirmed=true.",
-			groundTruth: GROUND_TRUTH_PROPOSED,
 		};
 	}
 
@@ -404,7 +379,6 @@ async function handleReschedule(
 				nextRunAt: summary.nextRunAt,
 			},
 			message: `Rescheduled digest for ${scope}. Next run: ${summary.nextRunAt ?? "not scheduled"}.`,
-			groundTruth: GROUND_TRUTH_RESCHEDULED,
 		};
 	} catch (error) {
 		logger.error("Failed to reschedule insight digest", {
@@ -455,7 +429,6 @@ async function handleTest(
 			message: `Trigger a one-off test digest run for ${scope}. The pipeline will run the full investigation and ${deliveryDescription}. This costs LLM tokens and bypasses cooldown. Reply to confirm.`,
 			instruction:
 				"Wait for the user to explicitly confirm before calling this tool again with confirmed=true.",
-			groundTruth: GROUND_TRUTH_PROPOSED,
 		};
 	}
 
@@ -501,9 +474,6 @@ async function handleTest(
 				channelIds: existing.channels,
 			},
 			message,
-			groundTruth: result.reusedRun
-				? GROUND_TRUTH_TEST_REUSED
-				: GROUND_TRUTH_TEST_QUEUED,
 		};
 	} catch (error) {
 		logger.error("Failed to trigger test insight digest run", {
@@ -560,7 +530,6 @@ async function handleRoute(
 			message: `Route insight digests for ${scope} to ${channelMention(id)}${frequency ? ` on a ${frequency} cadence` : ""}.${cadenceLine} Reply to confirm.`,
 			instruction:
 				"Wait for the user to explicitly confirm before calling this tool again with confirmed=true.",
-			groundTruth: GROUND_TRUTH_PROPOSED,
 		};
 	}
 
@@ -587,7 +556,6 @@ async function handleRoute(
 				nextRunAt: summary.nextRunAt,
 			},
 			message: `Routed insight digests to ${channelMention(id)} on a ${summary.frequency} cadence.`,
-			groundTruth: GROUND_TRUTH_APPLIED,
 		};
 	} catch (error) {
 		logger.error("Failed to route insight digest", {
@@ -623,7 +591,6 @@ async function handleUnroute(
 			message: `Stop routing insight digests for ${scope} to ${channelMention(id)}. Reply to confirm.`,
 			instruction:
 				"Wait for the user to explicitly confirm before calling this tool again with confirmed=true.",
-			groundTruth: GROUND_TRUTH_PROPOSED,
 		};
 	}
 
@@ -648,7 +615,6 @@ async function handleUnroute(
 				nextRunAt: summary.nextRunAt,
 			},
 			message: `Stopped routing insight digests to ${channelMention(id)}.`,
-			groundTruth: GROUND_TRUTH_APPLIED,
 		};
 	} catch (error) {
 		logger.error("Failed to unroute insight digest", {
@@ -663,7 +629,7 @@ async function handleUnroute(
 export function createInsightDigestTools() {
 	const manageInsightDigestTool = tool({
 		description:
-			"Inspect, preview, change, OR trigger a real test run of the analytics insight digest. action=status reads current routing and schedule (safe). action=preview shows the most recent past digest run for this scope. action=route starts posting digests to a Slack channel. action=unroute stops posting. action=reschedule changes when the digest runs (pass cron and/or timezone and/or frequency). action=test queues an immediate end-to-end run: the same investigation pipeline that scheduled digests use, and it WILL post to whichever Slack channels are currently routed. Test runs bypass cooldown and cost LLM tokens. CONFIRMATION CONTRACT (applies to route, unroute, reschedule, test): the user's first message asking for the change is the REQUEST, not the confirmation. Always call once with confirmed=false to get a preview block, restate the proposed change to the user, and only call again with confirmed=true after the user replies in a separate turn. Do this even when the user phrases the ask confidently ('drop a digest here', 'kill the digest', 'switch to Friday 8am') — those are still initial requests. The schedule IS configurable — the time of day, day of week, cadence, and timezone can all be changed via reschedule. The result's `current` / `applied` / `preview` blocks are CANONICAL state — each result also carries a `groundTruth` instruction telling you exactly which fields to quote verbatim. Never invent dates, weekdays, cadences, channel names, cron expressions, timezones, run schedules, or runIds. Channels arrive pre-formatted as <#CHANNELID> in the `channel` and `channels` fields — paste those, do not construct mentions by hand.",
+			"Inspect, preview, change, OR trigger a test run of the analytics insight digest. Actions: status (read routing+schedule), preview (last past run), route, unroute, reschedule (cron/timezone/cadence), test (one-off end-to-end run that posts to currently-routed channels and costs LLM tokens). The schedule IS configurable via reschedule. CONFIRMATION CONTRACT (route/unroute/reschedule/test): the user's first ask is the REQUEST, not the confirmation. Always call confirmed=false first to get a preview block, restate it, then call confirmed=true only after the user replies in a separate turn — even when phrasing is confident ('drop a digest here', 'kill the digest', 'switch to Friday 8am'). RESPONSE CONTRACT: results carry a structured `current` / `proposed` / `applied` / `preview` block. Quote every value (channels, cadence, cron, timezone, nextRunAt, runId) verbatim from that block; channels arrive in <#CHANNELID> form, paste them as-is. Don't paraphrase, don't invent fields, don't re-pitch what the digest contains. If a field is null, say so plainly.",
 		inputSchema: manageDigestInputSchema,
 		execute: async (args, options) => {
 			const context = getAppContext(options);

@@ -1304,7 +1304,6 @@ function realWorldDerivedCases(): EvalCase[] {
 			expect: {
 				maxSteps: 4,
 				maxLatencyMs: 60_000,
-				toolsCalled: ["manage_insight_digest"],
 				responseNotMatches: [
 					{
 						description:
@@ -1317,9 +1316,9 @@ function realWorldDerivedCases(): EvalCase[] {
 				responseMatches: [
 					{
 						description:
-							"agent should either offer to reschedule, ask which IANA timezone to use, or confirm the proposed change",
+							"agent should either offer to reschedule / ask which IANA timezone / confirm a change, OR correctly recognize that 8 AM GMT+2 is already 06:00 UTC and no change is needed",
 						pattern:
-							"\\b(reschedule|timezone|europe/|africa/|america/|asia/|confirm|i'?ll (set|update|change)|want me to)\\b",
+							"\\b(reschedule|timezone|europe/|africa/|america/|asia/|confirm|i'?ll (set|update|change)|want me to|already|no change|same as|matches|equivalent)\\b",
 						flags: "i",
 					},
 				],
