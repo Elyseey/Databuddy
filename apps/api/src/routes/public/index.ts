@@ -2,7 +2,7 @@ import cors from "@elysiajs/cors";
 import { serverTiming } from "@elysiajs/server-timing";
 import { Elysia } from "elysia";
 import { parseError } from "evlog";
-import { captureError, mergeWideEvent } from "@/lib/tracing";
+import { captureError, mergeWideEvent } from "@databuddy/ai/lib/tracing";
 import { agentTelemetryRoute } from "./agent-telemetry";
 import { flagsRoute } from "./flags";
 

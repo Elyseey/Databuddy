@@ -3,7 +3,7 @@ import { setPgErrorFn } from "@databuddy/db";
 import { setRpcRequestLoggerProvider, setTrackingFn } from "@databuddy/rpc";
 import { log } from "evlog";
 import { useLogger } from "evlog/elysia";
-import { trackMutationEvent } from "@/lib/databuddy";
+import { trackMutationEvent } from "@databuddy/ai/lib/databuddy";
 import { initTccTracing } from "@/lib/tcc-otel";
 
 export function configureApiInstrumentation() {

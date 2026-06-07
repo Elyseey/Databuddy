@@ -4,7 +4,7 @@ import {
 	resolveApiKey,
 } from "@databuddy/api-keys/resolve";
 import { auth } from "@databuddy/auth";
-import { mergeWideEvent } from "./tracing";
+import { mergeWideEvent } from "@databuddy/ai/lib/tracing";
 
 export interface ResolvedAuth {
 	apiKeyResult: ResolveApiKeyResult | null;

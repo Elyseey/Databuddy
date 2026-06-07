@@ -38,7 +38,7 @@ import {
 	getWebsiteDomain,
 } from "@databuddy/ai/lib/website-utils";
 import { resolveDatePreset } from "@databuddy/ai/lib/date-presets";
-import { mergeWideEvent } from "../lib/tracing";
+import { mergeWideEvent } from "@databuddy/ai/lib/tracing";
 import {
 	CompileRequestSchema,
 	type CompileRequestType,

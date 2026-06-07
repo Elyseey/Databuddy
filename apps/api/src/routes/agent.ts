@@ -64,9 +64,9 @@ import {
 	shouldLoadMemoryContext,
 } from "@databuddy/ai/agents/cache";
 import { getAILogger } from "@databuddy/ai/lib/ai-logger";
-import { trackAgentEvent } from "../lib/databuddy";
+import { trackAgentEvent } from "@databuddy/ai/lib/databuddy";
 import { getResolvedAuth } from "../lib/auth-wide-event";
-import { captureError, mergeWideEvent } from "../lib/tracing";
+import { captureError, mergeWideEvent } from "@databuddy/ai/lib/tracing";
 import { getAccessibleWebsites } from "@databuddy/ai/lib/accessible-websites";
 
 function jsonError(status: number, code: string, message: string): Response {

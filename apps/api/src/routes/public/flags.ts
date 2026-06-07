@@ -5,7 +5,7 @@ import {
 	hasWebsiteScope,
 	isApiKeyPresent,
 } from "@databuddy/api-keys/resolve";
-import { mergeWideEvent } from "@/lib/tracing";
+import { mergeWideEvent } from "@databuddy/ai/lib/tracing";
 import {
 	and,
 	db,

@@ -23,7 +23,7 @@ import { Resend } from "resend";
 import { Webhook } from "svix";
 // biome-ignore lint/performance/noNamespaceImport: vitest+bun fails to bind zod's named `z` export; namespace import is the reliable form
 import * as z from "zod";
-import { mergeWideEvent } from "../../lib/tracing";
+import { mergeWideEvent } from "@databuddy/ai/lib/tracing";
 
 const COOLDOWN_MS = 7 * 24 * 60 * 60 * 1000;
 
