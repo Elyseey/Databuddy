@@ -73,6 +73,7 @@ export function createConfig(
 			userId: context.userId,
 		}),
 		stopWhen: stepCountIs(tier.maxSteps),
+		forceTextReplyAfterStep: tier.maxSteps - 2,
 		temperature: tier.temperature,
 		providerOptions: thinkingProviderOptions(context.thinking, modelKey),
 		experimental_context: appContext,

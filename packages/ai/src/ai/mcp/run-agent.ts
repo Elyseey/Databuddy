@@ -99,7 +99,11 @@ export async function runMcpAgentWithTrace(
 		});
 
 		await trackPreparedUsage(prepared, result.totalUsage);
-		const answer = result.text ?? "No response generated.";
+		const stepCount = result.steps.length;
+		const rawAnswer = (result.text ?? "").trim();
+		const answer =
+			rawAnswer ||
+			`I ran ${stepCount} step${stepCount === 1 ? "" : "s"} but couldn't fit a summary into this turn. The question is wide enough that I exhausted the step budget gathering data. Ask me a narrower slice (one metric, one segment, one time range) and I'll give you a focused answer.`;
 		if (options.storeMemory !== false) {
 			storePreparedConversation(prepared, options.question, answer);
 		}
@@ -139,7 +143,8 @@ export async function* streamMcpAgentText(
 			storePreparedConversation(
 				prepared,
 				options.question,
-				answer.trim() || "No response generated."
+				answer.trim() ||
+					"I exhausted the step budget gathering data without composing a summary. Try a narrower question."
 			);
 		}
 	} finally {
