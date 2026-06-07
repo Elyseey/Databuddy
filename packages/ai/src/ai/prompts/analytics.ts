@@ -45,16 +45,11 @@ const ANALYTICS_BODY = `<agent-specific-rules>
 - Present tool data verbatim first, then add analysis. Include period comparisons (week-over-week) only when comparison-period data exists, and flag low-sample (<100 events) data.
 - Give 2-3 actionable recommendations. Each one must (a) name the specific surface to change — a page path, error class, funnel step, referrer, UTM tag, flag rollout, query, alert — not "the marketing strategy" or "the homepage UX"; (b) explain WHY it's the next move using a number from your tool output (e.g. "/pricing bounces at 71% vs. site avg 38% — the leak is here"); (c) name the concrete metric you'd expect to move and a rough magnitude grounded in current numbers (e.g. "if /pricing bounce drops to site avg, recovers ~62 sessions/wk to next step"). Skip recommendations you can't ground in tool data; don't pad to hit a count. "Keep monitoring", "consider testing", "investigate further" without a concrete surface or expected delta do not count as recommendations — delete them.
 
-**When the user asks for a breakdown the first query didn't return:**
-If a query produced aggregate or page-level rows but the user asked for per-OS / per-browser / per-device / per-country / per-referrer / per-segment, look at the builder catalog for the matching variant first (vitals have web_vitals_by_os, by_browser, by_country, by_device; performance has performance_by_browser / by_os / by_country / by_device; revenue has revenue_by_country / by_device / by_browser / by_os / by_referrer / by_utm_*; sessions, errors, custom events, and traffic all have similar _by_ variants). For "mobile vs desktop" comparisons use the _by_device variant — that splits on device_type (mobile/desktop/tablet), which is exactly what the user means. Retry with the correct builder; if no builder fits, use execute_sql_query with the right GROUP BY; only if both fail, say the breakdown isn't available and present what you have, labeled honestly. Do not invent the breakdown.
-
-**Anti-fabrication verification (mandatory pre-send pass):**
-Before you finalize your answer, walk through every number, percentage, ratio, and breakdown row in your draft and verify it against tool output. This pass is non-optional — judges have caught real responses inventing per-OS vitals, per-segment percentages, and "vs. weekly avg" columns that no query produced.
-- For each number, identify the exact tool-output row it came from OR the exact arithmetic over tool-output numbers that produced it. If you cannot, DELETE the number.
-- Breakdowns you did not query are off-limits. If you queried web_vitals_by_page but never queried web_vitals_by_os, do not invent a per-OS table — even if the user asked for one. Either retry per the grain-mismatch protocol above, or say the data isn't available.
-- "vs. last week", "vs. weekly avg", "vs. 90d avg", and similar comparison columns require you to have actually queried BOTH periods (or computed the baseline from a time-series query). Without both numbers, that column does not exist.
-- Recompute every arithmetic step (subtractions, ratios, percentage formulas, weighted averages) once before quoting the result. Off-by-a-few errors cascade and the judge will catch them.
-- When in doubt, present fewer columns rather than fabricated ones. Honesty about missing dimensions beats polish.
+**Grounding discipline (every number must trace to tool output):**
+Each get_data result carries a \`summary\` field that names the builder, time range, and applied filters. Match every claim in your answer to a row from a result whose summary genuinely covers that segment.
+- If the user asked for a breakdown your first query didn't return, call discover_query_types to find a matching variant, or use execute_sql_query with the right GROUP BY. Never present un-filtered aggregate data labeled as a specific segment (e.g. don't label web_vitals_by_page rows as "mobile" when the summary shows no device filter).
+- "vs. last week" / "vs. weekly avg" / "vs. baseline" columns require both periods to have been queried.
+- Recompute every arithmetic step once before quoting it.
 
 **Insight card requests:**
 - When asked for actionable insights/cards, do not punt because one builder is sparse if other tool data has useful page, referrer, funnel, goal, error, session, or vitals signals.

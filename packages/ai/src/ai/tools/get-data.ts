@@ -56,8 +56,32 @@ interface QueryItemResult {
 	error?: string;
 	executionTime: number;
 	rowCount: number;
+	summary?: string;
 	type: string;
 	websiteId?: string;
+}
+
+function describeFilter(f: NonNullable<QueryItem["filters"]>[number]): string {
+	const value = Array.isArray(f.value) ? f.value.join(",") : f.value;
+	const op = f.op === "eq" ? "=" : f.op === "ne" ? "!=" : ` ${f.op} `;
+	return `${f.field}${op}${value}`;
+}
+
+function buildResultSummary(
+	type: string,
+	from: string,
+	to: string,
+	filters: QueryItem["filters"],
+	groupBy: string[] | undefined
+): string {
+	const meta = QueryBuilders[type]?.meta;
+	const title = meta?.title ?? type;
+	const range = from === to ? from : `${from} → ${to}`;
+	const filterPart = filters?.length
+		? `filters: ${filters.map(describeFilter).join(" AND ")}`
+		: "no filters applied";
+	const groupPart = groupBy?.length ? `; groupBy: ${groupBy.join(", ")}` : "";
+	return `${title} · ${range} · ${filterPart}${groupPart}`;
 }
 
 const MAX_MODEL_ROWS = 50;
@@ -92,7 +116,7 @@ function resolveDates(
 }
 
 export const getDataTool = tool({
-	description: `Run analytics query builders for explicit data questions (metrics, breakdowns, trends, errors, vitals, revenue, sessions, pages, links, etc.). Skip for greetings, thanks, banter, or meta-chat. Batch 1-10 queries in one call when the user asks for multiple things at once. Use preset (last_7d/last_30d/...) or from+to dates. Each query may target a specific website via its websiteId; omit to use the workspace default; to compare websites, send one query per website. When you don't know which builder fits, call discover_query_types first (cheap, no I/O) — for common shapes: summary_metrics for overall traffic/sessions/bounce, sessions_time_series or events_by_date for time-series, top_pages / top_referrers / web_vitals_by_device for typical breakdowns. On "Unknown query type" errors the message lists alternatives — pick one and retry, never invent type names.`,
+	description: `Run analytics query builders for explicit data questions. Batch 1-10 queries per call. Use preset (last_7d/last_30d/...) or from+to dates. Each query may target a specific website via websiteId; omit to use the workspace default. Call discover_query_types to browse available types.`,
 	inputSchema: z.object({
 		queries: z
 			.array(queryItemSchema)
@@ -158,6 +182,13 @@ export const getDataTool = tool({
 				return {
 					type: item.type,
 					websiteId,
+					summary: buildResultSummary(
+						item.type,
+						from,
+						to,
+						item.filters,
+						item.groupBy
+					),
 					data: data.slice(0, MAX_MODEL_ROWS),
 					rowCount: data.length,
 					executionTime: Date.now() - queryStart,

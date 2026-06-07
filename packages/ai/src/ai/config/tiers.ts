@@ -18,7 +18,7 @@ export const TIER_CONFIG: Record<AgentModelKey, TierConfig> = {
 		thinkingBudgets: null,
 	},
 	balanced: {
-		maxSteps: 20,
+		maxSteps: 50,
 		supportsThinking: true,
 		promptCaching: true,
 		temperature: 0.1,
@@ -29,7 +29,7 @@ export const TIER_CONFIG: Record<AgentModelKey, TierConfig> = {
 		},
 	},
 	deep: {
-		maxSteps: 20,
+		maxSteps: 50,
 		supportsThinking: false,
 		promptCaching: false,
 		temperature: 0.1,
