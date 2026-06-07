@@ -45,10 +45,9 @@ export interface AgentContext {
 export interface AgentConfig {
 	activeTools?: string[];
 	experimental_context?: unknown;
-	forceTextReplyAfterStep?: number;
 	model: LanguageModelV3;
 	providerOptions?: ProviderOptions;
-	stopWhen: StopCondition<ToolSet>;
+	stopWhen?: StopCondition<ToolSet>;
 	system: SystemModelMessage;
 	temperature: number;
 	tools: ToolSet;

@@ -265,7 +265,6 @@ async function prepareMcpAgentRun(options: RunMcpAgentOptions) {
 	mcpTelemetryMetadata["tcc.sessionId"] = sessionId;
 
 	const ai = getAILogger();
-	const forceTextReplyAfterStep = config.forceTextReplyAfterStep;
 	const agent = new ToolLoopAgent({
 		model: ai.wrap(config.model),
 		instructions,
@@ -279,13 +278,6 @@ async function prepareMcpAgentRun(options: RunMcpAgentOptions) {
 			functionId: `databuddy.${source}.ask`,
 			metadata: mcpTelemetryMetadata,
 		},
-		prepareStep:
-			forceTextReplyAfterStep === undefined
-				? undefined
-				: ({ stepNumber }) =>
-						stepNumber >= forceTextReplyAfterStep
-							? { toolChoice: "none" as const }
-							: undefined,
 	});
 
 	const questionContent = memoryBlock

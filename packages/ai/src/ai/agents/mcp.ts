@@ -1,4 +1,3 @@
-import { stepCountIs } from "ai";
 import {
 	ANTHROPIC_CACHE_1H,
 	createModelFromId,
@@ -7,8 +6,8 @@ import {
 import { createMcpAgentTools } from "../mcp/agent-tools";
 import type { DatabuddyAgentSlackContext } from "../mcp/slack-context";
 import { buildAnalyticsInstructionsForMcp } from "../prompts/analytics";
-import { TIER_CONFIG } from "../config/tiers";
 import type { AppMutationMode } from "../config/context";
+import { NEVER_STOP } from "./stop-conditions";
 import type { AgentConfig } from "./types";
 
 export function createMcpAgentConfig(context: {
@@ -53,8 +52,7 @@ export function createMcpAgentConfig(context: {
 		},
 		tools: createMcpAgentTools({ slackContext: context.slackContext }),
 		activeTools: context.activeTools,
-		stopWhen: stepCountIs(TIER_CONFIG.balanced.maxSteps),
-		forceTextReplyAfterStep: TIER_CONFIG.balanced.maxSteps - 2,
+		stopWhen: NEVER_STOP,
 		temperature: 0.1,
 		experimental_context: {
 			apiKey: context.apiKey,
