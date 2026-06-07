@@ -1,6 +1,5 @@
 import type { AppContext } from "../config/context";
 import { formatContextForLLM } from "../config/context";
-import { COMPACT_CLICKHOUSE_SCHEMA_DOCS } from "./clickhouse-schema";
 import { COMMON_AGENT_RULES } from "./shared";
 
 const ANALYTICS_BODY = `<agent-specific-rules>
@@ -250,8 +249,6 @@ ${buildWebsiteScopeGuidance(ctx)}
 ${COMMON_AGENT_RULES}
 
 ${ANALYTICS_BODY}
-
-${COMPACT_CLICKHOUSE_SCHEMA_DOCS}
 
 ${ANALYTICS_EXAMPLES}`;
 }
