@@ -63,7 +63,7 @@ import {
 	getMemoryContextCached,
 	shouldLoadMemoryContext,
 } from "@databuddy/ai/agents/cache";
-import { getAILogger } from "../lib/ai-logger";
+import { getAILogger } from "@databuddy/ai/lib/ai-logger";
 import { trackAgentEvent } from "../lib/databuddy";
 import { getResolvedAuth } from "../lib/auth-wide-event";
 import { captureError, mergeWideEvent } from "../lib/tracing";

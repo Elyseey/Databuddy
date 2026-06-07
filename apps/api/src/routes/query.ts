@@ -37,7 +37,7 @@ import {
 	getCachedWebsiteDomain,
 	getWebsiteDomain,
 } from "@databuddy/ai/lib/website-utils";
-import { resolveDatePreset } from "../lib/date-presets";
+import { resolveDatePreset } from "@databuddy/ai/lib/date-presets";
 import { mergeWideEvent } from "../lib/tracing";
 import {
 	CompileRequestSchema,

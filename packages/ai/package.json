@@ -25,6 +25,7 @@
     "./insights/validate": "./src/ai/insights/validate.ts",
     "./lib/accessible-websites": "./src/lib/accessible-websites.ts",
     "./lib/ai-logger": "./src/lib/ai-logger.ts",
+    "./lib/date-presets": "./src/lib/date-presets.ts",
     "./lib/supermemory": "./src/lib/supermemory.ts",
     "./lib/request-logger": "./src/lib/request-logger.ts",
     "./lib/website-utils": "./src/lib/website-utils.ts",
