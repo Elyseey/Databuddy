@@ -1,5 +1,6 @@
 import type { ToolSet } from "ai";
 import { createAnnotationTools } from "./annotations";
+import { discoverQueryTypesTool } from "./discover-query-types";
 import { executeSqlQueryTool } from "./execute-sql-query";
 import { createFlagTools } from "./flags";
 import { createFunnelTools } from "./funnels";
@@ -28,6 +29,7 @@ export interface ToolkitParams {
 
 const ANALYTICS_TOOLS: ToolSet = {
 	list_websites: listWebsitesTool,
+	discover_query_types: discoverQueryTypesTool,
 	get_data: getDataTool,
 	execute_sql_query: executeSqlQueryTool,
 };
