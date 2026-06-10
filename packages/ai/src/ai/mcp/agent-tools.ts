@@ -11,6 +11,7 @@ import { createFlagTools } from "../tools/flags";
 import { createFunnelTools } from "../tools/funnels";
 import { createGoalTools } from "../tools/goals";
 import { createInsightDigestTools } from "../tools/insight-digest";
+import { createInvestigationTools } from "../tools/investigation-tools";
 import { createLinksTools } from "../tools/links";
 import { createMemoryTools } from "../tools/memory";
 import { executeAgentSqlForWebsite } from "../tools/execute-sql-query";
@@ -49,8 +50,20 @@ function getToolContext(options: unknown): McpAgentContext {
 }
 
 export function createMcpAgentTools(
-	options: { slackContext?: DatabuddyAgentSlackContext | null } = {}
+	options: {
+		slackContext?: DatabuddyAgentSlackContext | null;
+		organizationId?: string | null;
+		userId?: string | null;
+		websiteDomain?: string | null;
+	} = {}
 ): ToolSet {
+	const investigationTools = options.organizationId
+		? createInvestigationTools({
+				organizationId: options.organizationId,
+				userId: options.userId ?? undefined,
+				domain: options.websiteDomain ?? undefined,
+			})
+		: {};
 	return {
 		list_websites: tool({
 			description:
@@ -249,5 +262,6 @@ Critical schema footguns: website id column is client_id (not website_id); times
 		...createLinksTools(),
 		...createInsightDigestTools(),
 		...createSlackConversationTools(options.slackContext),
+		...investigationTools,
 	};
 }

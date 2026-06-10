@@ -50,7 +50,12 @@ export function createMcpAgentConfig(context: {
 			}),
 			providerOptions: useAnthropicPromptCache ? ANTHROPIC_CACHE_1H : undefined,
 		},
-		tools: createMcpAgentTools({ slackContext: context.slackContext }),
+		tools: createMcpAgentTools({
+			slackContext: context.slackContext,
+			organizationId: context.organizationId,
+			userId: context.userId,
+			websiteDomain: context.websiteDomain,
+		}),
 		activeTools: context.activeTools,
 		stopWhen: NEVER_STOP,
 		temperature: 0.1,
