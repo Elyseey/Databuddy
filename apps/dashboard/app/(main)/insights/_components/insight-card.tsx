@@ -1,5 +1,6 @@
 "use client";
 
+import { useMutation } from "@tanstack/react-query";
 import Link from "next/link";
 import { type ReactNode, useMemo } from "react";
 import { toast } from "sonner";
@@ -23,6 +24,7 @@ import {
 	formatSignedChangePercent,
 } from "@/lib/insight-signal-key";
 import type { Insight, InsightAction, InsightType } from "@/lib/insight-types";
+import { orpc } from "@/lib/orpc";
 import { cn } from "@/lib/utils";
 import {
 	ArrowRightIcon,
@@ -397,7 +399,17 @@ const ACTION_ICONS: Record<InsightAction["type"], ReactNode> = {
 	code_fix: <RocketIcon className="size-3" weight="duotone" />,
 };
 
-function InsightActionPill({ action }: { action: InsightAction }) {
+function InsightActionPill({
+	action,
+	insight,
+}: {
+	action: InsightAction;
+	insight: Insight;
+}) {
+	const createAnnotation = useMutation({
+		...orpc.annotations.create.mutationOptions(),
+	});
+
 	const handleClick = async () => {
 		if (
 			(action.type === "code_fix" || action.type === "investigate_further") &&
@@ -415,12 +427,40 @@ function InsightActionPill({ action }: { action: InsightAction }) {
 			}
 			return;
 		}
+		if (action.type === "create_annotation") {
+			const date =
+				action.params.date ||
+				insight.currentPeriodTo ||
+				new Date().toISOString().slice(0, 10);
+			try {
+				await createAnnotation.mutateAsync({
+					websiteId: insight.websiteId,
+					chartType: "metrics",
+					chartContext: {
+						dateRange: {
+							start_date: insight.currentPeriodFrom ?? date,
+							end_date: insight.currentPeriodTo ?? date,
+							granularity: "daily",
+						},
+					},
+					annotationType: "line",
+					xValue: date,
+					text: (action.params.text || insight.title).slice(0, 500),
+					tags: ["insight"],
+				});
+				toast.success("Annotation added to your charts");
+			} catch {
+				toast.error("Could not create annotation");
+			}
+			return;
+		}
 		toast.info(`${action.label}`);
 	};
 
 	return (
 		<button
-			className="inline-flex items-center gap-1 rounded-md border border-border/60 bg-background px-2 py-1 text-foreground/80 text-xs transition-colors hover:bg-accent hover:text-foreground"
+			className="inline-flex items-center gap-1 rounded-md border border-border/60 bg-background px-2 py-1 text-foreground/80 text-xs transition-colors hover:bg-accent hover:text-foreground disabled:opacity-50"
+			disabled={createAnnotation.isPending}
 			onClick={handleClick}
 			type="button"
 		>
@@ -430,7 +470,13 @@ function InsightActionPill({ action }: { action: InsightAction }) {
 	);
 }
 
-function InsightCopy({ view }: { view: InsightCardViewModel }) {
+function InsightCopy({
+	view,
+	insight,
+}: {
+	view: InsightCardViewModel;
+	insight: Insight;
+}) {
 	return (
 		<>
 			<section className="space-y-1.5">
@@ -491,7 +537,11 @@ function InsightCopy({ view }: { view: InsightCardViewModel }) {
 					{view.actions.length > 0 && (
 						<div className="flex flex-wrap gap-1.5 pt-1.5 pl-6">
 							{view.actions.map((action, i) => (
-								<InsightActionPill action={action} key={`action-${i}`} />
+								<InsightActionPill
+									action={action}
+									insight={insight}
+									key={`action-${i}`}
+								/>
 							))}
 						</div>
 					)}
@@ -738,7 +788,7 @@ export function InsightCard({
 			/>
 
 			<InsightCardPanel expanded={expanded}>
-				<InsightCopy view={view} />
+				<InsightCopy insight={insight} view={view} />
 				{!isCompact && <InsightMetricsSection view={view} />}
 				<InsightCardActions
 					comparisonWindow={comparisonWindow}
