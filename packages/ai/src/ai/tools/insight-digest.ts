@@ -20,6 +20,9 @@ const logger = createToolLogger("Insight Digest Tools");
 
 const SLACK_CHANNEL_ID_RE = /^[CGD][A-Z0-9]{8,}$/i;
 
+const CONFIRM_INSTRUCTION =
+	"Wait for the user to explicitly confirm before calling this tool again with confirmed=true.";
+
 const digestFrequencySchema = z.enum(["hourly", "daily", "weekly", "custom"]);
 
 const manageDigestInputSchema = z.object({
@@ -348,8 +351,7 @@ async function handleReschedule(
 				nextRunAtWas: existing.nextRunAt,
 			},
 			message: `Reschedule digest for ${scope}: ${proposal.changes.join(", ")}. ${proposedNextRunAt ? `Next run would be ${proposedNextRunAt}.` : "Next run cannot be computed for the proposed schedule — double-check cron/frequency."} Reply to confirm.`,
-			instruction:
-				"Wait for the user to explicitly confirm before calling this tool again with confirmed=true.",
+			instruction: CONFIRM_INSTRUCTION,
 		};
 	}
 
@@ -427,8 +429,7 @@ async function handleTest(
 				cadence: existing.frequency,
 			},
 			message: `Trigger a one-off test digest run for ${scope}. The pipeline will run the full investigation and ${deliveryDescription}. This costs LLM tokens and bypasses cooldown. Reply to confirm.`,
-			instruction:
-				"Wait for the user to explicitly confirm before calling this tool again with confirmed=true.",
+			instruction: CONFIRM_INSTRUCTION,
 		};
 	}
 
@@ -528,8 +529,7 @@ async function handleRoute(
 				cadenceWas,
 			},
 			message: `Route insight digests for ${scope} to ${channelMention(id)}${frequency ? ` on a ${frequency} cadence` : ""}.${cadenceLine} Reply to confirm.`,
-			instruction:
-				"Wait for the user to explicitly confirm before calling this tool again with confirmed=true.",
+			instruction: CONFIRM_INSTRUCTION,
 		};
 	}
 
@@ -589,8 +589,7 @@ async function handleUnroute(
 				channelId: id,
 			},
 			message: `Stop routing insight digests for ${scope} to ${channelMention(id)}. Reply to confirm.`,
-			instruction:
-				"Wait for the user to explicitly confirm before calling this tool again with confirmed=true.",
+			instruction: CONFIRM_INSTRUCTION,
 		};
 	}
 
