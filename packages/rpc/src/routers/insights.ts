@@ -50,9 +50,17 @@ const insightEvidenceSchema = z.object({
 	type: z.string(),
 });
 
+const insightActionSchema = z.object({
+	label: z.string(),
+	params: z.record(z.string(), z.string()),
+	type: z.string(),
+});
+
 const investigationDepthSchema = z.enum(["surface", "investigated", "deep"]);
 
 const websiteInsightSchema = z.object({
+	actions: z.array(insightActionSchema).nullable().optional(),
+	chainId: z.string().nullable().optional(),
 	changePercent: z.number().optional(),
 	confidence: z.number(),
 	description: z.string(),
@@ -208,6 +216,7 @@ async function getInsightsFromDb(options: {
 			evidence: analyticsInsights.evidence,
 			investigationDepth: analyticsInsights.investigationDepth,
 			actions: analyticsInsights.actions,
+			chainId: analyticsInsights.chainId,
 			metrics: analyticsInsights.metrics,
 			createdAt: analyticsInsights.createdAt,
 		})
@@ -235,6 +244,8 @@ async function getInsightsFromDb(options: {
 		rootCause: row.rootCause,
 		evidence: row.evidence ?? null,
 		investigationDepth: row.investigationDepth ?? null,
+		actions: row.actions ?? null,
+		chainId: row.chainId ?? null,
 		...parseInsightShape(row),
 	}));
 }
@@ -509,6 +520,8 @@ export const insightsRouter = {
 					rootCause: analyticsInsights.rootCause,
 					evidence: analyticsInsights.evidence,
 					investigationDepth: analyticsInsights.investigationDepth,
+					actions: analyticsInsights.actions,
+					chainId: analyticsInsights.chainId,
 					metrics: analyticsInsights.metrics,
 					createdAt: analyticsInsights.createdAt,
 					currentPeriodFrom: analyticsInsights.currentPeriodFrom,
@@ -540,6 +553,8 @@ export const insightsRouter = {
 				rootCause: row.rootCause,
 				evidence: row.evidence ?? null,
 				investigationDepth: row.investigationDepth ?? null,
+				actions: row.actions ?? null,
+				chainId: row.chainId ?? null,
 				...parseInsightShape(row),
 				createdAt: row.createdAt.toISOString(),
 				currentPeriodFrom: row.currentPeriodFrom,

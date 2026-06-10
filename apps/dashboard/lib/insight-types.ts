@@ -69,6 +69,7 @@ export interface InsightAction {
 
 export interface Insight {
 	actions?: InsightAction[] | null;
+	chainId?: string | null;
 	changePercent?: number;
 	createdAt?: string;
 	currentPeriodFrom?: string | null;
@@ -97,6 +98,7 @@ export interface Insight {
 
 export interface HistoryInsightRow {
 	actions?: InsightAction[] | null;
+	chainId?: string | null;
 	changePercent?: number | null;
 	createdAt?: string;
 	currentPeriodFrom?: string | null;
@@ -141,6 +143,7 @@ export function mapHistoryRowToInsight(row: HistoryInsightRow): Insight {
 		evidence: row.evidence,
 		investigationDepth: row.investigationDepth,
 		actions: row.actions,
+		chainId: row.chainId,
 		link: row.link,
 		insightSource: "history",
 		createdAt: row.createdAt ?? undefined,

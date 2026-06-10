@@ -327,6 +327,15 @@ function InsightCardHeader({
 							{view.metaLabel}
 						</span>
 						<InsightChange insight={insight} />
+						{insight.chainId && (
+							<>
+								<span className="text-muted-foreground/30">&middot;</span>
+								<span className="inline-flex items-center gap-1 text-violet-500">
+									<LinkIcon className="size-3" weight="duotone" />
+									Cross-site
+								</span>
+							</>
+						)}
 					</span>
 					{!expanded && (
 						<span className="mt-1 line-clamp-2 block text-muted-foreground text-xs leading-relaxed">
