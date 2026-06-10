@@ -129,4 +129,5 @@ export {
 } from "./batch-executor";
 export * from "./builders";
 export * from "./expressions";
+export { allowedFilterFields, isFilterFieldAllowed } from "./simple-builder";
 export * from "./types";

@@ -20,7 +20,12 @@ import {
 	isFeatureAvailable,
 } from "@databuddy/shared/types/features";
 import type { CustomQueryRequest } from "@databuddy/ai/query/custom-query-types";
-import { compileQuery, executeBatch } from "@databuddy/ai/query";
+import {
+	allowedFilterFields,
+	compileQuery,
+	executeBatch,
+	isFilterFieldAllowed,
+} from "@databuddy/ai/query";
 import {
 	canReadQueryTypesPublicly,
 	QueryBuilders,
@@ -88,30 +93,6 @@ async function runPerWebsite<T>(key: string, fn: () => Promise<T>): Promise<T> {
 	}
 }
 
-const DEFAULT_ALLOWED_FILTERS = [
-	"path",
-	"query_string",
-	"referrer",
-	"country",
-	"region",
-	"city",
-	"timezone",
-	"language",
-	"device_type",
-	"browser_name",
-	"os_name",
-	"utm_source",
-	"utm_medium",
-	"utm_campaign",
-	"provider",
-	"model",
-	"type",
-	"finish_reason",
-	"error_name",
-	"http_status",
-	"user_id",
-	"trace_id",
-] as const;
 const MAX_HOURLY_DAYS = 30;
 const MS_PER_DAY = 86_400_000;
 
@@ -931,7 +912,8 @@ async function executeDynamicQuery(
 		const paramFrom = start ? normalizeDate(start) : from;
 		const paramTo = end ? normalizeDate(end) : to;
 
-		if (!QueryBuilders[name]) {
+		const config = QueryBuilders[name];
+		if (!config) {
 			return { id, error: `Unknown query type: ${name}` };
 		}
 
@@ -967,7 +949,9 @@ async function executeDynamicQuery(
 					paramFrom,
 					paramTo
 				),
-				filters: (request.filters || []) as Filter[],
+				filters: ((request.filters || []) as Filter[]).filter((f) =>
+					isFilterFieldAllowed(config, f.field)
+				),
 				limit: request.limit || 100,
 				offset: request.page ? (request.page - 1) * (request.limit || 100) : 0,
 				timezone,
@@ -1114,7 +1098,7 @@ export const query = new Elysia({ prefix: "/v1/query" })
 			Object.entries(QueryBuilders).map(([key, cfg]) => [
 				key,
 				{
-					allowedFilters: cfg.allowedFilters ?? DEFAULT_ALLOWED_FILTERS,
+					allowedFilters: allowedFilterFields(cfg),
 					customizable: cfg.customizable,
 					defaultLimit: cfg.limit,
 					publicAccess: cfg.publicAccess === true,

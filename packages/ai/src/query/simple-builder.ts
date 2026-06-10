@@ -41,7 +41,7 @@ const FIELD_ALIAS_PATTERN = /\s+as\s+([A-Za-z_][A-Za-z0-9_]*)\s*$/i;
 const SIMPLE_FIELD_PATTERN = /^[A-Za-z_][A-Za-z0-9_.]*$/;
 
 // Filters that are always allowed regardless of per-builder allowedFilters
-const GLOBAL_ALLOWED_FILTERS = [
+const GLOBAL_ALLOWED_FILTERS = new Set([
 	"path",
 	"query_string",
 	"country",
@@ -56,7 +56,23 @@ const GLOBAL_ALLOWED_FILTERS = [
 	"utm_source",
 	"utm_medium",
 	"utm_campaign",
-] as const;
+]);
+
+export function isFilterFieldAllowed(
+	config: SimpleQueryConfig,
+	field: string
+): boolean {
+	return (
+		GLOBAL_ALLOWED_FILTERS.has(field) ||
+		(config.allowedFilters?.includes(field) ?? false)
+	);
+}
+
+export function allowedFilterFields(config: SimpleQueryConfig): string[] {
+	return [
+		...new Set([...GLOBAL_ALLOWED_FILTERS, ...(config.allowedFilters ?? [])]),
+	];
+}
 
 const ALLOWED_GROUPBY_FIELDS = new Set([
 	"country",
@@ -325,18 +341,9 @@ export class SimpleQueryBuilder {
 		index: number,
 		options?: { sessionAttributionAlias?: string }
 	): FilterResult {
-		const isGloballyAllowed = GLOBAL_ALLOWED_FILTERS.includes(
-			filter.field as (typeof GLOBAL_ALLOWED_FILTERS)[number]
-		);
-		if (
-			!(isGloballyAllowed || this.config.allowedFilters?.includes(filter.field))
-		) {
-			const allowed = new Set<string>(GLOBAL_ALLOWED_FILTERS);
-			for (const f of this.config.allowedFilters ?? []) {
-				allowed.add(f);
-			}
+		if (!isFilterFieldAllowed(this.config, filter.field)) {
 			throw new Error(
-				`Filter on field '${filter.field}' is not permitted. Allowed fields for this query: ${listAllowed(allowed)}.`
+				`Filter on field '${filter.field}' is not permitted. Allowed fields for this query: ${listAllowed(allowedFilterFields(this.config))}.`
 			);
 		}
 
