@@ -626,13 +626,14 @@ export async function generateWebsiteInsights(
 
 	storeWebsiteSummary(site, saved);
 
-	if (saved.length > 0) {
+	const freshInsights = saved.filter((insight) => insight.isNew);
+	if (freshInsights.length > 0) {
 		try {
 			await deliverInsightDigests({
 				organizationId: input.organizationId,
 				websiteId: site.id,
 				websiteDomain: site.domain,
-				insights: saved,
+				insights: freshInsights,
 				chains: chainAssignments,
 			});
 		} catch (error) {
