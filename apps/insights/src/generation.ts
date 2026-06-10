@@ -25,6 +25,7 @@ import { stepCountIs, tool, ToolLoopAgent, type ToolSet } from "ai";
 import { randomUUIDv7 } from "bun";
 import dayjs from "dayjs";
 import { resolveInsightsBilling } from "./billing";
+import { detectAndAssignChains } from "./chain-detection";
 import { deliverInsightDigests } from "./delivery";
 import { type DetectedSignal, detectSignals, wowWindow } from "./detection";
 import { detectFunnelGoalSignals } from "./funnel-detection";
@@ -591,6 +592,18 @@ export async function generateWebsiteInsights(
 		period,
 		runId: input.runId,
 	});
+
+	if (saved.length > 0) {
+		try {
+			await detectAndAssignChains({ organizationId: input.organizationId });
+		} catch (error) {
+			captureInsightsError(error, "generation.chain_detection.failed", {
+				organization_id: input.organizationId,
+				website_id: site.id,
+				run_id: input.runId,
+			});
+		}
+	}
 
 	try {
 		await resolveInsightsForWebsite({
