@@ -17,6 +17,7 @@ import {
 } from "@databuddy/db";
 import {
 	flagChangeEvents,
+	type FlagUserRule,
 	type FlagVariant,
 	flags,
 	websites,
@@ -52,16 +53,11 @@ interface UserContext {
 	userId?: string;
 }
 
-interface FlagRule {
-	batch: boolean;
-	batchValues?: string[];
-	enabled: boolean;
-	field?: string;
+type FlagRule = Omit<FlagUserRule, "operator" | "value" | "values"> & {
 	operator: string;
-	type: "user_id" | "email" | "property";
 	value?: unknown;
 	values?: unknown[];
-}
+};
 
 interface FlagResult {
 	enabled: boolean;
@@ -71,32 +67,23 @@ interface FlagResult {
 	variant?: string;
 }
 
-interface Variant {
-	description?: string;
-	key: string;
-	type: "string" | "number";
-	value: unknown;
-	weight?: number;
-}
-
 interface TargetGroupData {
 	id: string;
 	rules: FlagRule[];
 }
 
 interface EvaluableFlag {
-	defaultValue: string | number | boolean | unknown;
+	defaultValue: boolean;
 	dependencies?: string[] | null;
 	key: string;
 	payload?: unknown;
 	resolvedTargetGroups?: TargetGroupData[];
 	rolloutBy?: string | null;
 	rolloutPercentage: number | null;
-	rules?: FlagRule[] | unknown;
+	rules?: FlagRule[] | null;
 	status: "active" | "inactive" | "archived";
-	targetGroupIds?: string[];
 	type: "boolean" | "rollout" | "multivariant";
-	variants?: Variant[];
+	variants?: FlagVariant[] | null;
 }
 
 const flagQuerySchema = t.Object({
@@ -154,7 +141,7 @@ const getCachedFlag = cacheable(
 			.filter((ftg) => ftg.targetGroup && !ftg.targetGroup.deletedAt)
 			.map((ftg) => ({
 				id: ftg.targetGroup.id,
-				rules: (ftg.targetGroup.rules as FlagRule[]) || [],
+				rules: ftg.targetGroup.rules,
 			}));
 
 		return {
@@ -203,7 +190,7 @@ const getCachedFlagsForClient = cacheable(
 				.filter((ftg) => ftg.targetGroup && !ftg.targetGroup.deletedAt)
 				.map((ftg) => ({
 					id: ftg.targetGroup.id,
-					rules: (ftg.targetGroup.rules as FlagRule[]) || [],
+					rules: ftg.targetGroup.rules,
 				}));
 
 			return {
@@ -278,7 +265,7 @@ const getCachedFlagsForUser = cacheable(
 				.filter((ftg) => ftg.targetGroup && !ftg.targetGroup.deletedAt)
 				.map((ftg) => ({
 					id: ftg.targetGroup.id,
-					rules: (ftg.targetGroup.rules as FlagRule[]) || [],
+					rules: ftg.targetGroup.rules,
 				}));
 
 			return {
@@ -455,9 +442,7 @@ export function selectVariant(
 	const hash = hashString(`${flag.key}:variant:${identifier}`);
 	const percentage = hash % 100;
 
-	const hasAnyWeight = flag.variants.some(
-		(v: Variant) => typeof v?.weight === "number"
-	);
+	const hasAnyWeight = flag.variants.some((v) => typeof v?.weight === "number");
 
 	if (!hasAnyWeight) {
 		const idx = hash % flag.variants.length;
@@ -536,8 +521,8 @@ export function evaluateFlag(
 	flag: EvaluableFlag,
 	context: UserContext
 ): FlagResult {
-	if (flag.rules && Array.isArray(flag.rules) && flag.rules.length > 0) {
-		for (const rule of flag.rules as FlagRule[]) {
+	if (flag.rules?.length) {
+		for (const rule of flag.rules) {
 			if (evaluateRule(rule, context)) {
 				return {
 					enabled: rule.enabled,
@@ -549,19 +534,15 @@ export function evaluateFlag(
 		}
 	}
 
-	if (flag.resolvedTargetGroups && flag.resolvedTargetGroups.length > 0) {
-		for (const group of flag.resolvedTargetGroups) {
-			if (group.rules && Array.isArray(group.rules)) {
-				for (const rule of group.rules) {
-					if (evaluateRule(rule, context)) {
-						return {
-							enabled: rule.enabled,
-							value: rule.enabled,
-							payload: rule.enabled ? flag.payload : null,
-							reason: "TARGET_GROUP_MATCH",
-						};
-					}
-				}
+	for (const group of flag.resolvedTargetGroups ?? []) {
+		for (const rule of group.rules) {
+			if (evaluateRule(rule, context)) {
+				return {
+					enabled: rule.enabled,
+					value: rule.enabled,
+					payload: rule.enabled ? flag.payload : null,
+					reason: "TARGET_GROUP_MATCH",
+				};
 			}
 		}
 	}
@@ -832,13 +813,12 @@ export const flagsRoute = new Elysia({ prefix: "/v1/flags" })
 					};
 				}
 
-				const evaluableFlag = flag as unknown as EvaluableFlag;
 				const result = (await dependenciesSatisfied(
-					evaluableFlag,
+					flag,
 					query.clientId,
 					query.environment
 				))
-					? evaluateFlag(evaluableFlag, context)
+					? evaluateFlag(flag, context)
 					: dependencyFailure();
 				mergeWideEvent({
 					flag_found: true,
@@ -936,14 +916,9 @@ export const flagsRoute = new Elysia({ prefix: "/v1/flags" })
 					: allFlags;
 
 				const results: Record<string, FlagResult> = {};
-				const evaluableFlags = allFlags as unknown as EvaluableFlag[];
 				for (const flag of flagsToEvaluate) {
-					const evaluableFlag = flag as unknown as EvaluableFlag;
-					results[flag.key] = dependenciesSatisfiedFromList(
-						evaluableFlag,
-						evaluableFlags
-					)
-						? evaluateFlag(evaluableFlag, context)
+					results[flag.key] = dependenciesSatisfiedFromList(flag, allFlags)
+						? evaluateFlag(flag, context)
 						: dependencyFailure();
 				}
 
@@ -1086,7 +1061,7 @@ export const flagsRoute = new Elysia({ prefix: "/v1/flags" })
 				}
 
 				const createdBy = auth.apiKey.userId;
-				const variants = (body.variants ?? []) as FlagVariant[];
+				const variants: FlagVariant[] = body.variants ?? [];
 				const dependencies = body.dependencies ?? [];
 				if (dependencies.length > 0) {
 					const dependencyRows = await db
@@ -1299,7 +1274,7 @@ export const flagsRoute = new Elysia({ prefix: "/v1/flags" })
 					updates.defaultValue = body.defaultValue;
 				}
 				if (body.variants !== undefined) {
-					updates.variants = body.variants as FlagVariant[];
+					updates.variants = body.variants;
 				}
 				if (body.status !== undefined) {
 					updates.status = body.status;
