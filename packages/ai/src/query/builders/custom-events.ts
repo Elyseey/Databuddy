@@ -39,6 +39,11 @@ function separatePropertyKeyConditions(filterConditions?: string[]): {
 
 export const CustomEventsBuilders: Record<string, SimpleQueryConfig> = {
 	custom_events: {
+		meta: {
+			description: "Custom event names with occurrence counts.",
+			category: "Custom Events",
+			tags: ["custom-events", "events"],
+		},
 		customSql: (ctx) => {
 			const {
 				websiteId: projectId,
@@ -93,6 +98,11 @@ export const CustomEventsBuilders: Record<string, SimpleQueryConfig> = {
 		customizable: true,
 	},
 	custom_event_properties: {
+		meta: {
+			description: "Property keys and values for custom events.",
+			category: "Custom Events",
+			tags: ["custom-events", "properties"],
+		},
 		customSql: (ctx) => {
 			const {
 				websiteId: projectId,
@@ -160,6 +170,11 @@ export const CustomEventsBuilders: Record<string, SimpleQueryConfig> = {
 	},
 
 	custom_events_by_path: {
+		meta: {
+			description: "Custom event occurrences grouped by page path.",
+			category: "Custom Events",
+			tags: ["custom-events", "pages"],
+		},
 		customSql: (ctx) => {
 			const {
 				websiteId: projectId,
@@ -205,6 +220,11 @@ export const CustomEventsBuilders: Record<string, SimpleQueryConfig> = {
 	},
 
 	custom_events_trends: {
+		meta: {
+			description: "Custom event counts plotted over time.",
+			category: "Custom Events",
+			tags: ["custom-events", "time-series"],
+		},
 		customSql: (ctx) => {
 			const {
 				websiteId: projectId,
@@ -250,6 +270,12 @@ export const CustomEventsBuilders: Record<string, SimpleQueryConfig> = {
 	},
 
 	custom_events_trends_by_event: {
+		meta: {
+			description:
+				"Custom event counts over time, broken down per event name.",
+			category: "Custom Events",
+			tags: ["custom-events", "time-series", "breakdown"],
+		},
 		customSql: (ctx) => {
 			const {
 				websiteId: projectId,
@@ -292,6 +318,12 @@ export const CustomEventsBuilders: Record<string, SimpleQueryConfig> = {
 	},
 
 	custom_events_summary: {
+		meta: {
+			description:
+				"Summary statistics for custom events (total count, unique users).",
+			category: "Custom Events",
+			tags: ["custom-events", "summary"],
+		},
 		customSql: (ctx) => {
 			const {
 				websiteId: projectId,
@@ -331,6 +363,11 @@ export const CustomEventsBuilders: Record<string, SimpleQueryConfig> = {
 	},
 
 	custom_events_property_cardinality: {
+		meta: {
+			description: "Number of unique values per custom event property.",
+			category: "Custom Events",
+			tags: ["custom-events", "properties", "cardinality"],
+		},
 		customSql: (ctx) => {
 			const {
 				websiteId: projectId,
@@ -396,6 +433,11 @@ export const CustomEventsBuilders: Record<string, SimpleQueryConfig> = {
 	},
 
 	custom_events_recent: {
+		meta: {
+			description: "Most recent custom event occurrences.",
+			category: "Custom Events",
+			tags: ["custom-events", "recent"],
+		},
 		customSql: (ctx) => {
 			const {
 				websiteId: projectId,
@@ -457,6 +499,12 @@ export const CustomEventsBuilders: Record<string, SimpleQueryConfig> = {
 	 * - sample_values: top 5 values with counts
 	 */
 	custom_events_property_classification: {
+		meta: {
+			description:
+				"Classification of property types (string, number, boolean) per event.",
+			category: "Custom Events",
+			tags: ["custom-events", "properties", "schema"],
+		},
 		customSql: (ctx) => {
 			const {
 				websiteId: projectId,
@@ -589,6 +637,11 @@ export const CustomEventsBuilders: Record<string, SimpleQueryConfig> = {
 	 * Use this when render_strategy is 'top_n_chart' or 'top_n_with_other'
 	 */
 	custom_events_property_top_values: {
+		meta: {
+			description: "Most common values for a specific custom event property.",
+			category: "Custom Events",
+			tags: ["custom-events", "properties", "values"],
+		},
 		customSql: (ctx) => {
 			const {
 				websiteId: projectId,
@@ -676,6 +729,11 @@ export const CustomEventsBuilders: Record<string, SimpleQueryConfig> = {
 	 * Returns all values with counts and percentages
 	 */
 	custom_events_property_distribution: {
+		meta: {
+			description: "Value distribution for a specific custom event property.",
+			category: "Custom Events",
+			tags: ["custom-events", "properties", "distribution"],
+		},
 		customSql: (ctx) => {
 			const {
 				websiteId: projectId,
@@ -864,6 +922,8 @@ export const CustomEventsBuilders: Record<string, SimpleQueryConfig> = {
 			title: "Custom Events Discovery",
 			description:
 				"Returns all custom events with their property keys and top 5 values per property in a single query. Use this instead of calling custom_events, custom_event_properties, and custom_events_property_top_values separately.",
+			category: "Custom Events",
+			tags: ["custom-events", "discovery", "properties"],
 		},
 		timeField: "timestamp",
 		allowedFilters: ["path", "event_name", "website_id"],

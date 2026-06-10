@@ -1,9 +1,18 @@
+import {
+	AGENT_TABLE_COLUMNS,
+	AGENT_TENANT_COLUMN_BY_TABLE,
+	validateAgentSQL,
+} from "@databuddy/db/clickhouse";
+
 export const SCHEMA_SECTIONS = [
 	"events",
 	"custom_events",
 	"errors",
 	"vitals",
 	"outgoing",
+	"revenue",
+	"blocked_traffic",
+	"link_visits",
 ] as const;
 export type SchemaSection = (typeof SCHEMA_SECTIONS)[number];
 
@@ -182,14 +191,56 @@ const ANALYTICS_TABLES: TableDef[] = [
 		section: "outgoing",
 		description: "External links clicked by users",
 		keyColumns: [
-			"id (UUID)",
 			"client_id (String)",
 			"anonymous_id (String)",
 			"session_id (String)",
-			"href (String) - Link URL",
-			"text (String) - Link text",
-			"properties (String) - JSON string",
 			"timestamp (DateTime64)",
+			"path (String) - Page the link was clicked from",
+			"href (String) - Destination URL",
+			"text (String) - Link text",
+		],
+	},
+	{
+		name: "analytics.revenue",
+		section: "revenue",
+		description:
+			"Instrumented revenue transactions. Keyed by owner_id (org ID), NOT client_id — quantileTDigest needs toFloat64() on the Decimal amount column.",
+		keyColumns: [
+			"owner_id (String) - Organization ID (not websiteId)",
+			"transaction_id (String)",
+			"amount (Decimal64) - Transaction amount; cast to Float64 for percentiles",
+			"currency (String)",
+			"provider (LowCardinality String) - Payment provider",
+			"type (LowCardinality String) - Transaction type",
+			"customer_id (String)",
+			"created (DateTime64) - Transaction timestamp",
+		],
+	},
+	{
+		name: "analytics.blocked_traffic",
+		section: "blocked_traffic",
+		description:
+			"Requests rejected by the ingestion edge (bots, abuse, rate-limit). Useful for sizing junk traffic; never count as real visitors.",
+		keyColumns: [
+			"client_id (String)",
+			"timestamp (DateTime64)",
+			"block_reason (LowCardinality String) - Why the request was rejected",
+			"bot_name (Nullable String) - Detected bot, if any",
+			"path (Nullable String)",
+		],
+	},
+	{
+		name: "analytics.link_visits",
+		section: "link_visits",
+		description: "Short-link redirects served by the links service.",
+		keyColumns: [
+			"client_id (String)",
+			"timestamp (DateTime64)",
+			"link_id (String)",
+			"referrer (Nullable String)",
+			"country (Nullable String)",
+			"device_type (Nullable String)",
+			"browser_name (Nullable String)",
 		],
 	},
 ];
@@ -281,7 +332,75 @@ WHERE client_id = {websiteId:String}
 GROUP BY dest
 ORDER BY clicks DESC
 LIMIT 10`,
+	revenue: `-- analytics.revenue is org-scoped (tenant=owner_id). Raw SQL via execute_sql_query
+-- is not the right path for revenue questions — use get_data with revenue_* builders
+-- (revenue_overview, revenue_by_provider, revenue_by_country, etc.). They handle the
+-- org-binding correctly. For SQL: quantileTDigest on the Decimal amount column needs
+-- toFloat64() casting.`,
+	blocked_traffic: `-- Junk-traffic sizing
+SELECT
+  block_reason,
+  bot_name,
+  count() as blocked
+FROM analytics.blocked_traffic
+WHERE client_id = {websiteId:String}
+  AND timestamp >= now() - INTERVAL 7 DAY
+GROUP BY block_reason, bot_name
+ORDER BY blocked DESC`,
+	link_visits: `-- Short-link click breakdown
+SELECT
+  link_id,
+  country,
+  count() as visits
+FROM analytics.link_visits
+WHERE client_id = {websiteId:String}
+  AND timestamp >= now() - INTERVAL 7 DAY
+GROUP BY link_id, country
+ORDER BY visits DESC
+LIMIT 20`,
 };
+
+function extractStatements(example: string): string[] {
+	return example
+		.split(/\n\s*\n/)
+		.map((chunk) => chunk.trim())
+		.filter((chunk) => /^\s*(?:SELECT|WITH)\b/i.test(chunk));
+}
+for (const [section, example] of Object.entries(EXAMPLES_BY_SECTION)) {
+	for (const statement of extractStatements(example)) {
+		const result = validateAgentSQL(statement);
+		if (!result.valid) {
+			throw new Error(
+				`Example SQL for section "${section}" fails the agent validator: ${result.reason}\nStatement: ${statement.slice(0, 200)}`
+			);
+		}
+	}
+}
+
+const DOCUMENTED_TABLES = new Set(ANALYTICS_TABLES.map((t) => t.name));
+for (const table of Object.keys(AGENT_TENANT_COLUMN_BY_TABLE)) {
+	if (!DOCUMENTED_TABLES.has(table)) {
+		throw new Error(
+			`Table "${table}" is in the agent SQL allowlist but missing from ANALYTICS_TABLES — add a TableDef entry or drop it from AGENT_TENANT_COLUMN_BY_TABLE.`
+		);
+	}
+}
+for (const table of ANALYTICS_TABLES) {
+	const registryColumns = AGENT_TABLE_COLUMNS[table.name];
+	if (!registryColumns) {
+		continue;
+	}
+	for (const allowed of registryColumns) {
+		const documented = table.keyColumns.some(
+			(line) => line === allowed || line.startsWith(`${allowed} `)
+		);
+		if (!documented) {
+			throw new Error(
+				`Column "${allowed}" on ${table.name} is in AGENT_TABLE_COLUMNS but missing from the schema docs.`
+			);
+		}
+	}
+}
 
 export interface SchemaDocOptions {
 	includeExamples?: boolean;
@@ -330,31 +449,5 @@ Primary tables for website traffic, user behavior, and performance:
 ${analyticsDoc}${guidelinesBlock}${examplesBlock}
 </available-data>`;
 }
-
-export const COMPACT_CLICKHOUSE_SCHEMA_DOCS = `<analytics-schema-quick-reference>
-Prefer get_data builders. Use SQL only when builders cannot answer.
-
-analytics.events canonical columns:
-- client_id: website/project id. Always filter with client_id = {websiteId:String}.
-- time: event timestamp.
-- path: URL path.
-- event_name: event discriminator. Pageviews are event_name = 'screen_view' only.
-- anonymous_id, session_id, referrer, country, region, city, device_type, browser_name, os_name, utm_source, utm_medium, utm_campaign, utm_term, utm_content, load_time, time_on_page, scroll_depth, properties.
-
-Common SQL footguns:
-- never use website_id on analytics.events; use client_id.
-- never use created_at on analytics.events; use time.
-- never use page_path; use path.
-- never use event_type; use event_name.
-- never use event_name = 'pageview'; use event_name = 'screen_view'.
-
-Other tables:
-- analytics.error_hourly: preferred for aggregated error counts.
-- analytics.error_spans: detailed errors, timestamp + client_id + path.
-- analytics.web_vitals_hourly: preferred for aggregated vitals.
-- analytics.web_vitals_spans: detailed vitals, timestamp + client_id + path.
-- analytics.outgoing_links: outbound clicks, timestamp + client_id + path.
-- analytics.custom_events: custom SDK events; prefer get_data custom_events_* builders because ownership/website scoping differs from analytics.events.
-</analytics-schema-quick-reference>`;
 
 export const CLICKHOUSE_SCHEMA_DOCS = generateSchemaDocumentation();
