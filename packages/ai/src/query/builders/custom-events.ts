@@ -99,7 +99,8 @@ export const CustomEventsBuilders: Record<string, SimpleQueryConfig> = {
 	},
 	custom_event_properties: {
 		meta: {
-			description: "Property keys and values for custom events.",
+			description:
+				"Property keys and values for custom events. Use this to inspect the payload of a specific event (e.g. decline codes or plan tiers on payment events) by filtering on event_name. Works for server-side events that have no page path.",
 			category: "Custom Events",
 			tags: ["custom-events", "properties"],
 		},
@@ -171,7 +172,8 @@ export const CustomEventsBuilders: Record<string, SimpleQueryConfig> = {
 
 	custom_events_by_path: {
 		meta: {
-			description: "Custom event occurrences grouped by page path.",
+			description:
+				"Custom event occurrences grouped by page path. Only covers events fired from a page; server-side events (webhooks, payments, API) have no path and are excluded, so use custom_event_properties or custom_events for those.",
 			category: "Custom Events",
 			tags: ["custom-events", "pages"],
 		},
