@@ -75,8 +75,34 @@ export function buildReceipts(
 	};
 }
 
+function formatUtcDay(date: Date): string {
+	return date.toISOString().slice(0, 10);
+}
+
+function shiftDays(date: Date, days: number): Date {
+	return new Date(date.getTime() + days * 86_400_000);
+}
+
+export function buildInvestigationWindow(
+	lookbackDays: number,
+	now: Date = new Date()
+): { from: string; to: string; halves: string } {
+	const to = now;
+	const from = shiftDays(to, -(lookbackDays - 1));
+	const halfDays = Math.floor(lookbackDays / 2);
+	const secondHalfStart = shiftDays(to, -(halfDays - 1));
+	const firstHalfEnd = shiftDays(secondHalfStart, -1);
+	const firstHalfStart = shiftDays(firstHalfEnd, -(halfDays - 1));
+	return {
+		from: formatUtcDay(from),
+		to: formatUtcDay(to),
+		halves: `${formatUtcDay(firstHalfStart)} to ${formatUtcDay(firstHalfEnd)} vs ${formatUtcDay(secondHalfStart)} to ${formatUtcDay(to)} (${halfDays} days each)`,
+	};
+}
+
 export function buildInvestigationBrief(params: {
 	lookbackDays: number;
+	now?: Date;
 	question?: string;
 	websiteDomain: string;
 	websiteId: string;
@@ -85,12 +111,15 @@ export function buildInvestigationBrief(params: {
 		? `The user wants to know: "${params.question}". Anchor the investigation on this, but report anything bigger you find on the way.`
 		: "No specific question was asked. Find the single most consequential change on this site and explain it.";
 
+	const window = buildInvestigationWindow(params.lookbackDays, params.now);
+
 	return [
 		`Run a root-cause investigation on website ${params.websiteId} (${params.websiteDomain}) over the last ${params.lookbackDays} days.`,
+		`Window (UTC dates, inclusive): ${window.from} to ${window.to}. For half-over-half comparisons use exactly: ${window.halves}. Note the final day is partial.`,
 		focus,
 		"",
 		"Protocol — work through every phase, in order:",
-		`1. Sweep: pull daily trends (events_by_date) for the full ${params.lookbackDays}-day window plus summary_metrics for the latest half vs the prior half. Flag the largest moves.`,
+		`1. Sweep: pull daily trends (events_by_date) for the full ${params.lookbackDays}-day window plus summary_metrics for each half as defined above. Flag the largest moves.`,
 		"2. Enrich: for each flagged move, break it down by page, referrer, country, and device. Pull recent errors if anything degraded. Find WHERE the change is concentrated.",
 		"3. Correlate: check deploys, commits, and PRs around the inflection date. Check annotations. If the change looks search-driven, check search console. Find WHEN the cause landed relative to the effect.",
 		"4. Conclude: state the causal chain with evidence for every link.",

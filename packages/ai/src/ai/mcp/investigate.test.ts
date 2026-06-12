@@ -4,6 +4,7 @@ import { describe, expect, test } from "bun:test";
 import { z } from "zod";
 import {
 	buildInvestigationBrief,
+	buildInvestigationWindow,
 	buildReceipts,
 	type InvestigationMemo,
 	investigationMemoSchema,
@@ -92,6 +93,19 @@ describe("buildInvestigationBrief", () => {
 		expect(brief).toContain("most consequential change");
 	});
 
+	test("pins exact equal-length comparison windows", () => {
+		const brief = buildInvestigationBrief({
+			websiteId: "site_1",
+			websiteDomain: "example.com",
+			lookbackDays: 14,
+			now: new Date("2026-06-12T15:00:00Z"),
+		});
+		expect(brief).toContain("2026-05-30 to 2026-06-12");
+		expect(brief).toContain(
+			"2026-05-30 to 2026-06-05 vs 2026-06-06 to 2026-06-12 (7 days each)"
+		);
+	});
+
 	test("anchors on the user question when given", () => {
 		const brief = buildInvestigationBrief({
 			websiteId: "site_1",
@@ -101,6 +115,20 @@ describe("buildInvestigationBrief", () => {
 		});
 		expect(brief).toContain("why did signups drop?");
 		expect(brief).not.toContain("most consequential change");
+	});
+});
+
+describe("buildInvestigationWindow", () => {
+	test("drops the oldest day for odd lookbacks so halves stay equal", () => {
+		const window = buildInvestigationWindow(
+			15,
+			new Date("2026-06-12T15:00:00Z")
+		);
+		expect(window.from).toBe("2026-05-29");
+		expect(window.to).toBe("2026-06-12");
+		expect(window.halves).toBe(
+			"2026-05-30 to 2026-06-05 vs 2026-06-06 to 2026-06-12 (7 days each)"
+		);
 	});
 });
 
