@@ -31,11 +31,7 @@ import { rpcError } from "../errors";
 import type { Context } from "../orpc";
 import { publicProcedure, trackedProcedure } from "../orpc";
 import { setTrackProperties } from "../middleware/track-mutation";
-import {
-	hasApiKeyOrgAccess,
-	type Workspace,
-	withWorkspace,
-} from "../procedures/with-workspace";
+import { type Workspace, withWorkspace } from "../procedures/with-workspace";
 import {
 	requireFeatureWithLimit,
 	requireUsageWithinLimit,
@@ -318,8 +314,7 @@ export const flagsRouter = {
 		.handler(async ({ context, input }) => {
 			const workspace = await authorizeFlagRead(context, input);
 			const scope = getScope(input.websiteId, input.organizationId);
-			const sanitize =
-				workspace.tier === "demo" && !hasApiKeyOrgAccess(workspace, context);
+			const sanitize = workspace.tier === "demo";
 
 			return flagsCache.withCache({
 				key: scopedCacheKey(
@@ -374,8 +369,7 @@ export const flagsRouter = {
 		.handler(async ({ context, input }) => {
 			const workspace = await authorizeFlagRead(context, input);
 			const scope = getScope(input.websiteId, input.organizationId);
-			const sanitize =
-				workspace.tier === "demo" && !hasApiKeyOrgAccess(workspace, context);
+			const sanitize = workspace.tier === "demo";
 
 			return flagsCache.withCache({
 				key: scopedCacheKey(
@@ -429,8 +423,7 @@ export const flagsRouter = {
 		.handler(async ({ context, input }) => {
 			const workspace = await authorizeFlagRead(context, input);
 			const scope = getScope(input.websiteId, input.organizationId);
-			const sanitize =
-				workspace.tier === "demo" && !hasApiKeyOrgAccess(workspace, context);
+			const sanitize = workspace.tier === "demo";
 
 			return flagsCache.withCache({
 				key: scopedCacheKey(

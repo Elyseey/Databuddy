@@ -24,7 +24,6 @@ export type WorkspaceTier = "authed" | "demo";
 
 export interface Workspace {
 	getCreatedBy: () => Promise<string>;
-	isPublicAccess: boolean;
 	organizationId: string;
 	plan: PlanId;
 	role: string | null;
@@ -74,36 +73,98 @@ function requirePlan(plan: PlanId, requiredPlans: PlanId[] | undefined): void {
 	}
 }
 
-function authorizeApiKey(
+async function requireWebsite(websiteId: string): Promise<Website> {
+	const website = await getWebsiteById(websiteId);
+	if (!website) {
+		throw rpcError.notFound("website", websiteId);
+	}
+	return website;
+}
+
+const READ_ONLY_PERMISSIONS = new Set(["read", "view_analytics"]);
+
+function isReadOnly(permissions: string[]): boolean {
+	return permissions.every((p) => READ_ONLY_PERMISSIONS.has(p));
+}
+
+type Grant =
+	| { granted: true; user: User; role: string }
+	| { granted: true; user: null; role: null }
+	| { granted: false; denied: Error };
+
+async function resolveGrant(
 	context: Context,
-	organizationId: string,
-	plan: PlanId,
-	resource: string,
-	permissions: string[]
-): Omit<Workspace, "website" | "getCreatedBy"> {
-	if (!context.apiKey) {
-		throw rpcError.unauthorized();
+	input: {
+		organizationId: string;
+		resource: string;
+		permissions: string[];
+		allowCrossOrg: boolean;
 	}
+): Promise<Grant> {
+	const { organizationId, resource, permissions, allowCrossOrg } = input;
 
-	if (context.apiKey.organizationId !== organizationId) {
-		throw rpcError.forbidden("API key does not have access to this workspace");
-	}
-
-	const requiredScopes = requiredScopesForResource(resource, permissions);
-	for (const scope of requiredScopes) {
-		if (!hasKeyScope(context.apiKey, scope)) {
-			throw rpcError.forbidden(`API key missing required scope: ${scope}`);
+	if (context.user) {
+		if (
+			!allowCrossOrg &&
+			context.organizationId &&
+			context.organizationId !== organizationId
+		) {
+			return {
+				granted: false,
+				denied: rpcError.forbidden(
+					"Resource does not belong to the active organization"
+				),
+			};
 		}
+
+		const role = await getMemberRole(context.user.id, organizationId);
+		if (!role) {
+			return {
+				granted: false,
+				denied: rpcError.forbidden("You are not a member of this organization"),
+			};
+		}
+
+		if (
+			permissions.length > 0 &&
+			!roleHasPermission(role, resource, permissions)
+		) {
+			return {
+				granted: false,
+				denied: rpcError.forbidden(
+					`Missing required ${resource} permissions: ${permissions.join(", ")}`
+				),
+			};
+		}
+
+		return { granted: true, user: context.user, role };
 	}
 
-	return {
-		organizationId,
-		user: null,
-		role: null,
-		plan,
-		isPublicAccess: false,
-		tier: "authed",
-	};
+	if (context.apiKey) {
+		if (context.apiKey.organizationId !== organizationId) {
+			return {
+				granted: false,
+				denied: rpcError.forbidden(
+					"API key does not have access to this workspace"
+				),
+			};
+		}
+
+		for (const scope of requiredScopesForResource(resource, permissions)) {
+			if (!hasKeyScope(context.apiKey, scope)) {
+				return {
+					granted: false,
+					denied: rpcError.forbidden(
+						`API key missing required scope: ${scope}`
+					),
+				};
+			}
+		}
+
+		return { granted: true, user: null, role: null };
+	}
+
+	return { granted: false, denied: rpcError.unauthorized() };
 }
 
 export const workspaceInputSchema = z.object({
@@ -131,38 +192,8 @@ export async function withWorkspace<R extends ResourceType = "organization">(
 		allowCrossOrg = false,
 	} = options;
 
-	let website: Website | null = null;
-
 	const planPromise = getPlanId(context);
-
-	if (websiteId) {
-		const [found, plan] = await Promise.all([
-			getWebsiteById(websiteId),
-			planPromise,
-		]);
-		if (!found) {
-			throw rpcError.notFound("website", websiteId);
-		}
-		website = found;
-
-		const isReadOnly = permissions.every(
-			(p) => p === "read" || p === "view_analytics"
-		);
-
-		if (allowPublicAccess && isReadOnly && website.isPublic) {
-			const orgId = website.organizationId ?? "";
-			return {
-				organizationId: orgId,
-				user: context.user ?? null,
-				role: null,
-				plan,
-				isPublicAccess: !context.user,
-				tier: "demo",
-				website,
-				getCreatedBy: () => resolveCreatedBy(context, orgId),
-			};
-		}
-	}
+	const website = websiteId ? await requireWebsite(websiteId) : null;
 
 	const organizationId =
 		options.organizationId ?? website?.organizationId ?? context.organizationId;
@@ -175,64 +206,46 @@ export async function withWorkspace<R extends ResourceType = "organization">(
 	const effectivePermissions = permissions as string[];
 	const getCreatedBy = () => resolveCreatedBy(context, organizationId);
 
-	if (
-		!allowCrossOrg &&
-		context.user &&
-		context.organizationId &&
-		organizationId !== context.organizationId
-	) {
-		throw rpcError.forbidden(
-			"Resource does not belong to the active organization"
-		);
-	}
+	const [grant, plan] = await Promise.all([
+		resolveGrant(context, {
+			organizationId,
+			resource: effectiveResource,
+			permissions: effectivePermissions,
+			allowCrossOrg,
+		}),
+		planPromise,
+	]);
 
-	if (context.user) {
-		const userId = context.user.id;
-		const [plan, role] = await Promise.all([
-			planPromise,
-			getMemberRole(userId, organizationId),
-		]);
-		requirePlan(plan, requiredPlans);
-
-		if (!role) {
-			throw rpcError.forbidden("You are not a member of this organization");
-		}
-
+	if (!grant.granted) {
 		if (
-			effectivePermissions.length > 0 &&
-			!roleHasPermission(role, effectiveResource, effectivePermissions)
+			allowPublicAccess &&
+			website?.isPublic &&
+			isReadOnly(effectivePermissions)
 		) {
-			throw rpcError.forbidden(
-				`Missing required ${effectiveResource} permissions: ${effectivePermissions.join(", ")}`
-			);
+			return {
+				organizationId,
+				user: context.user ?? null,
+				role: null,
+				plan,
+				tier: "demo",
+				website,
+				getCreatedBy,
+			};
 		}
-
-		return {
-			organizationId,
-			user: context.user,
-			role,
-			plan,
-			isPublicAccess: false,
-			tier: "authed",
-			website,
-			getCreatedBy,
-		};
+		throw grant.denied;
 	}
 
-	if (context.apiKey) {
-		const plan = await planPromise;
-		requirePlan(plan, requiredPlans);
-		const apiKeyWorkspace = authorizeApiKey(
-			context,
-			organizationId,
-			plan,
-			effectiveResource,
-			effectivePermissions
-		);
-		return { ...apiKeyWorkspace, website, getCreatedBy };
-	}
+	requirePlan(plan, requiredPlans);
 
-	throw rpcError.unauthorized();
+	return {
+		organizationId,
+		user: grant.user,
+		role: grant.role,
+		plan,
+		tier: "authed",
+		website,
+		getCreatedBy,
+	};
 }
 
 export async function withLinksAccess(
@@ -293,16 +306,6 @@ async function resolveCreatedBy(
 	}
 
 	throw rpcError.unauthorized();
-}
-
-export function hasApiKeyOrgAccess(
-	workspace: Pick<Workspace, "organizationId">,
-	context: Pick<Context, "apiKey">
-): boolean {
-	return (
-		!!context.apiKey &&
-		context.apiKey.organizationId === workspace.organizationId
-	);
 }
 
 export const withWebsiteRead = os.middleware(

@@ -10,11 +10,7 @@ import { z } from "zod";
 import { rpcError } from "../errors";
 import { setTrackProperties } from "../middleware/track-mutation";
 import { type Context, publicProcedure, trackedProcedure } from "../orpc";
-import {
-	hasApiKeyOrgAccess,
-	type Workspace,
-	withWorkspace,
-} from "../procedures/with-workspace";
+import { type Workspace, withWorkspace } from "../procedures/with-workspace";
 import { scopedCacheKey } from "../utils/scoped-cache-key";
 
 function annotationViewerSlot(workspace: Workspace, context: Context): string {
@@ -128,10 +124,7 @@ export const annotationsRouter = {
 					];
 
 					let visibilityCondition: SQL<unknown> | undefined;
-					if (
-						workspace.tier === "demo" &&
-						!hasApiKeyOrgAccess(workspace, context)
-					) {
+					if (workspace.tier === "demo") {
 						visibilityCondition = context.user
 							? or(
 									eq(annotations.isPublic, true),
@@ -187,10 +180,7 @@ export const annotationsRouter = {
 				allowPublicAccess: true,
 			});
 
-			if (
-				workspace.tier === "demo" &&
-				!hasApiKeyOrgAccess(workspace, context)
-			) {
+			if (workspace.tier === "demo") {
 				const isOwner = context.user?.id === annotationRow.createdBy;
 				if (!(isOwner || annotationRow.isPublic)) {
 					throw errors.NOT_FOUND({

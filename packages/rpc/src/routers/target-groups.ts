@@ -7,7 +7,6 @@ import { z } from "zod";
 import { rpcError } from "../errors";
 import { publicProcedure, trackedProcedure } from "../orpc";
 import {
-	hasApiKeyOrgAccess,
 	withFlagsWrite,
 	withWebsiteRead,
 	withWorkspace,
@@ -92,8 +91,7 @@ export const targetGroupsRouter = {
 				allowPublicAccess: true,
 			});
 
-			const sanitize =
-				workspace.tier === "demo" && !hasApiKeyOrgAccess(workspace, context);
+			const sanitize = workspace.tier === "demo";
 
 			return targetGroupsCache.withCache({
 				key: scopedCacheKey(
@@ -135,8 +133,7 @@ export const targetGroupsRouter = {
 		.use(withWebsiteRead)
 		.handler(async ({ context, input }) => {
 			const { workspace } = context;
-			const sanitize =
-				workspace.tier === "demo" && !hasApiKeyOrgAccess(workspace, context);
+			const sanitize = workspace.tier === "demo";
 
 			return await targetGroupsCache.withCache({
 				key: scopedCacheKey(

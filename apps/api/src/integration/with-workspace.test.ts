@@ -90,7 +90,7 @@ describe("withWorkspace", () => {
 				permissions: ["read"],
 			});
 			expect(ws.role).toBe("owner");
-			expect(ws.isPublicAccess).toBe(false);
+			expect(ws.tier).toBe("authed");
 		});
 
 		iit("allows viewer to read website", async () => {
@@ -303,7 +303,7 @@ describe("withWorkspace", () => {
 				permissions: ["read"],
 				allowPublicAccess: true,
 			});
-			expect(ws.isPublicAccess).toBe(true);
+			expect(ws.tier).toBe("demo");
 			expect(ws.user).toBeNull();
 			expect(ws.website?.id).toBe(site.id);
 		});
@@ -322,7 +322,7 @@ describe("withWorkspace", () => {
 				permissions: ["view_analytics"],
 				allowPublicAccess: true,
 			});
-			expect(ws.isPublicAccess).toBe(true);
+			expect(ws.tier).toBe("demo");
 		});
 
 		iit("denies unauthenticated write on public website", async () => {
@@ -358,6 +358,118 @@ describe("withWorkspace", () => {
 				"UNAUTHORIZED",
 			);
 		});
+
+		iit("gives org member authed tier on public website", async () => {
+			const owner = await signUp();
+			const org = await insertOrganization();
+			await addToOrganization(owner.id, org.id, "owner");
+			const site = await insertWebsite({
+				organizationId: org.id,
+				isPublic: true,
+			});
+
+			const ws = await withWorkspace(userContext(owner, org.id), {
+				websiteId: site.id,
+				permissions: ["read"],
+				allowPublicAccess: true,
+			});
+			expect(ws.tier).toBe("authed");
+			expect(ws.role).toBe("owner");
+		});
+
+		iit("gives authed non-member demo tier on public website", async () => {
+			const ownerOrg = await insertOrganization();
+			const owner = await signUp();
+			await addToOrganization(owner.id, ownerOrg.id, "owner");
+			const site = await insertWebsite({
+				organizationId: ownerOrg.id,
+				isPublic: true,
+			});
+
+			const outsider = await signUp();
+			const outsiderOrg = await insertOrganization();
+			await addToOrganization(outsider.id, outsiderOrg.id, "owner");
+
+			const ws = await withWorkspace(userContext(outsider, outsiderOrg.id), {
+				websiteId: site.id,
+				permissions: ["read"],
+				allowPublicAccess: true,
+			});
+			expect(ws.tier).toBe("demo");
+			expect(ws.role).toBeNull();
+		});
+
+		iit("gives member with mismatched active org demo tier on public website", async () => {
+			const owner = await signUp();
+			const orgA = await insertOrganization();
+			const orgB = await insertOrganization();
+			await addToOrganization(owner.id, orgA.id, "owner");
+			await addToOrganization(owner.id, orgB.id, "owner");
+			const site = await insertWebsite({
+				organizationId: orgA.id,
+				isPublic: true,
+			});
+
+			const ws = await withWorkspace(userContext(owner, orgB.id), {
+				websiteId: site.id,
+				permissions: ["read"],
+				allowPublicAccess: true,
+			});
+			expect(ws.tier).toBe("demo");
+		});
+
+		iit("gives org API key with read scope authed tier on public website", async () => {
+			const org = await insertOrganization();
+			const owner = await signUp();
+			await addToOrganization(owner.id, org.id, "owner");
+			const site = await insertWebsite({
+				organizationId: org.id,
+				isPublic: true,
+			});
+
+			const ws = await withWorkspace(apiKeyContext(org.id, ["read:data"]), {
+				websiteId: site.id,
+				permissions: ["read"],
+				allowPublicAccess: true,
+			});
+			expect(ws.tier).toBe("authed");
+			expect(ws.user).toBeNull();
+		});
+
+		iit("gives org API key without read scope demo tier on public website", async () => {
+			const org = await insertOrganization();
+			const owner = await signUp();
+			await addToOrganization(owner.id, org.id, "owner");
+			const site = await insertWebsite({
+				organizationId: org.id,
+				isPublic: true,
+			});
+
+			const ws = await withWorkspace(apiKeyContext(org.id, ["track:events"]), {
+				websiteId: site.id,
+				permissions: ["read"],
+				allowPublicAccess: true,
+			});
+			expect(ws.tier).toBe("demo");
+		});
+
+		iit("gives cross-org API key demo tier on public website", async () => {
+			const ownerOrg = await insertOrganization();
+			const owner = await signUp();
+			await addToOrganization(owner.id, ownerOrg.id, "owner");
+			const site = await insertWebsite({
+				organizationId: ownerOrg.id,
+				isPublic: true,
+			});
+			const otherOrg = await insertOrganization();
+
+			const ws = await withWorkspace(apiKeyContext(otherOrg.id, ["read:data"]), {
+				websiteId: site.id,
+				permissions: ["read"],
+				allowPublicAccess: true,
+			});
+			expect(ws.tier).toBe("demo");
+		});
 	});
 
 	describe("plan gating", () => {
@@ -372,6 +484,19 @@ describe("withWorkspace", () => {
 					requiredPlans: ["pro"],
 				}),
 				"FEATURE_UNAVAILABLE",
+			);
+		});
+
+		iit("rejects non-member with FORBIDDEN before revealing plan gate", async () => {
+			const user = await signUp();
+			const org = await insertOrganization();
+
+			await expectCode(
+				withWorkspace(userContext(user, org.id), {
+					organizationId: org.id,
+					requiredPlans: ["pro"],
+				}),
+				"FORBIDDEN",
 			);
 		});
 
