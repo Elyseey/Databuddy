@@ -8,29 +8,29 @@ const CHAIN_WINDOW_MINUTES = 60;
 const MIN_WEBSITES_FOR_CHAIN = 2;
 
 export interface ChainCandidate {
-	id: string;
-	websiteId: string;
-	type: string;
-	sentiment: string;
 	chainId: string | null;
 	createdAt: Date;
+	id: string;
+	sentiment: string;
+	type: string;
+	websiteId: string;
 }
 
 export interface ChainAssignment {
 	chainId: string;
 	insightIds: string[];
-	websiteIds: string[];
-	type: string;
 	sentiment: string;
+	type: string;
+	websiteIds: string[];
 }
 
 interface Bucket {
-	key: string;
-	type: string;
-	sentiment: string;
-	insightIds: string[];
-	websiteIds: Set<string>;
 	existingChainIds: Set<string>;
+	insightIds: string[];
+	key: string;
+	sentiment: string;
+	type: string;
+	websiteIds: Set<string>;
 }
 
 export function bucketCandidates(

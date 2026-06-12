@@ -211,11 +211,7 @@ export const PerformanceBuilders: Record<string, SimpleQueryConfig> = {
 			"AVG(CASE WHEN render_time > 0 THEN render_time ELSE NULL END) as avg_render_time",
 			"COUNT(*) as pageviews",
 		],
-		where: [
-			"event_name = 'screen_view'",
-			"device_type != ''",
-			"load_time > 0",
-		],
+		where: ["event_name = 'screen_view'", "device_type != ''", "load_time > 0"],
 		groupBy: ["device_type"],
 		orderBy: "p50_load_time DESC",
 		limit: 100,

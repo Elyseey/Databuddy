@@ -360,11 +360,14 @@ ORDER BY visits DESC
 LIMIT 20`,
 };
 
+const STATEMENT_SEPARATOR = /\n\s*\n/;
+const STATEMENT_START = /^\s*(?:SELECT|WITH)\b/i;
+
 function extractStatements(example: string): string[] {
 	return example
-		.split(/\n\s*\n/)
+		.split(STATEMENT_SEPARATOR)
 		.map((chunk) => chunk.trim())
-		.filter((chunk) => /^\s*(?:SELECT|WITH)\b/i.test(chunk));
+		.filter((chunk) => STATEMENT_START.test(chunk));
 }
 for (const [section, example] of Object.entries(EXAMPLES_BY_SECTION)) {
 	for (const statement of extractStatements(example)) {

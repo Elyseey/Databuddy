@@ -63,9 +63,7 @@ const manageDigestInputSchema = z.object({
 	websiteId: z
 		.string()
 		.optional()
-		.describe(
-			"Scope to one website. Omit to apply to the whole organization."
-		),
+		.describe("Scope to one website. Omit to apply to the whole organization."),
 	confirmed: z
 		.boolean()
 		.describe(
@@ -323,15 +321,16 @@ async function handleReschedule(
 		);
 	}
 
-	const proposedNextRunAt = getNextInsightRunAt(
-		{
-			cron: proposal.cron,
-			enabled: true,
-			frequency: proposal.frequency,
-			timezone: proposal.timezone,
-		},
-		new Date()
-	)?.toISOString() ?? null;
+	const proposedNextRunAt =
+		getNextInsightRunAt(
+			{
+				cron: proposal.cron,
+				enabled: true,
+				frequency: proposal.frequency,
+				timezone: proposal.timezone,
+			},
+			new Date()
+		)?.toISOString() ?? null;
 
 	if (!confirmed) {
 		return {
@@ -359,7 +358,10 @@ async function handleReschedule(
 		const config = await callRPCProcedure(
 			"insightGeneration",
 			"upsertConfig",
-			{ ...scopeInput, ...computeReschedulePatch({ cron, frequency, timezone }) },
+			{
+				...scopeInput,
+				...computeReschedulePatch({ cron, frequency, timezone }),
+			},
 			context
 		);
 		const summary = summarizeDigestConfig(config);
@@ -551,8 +553,7 @@ async function handleRoute(
 				channelId: id,
 				cadence: summary.frequency,
 				cadenceWas,
-				cadenceChanged:
-					cadenceWas !== null && cadenceWas !== summary.frequency,
+				cadenceChanged: cadenceWas !== null && cadenceWas !== summary.frequency,
 				nextRunAt: summary.nextRunAt,
 			},
 			message: `Routed insight digests to ${channelMention(id)} on a ${summary.frequency} cadence.`,
@@ -651,17 +652,19 @@ export function createInsightDigestTools() {
 
 			switch (args.action) {
 				case "status":
-					return handleStatus(actionContext);
+					return await handleStatus(actionContext);
 				case "preview":
-					return handlePreview(actionContext);
+					return await handlePreview(actionContext);
 				case "reschedule":
-					return handleReschedule(actionContext, args);
+					return await handleReschedule(actionContext, args);
 				case "test":
-					return handleTest(actionContext, args);
+					return await handleTest(actionContext, args);
 				case "route":
-					return handleRoute(actionContext, args);
+					return await handleRoute(actionContext, args);
 				case "unroute":
-					return handleUnroute(actionContext, args);
+					return await handleUnroute(actionContext, args);
+				default:
+					return fail("UNKNOWN_ACTION", "Unsupported digest action.");
 			}
 		},
 	});

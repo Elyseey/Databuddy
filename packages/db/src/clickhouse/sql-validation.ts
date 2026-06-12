@@ -592,9 +592,7 @@ export function validateAgentSQL(sql: string): {
 				columnsByAlias.get(ref.alias.toLowerCase()) ?? new Set<string>();
 			const seenColumns = new Set([...aliasColumns, ...unaliasedColumns]);
 			if (!seenColumns.has(requiredColumn)) {
-				const aliasPrefix = requirePerAliasTenantFilter
-					? `${ref.alias}.`
-					: "";
+				const aliasPrefix = requirePerAliasTenantFilter ? `${ref.alias}.` : "";
 				return {
 					valid: false,
 					reason: `Table ${ref.raw} requires tenant filter \`${aliasPrefix}${requiredColumn} = {websiteId:String}\`. Using ${requiredColumn === "owner_id" ? "client_id" : "owner_id"} silently returns zero rows because the server-side filter is on ${requiredColumn}.`,

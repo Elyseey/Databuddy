@@ -59,6 +59,8 @@ const QuerySchema = z.object({
 	timezone: z.string().optional(),
 });
 
+const TOKEN_SEPARATOR = /[\s_]+/;
+
 export function suggestQueryTypes(input: string, limit = 5): string[] {
 	const lower = input.toLowerCase();
 	const all = Object.keys(QueryBuilders);
@@ -71,7 +73,7 @@ export function suggestQueryTypes(input: string, limit = 5): string[] {
 		return ranked.slice(0, limit);
 	}
 
-	const inputTokens = new Set(lower.split(/[\s_]+/).filter(Boolean));
+	const inputTokens = new Set(lower.split(TOKEN_SEPARATOR).filter(Boolean));
 	const tokenMatches = all
 		.filter((t) => !ranked.includes(t))
 		.map((t) => ({

@@ -271,8 +271,7 @@ export const CustomEventsBuilders: Record<string, SimpleQueryConfig> = {
 
 	custom_events_trends_by_event: {
 		meta: {
-			description:
-				"Custom event counts over time, broken down per event name.",
+			description: "Custom event counts over time, broken down per event name.",
 			category: "Custom Events",
 			tags: ["custom-events", "time-series", "breakdown"],
 		},
