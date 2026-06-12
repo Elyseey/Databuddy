@@ -2,7 +2,7 @@ import {
 	type ApiKeyRow,
 	getApiKeyFromHeader,
 } from "@databuddy/api-keys/resolve";
-import { auth, type User } from "@databuddy/auth";
+import { auth } from "@databuddy/auth";
 import { db } from "@databuddy/db";
 import { os as createOS } from "@orpc/server";
 import { baseErrors } from "./errors";
@@ -61,13 +61,10 @@ export const createRPCContext = async (
 				getApiKeyFromHeader(opts.headers),
 			]);
 
-	const user = session?.user as User | undefined;
+	const user = session?.user;
 
 	const organizationId =
-		apiKey?.organizationId ??
-		(session?.session as { activeOrganizationId?: string | null })
-			?.activeOrganizationId ??
-		null;
+		apiKey?.organizationId ?? session?.session.activeOrganizationId ?? null;
 
 	let billingCache: BillingOwner | undefined;
 	let billingResolved = false;
