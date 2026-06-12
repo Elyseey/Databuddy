@@ -17,6 +17,17 @@ const REDIS_TIMEOUT_MS = 2000;
 let redisAvailable = true;
 let lastRedisCheck = 0;
 
+export interface CacheLookupEvent {
+	durationMs: number;
+	hit: boolean;
+}
+
+let _cacheTimingFn: ((event: CacheLookupEvent) => void) | null = null;
+
+export function setCacheTimingFn(fn: (event: CacheLookupEvent) => void) {
+	_cacheTimingFn = fn;
+}
+
 type CacheTagger<
 	T extends (...args: Parameters<T>) => Promise<Awaited<ReturnType<T>>>,
 > = (
@@ -245,6 +256,9 @@ export function cacheable<
 
 		const key = getKey(...args);
 
+		const timingFn = _cacheTimingFn;
+		const lookupStartedAt = timingFn ? performance.now() : 0;
+
 		let cached: string | null = null;
 		try {
 			const redis = getRedisCache();
@@ -252,8 +266,17 @@ export function cacheable<
 			markRedisHealthy();
 		} catch {
 			markRedisUnhealthy();
+			timingFn?.({
+				durationMs: performance.now() - lookupStartedAt,
+				hit: false,
+			});
 			return fn(...args);
 		}
+
+		timingFn?.({
+			durationMs: performance.now() - lookupStartedAt,
+			hit: Boolean(cached),
+		});
 
 		if (cached) {
 			if (staleWhileRevalidate && staleTime > 0) {
