@@ -119,12 +119,13 @@ export function buildInvestigationBrief(params: {
 		focus,
 		"",
 		"Protocol — work through every phase, in order:",
-		`1. Sweep: pull daily trends (events_by_date) for the full ${params.lookbackDays}-day window plus summary_metrics for each half as defined above. Flag the largest moves.`,
+		`1. Sweep: pull daily trends (events_by_date) for the full ${params.lookbackDays}-day window plus summary_metrics for each half as defined above. In the same sweep, check whether the site records revenue and custom events; if it does, pull their daily trends and half-over-half deltas too. Flag the largest moves.`,
 		"2. Enrich: for each flagged move, break it down by page, referrer, country, and device. Pull recent errors if anything degraded. Find WHERE the change is concentrated.",
 		"3. Correlate: check deploys, commits, and PRs around the inflection date. Check annotations. If the change looks search-driven, check search console. Find WHEN the cause landed relative to the effect.",
 		"4. Conclude: state the causal chain with evidence for every link.",
 		"",
 		"Rules:",
+		"- Money outranks traffic. If the site has revenue or conversion-funnel custom events (checkouts, payments, subscriptions), investigate changes there first and denominate impact in revenue or conversions; pageviews are the proxy of last resort.",
 		"- Every claim needs a number from a query you actually ran.",
 		"- Compare equal-length periods only. If the window splits unevenly, trim a day or quote per-day rates; never headline a raw total from an 8-day window against a 7-day one.",
 		"- Quantify how much of the total change each cause explains (e.g. 'X accounts for 63 of the 230 lost visitors'). Say plainly what share remains unexplained.",
@@ -211,6 +212,7 @@ const MEMO_SYNTHESIS_SYSTEM = [
 
 export interface RunInvestigationParams {
 	apiKey: Parameters<typeof runMcpAgentWithTrace>[0]["apiKey"];
+	billingMode?: Parameters<typeof runMcpAgentWithTrace>[0]["billingMode"];
 	lookbackDays: number;
 	question?: string;
 	requestHeaders: Headers;
@@ -239,6 +241,7 @@ export async function runInvestigation(
 		websiteId: params.websiteId,
 		websiteDomain: params.websiteDomain,
 		timezone: params.timezone,
+		billingMode: params.billingMode,
 		mutationMode: "dry-run",
 		storeMemory: false,
 		timeoutMs: INVESTIGATION_TIMEOUT_MS,
