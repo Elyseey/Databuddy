@@ -1,4 +1,5 @@
 import type { AppContext } from "@databuddy/ai/config/context";
+import { createServiceAuth } from "@databuddy/rpc";
 import {
 	ANTHROPIC_CACHE_1H,
 	createModelFromId,
@@ -313,10 +314,7 @@ async function runInsightsAgent(params: {
 			timezone: params.config.timezone,
 			currentDateTime: new Date().toISOString(),
 			chatId: `insights:${params.organizationId}:${params.websiteId}`,
-			serviceAuth: {
-				organizationId: params.organizationId,
-				scopes: ["read:data"],
-			},
+			serviceAuth: createServiceAuth(params.organizationId, ["read:data"]),
 		};
 
 		const collected: ParsedInsight[] = [];
