@@ -459,7 +459,9 @@ export const organizationsRouter = {
 			}
 
 			try {
-				const customer = await getAutumn().customers.getOrCreate({ customerId });
+				const customer = await getAutumn().customers.getOrCreate({
+					customerId,
+				});
 
 				const subs = customer.subscriptions;
 				const activeSub =
