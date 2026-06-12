@@ -112,7 +112,6 @@ const ALLOWED_ORDERBY_FIELDS = new Set([
 	"date",
 	"time",
 	"errors",
-	"p50_load_time",
 	"avg_scroll_depth",
 	"uptime_percentage",
 	"revenue",

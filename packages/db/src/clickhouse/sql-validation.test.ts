@@ -132,19 +132,14 @@ describe("validateAgentSQL", () => {
 	});
 
 	it("AGENT_TENANT_COLUMN_BY_TABLE only covers vetted tables", () => {
-		// Only client_id-based core tables should be in scope; custom_events and
-		// revenue go through query builders, not free-form agent SQL.
 		expect(AGENT_TENANT_COLUMN_BY_TABLE).toEqual({
 			"analytics.events": "client_id",
 			"analytics.error_spans": "client_id",
-			"analytics.error_hourly": "client_id",
 			"analytics.web_vitals_spans": "client_id",
-			"analytics.web_vitals_hourly": "client_id",
 			"analytics.outgoing_links": "client_id",
 			"analytics.custom_events": "owner_id",
 			"analytics.revenue": "owner_id",
 			"analytics.blocked_traffic": "client_id",
-			"analytics.link_visits": "client_id",
 		});
 	});
 

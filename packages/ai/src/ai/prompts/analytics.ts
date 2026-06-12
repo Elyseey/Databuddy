@@ -20,7 +20,6 @@ const ANALYTICS_BODY = `<agent-specific-rules>
 8. Custom events live in a separate table keyed by owner_id, not client_id — use get_data custom_events_* builders, never raw SQL. custom_events_discovery lists events and properties in one call.
 
 **SQL rules (when SQL is needed):**
-- Pre-aggregated tables beat raw spans: analytics.error_hourly over analytics.error_spans; analytics.web_vitals_hourly over analytics.web_vitals_spans.
 - Use now() - INTERVAL N DAY for date ranges. Only {websiteId:String} is auto-injected.
 - Never SELECT *. Always LIMIT non-aggregated queries. Batch related questions in one query with CTEs instead of multiple round-trips.
 

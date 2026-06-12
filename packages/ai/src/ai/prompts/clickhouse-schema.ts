@@ -12,7 +12,6 @@ export const SCHEMA_SECTIONS = [
 	"outgoing",
 	"revenue",
 	"blocked_traffic",
-	"link_visits",
 ] as const;
 export type SchemaSection = (typeof SCHEMA_SECTIONS)[number];
 
@@ -68,24 +67,9 @@ const ANALYTICS_TABLES: TableDef[] = [
 			"utm_term (String)",
 			"utm_content (String)",
 
-			"load_time (Int32) - Page load time in ms",
-			"dom_ready_time (Int32) - DOM ready time in ms",
-			"dom_interactive (Int32) - DOM interactive time in ms",
-			"ttfb (Int32) - Time to first byte in ms",
-			"connection_time (Int32) - Connection time in ms",
-			"request_time (Int32) - Request time in ms",
-			"render_time (Int32) - Render time in ms",
-			"redirect_time (Int32) - Redirect time in ms",
-			"domain_lookup_time (Int32) - DNS lookup time in ms",
-
-			"screen_resolution (String) - e.g. 1920x1080",
 			"viewport_size (String) - e.g. 1200x800",
 			"language (String) - Browser language",
 			"timezone (String) - User timezone",
-			"connection_type (String) - Network connection type",
-			"rtt (Int16) - Round trip time",
-			"downlink (Float32) - Download speed",
-			"properties (String) - JSON string with custom properties",
 		],
 		additionalInfo:
 			"Partitioned by month (toYYYYMM(time)), ordered by (client_id, time, id)",
@@ -131,23 +115,6 @@ const ANALYTICS_TABLES: TableDef[] = [
 			"Has bloom filter indexes on session_id, error_type, and message. Filterable fields on error queries: path, message, error_type (plus the global filters: country, region, city, device_type, browser_name, os_name).",
 	},
 	{
-		name: "analytics.error_hourly",
-		section: "errors",
-		description: "Hourly aggregated error statistics",
-		keyColumns: [
-			"client_id (String)",
-			"path (String)",
-			"error_type (String)",
-			"message_hash (UInt64) - Hash of error message",
-			"hour (DateTime) - Start of hour",
-			"error_count (UInt64) - Total errors in hour",
-			"affected_users (AggregateFunction) - Unique users affected",
-			"affected_sessions (AggregateFunction) - Unique sessions affected",
-			"sample_message (String) - Example error message",
-		],
-		additionalInfo: "AggregatingMergeTree with 1 year TTL",
-	},
-	{
 		name: "analytics.web_vitals_spans",
 		section: "vitals",
 		description: "Core Web Vitals measurements (FCP, LCP, CLS, INP, TTFB, FPS)",
@@ -167,24 +134,6 @@ const ANALYTICS_TABLES: TableDef[] = [
 - INP: good < 200ms, poor > 500ms
 - TTFB: good < 800ms, poor > 1800ms
 - FPS: good > 55, poor < 30`,
-	},
-	{
-		name: "analytics.web_vitals_hourly",
-		section: "vitals",
-		description: "Hourly aggregated Web Vitals statistics",
-		keyColumns: [
-			"client_id (String)",
-			"path (String)",
-			"metric_name (String)",
-			"hour (DateTime)",
-			"sample_count (UInt64)",
-			"p75 (Float64) - 75th percentile",
-			"p50 (Float64) - Median",
-			"avg_value (Float64)",
-			"min_value (Float64)",
-			"max_value (Float64)",
-		],
-		additionalInfo: "SummingMergeTree with 1 year TTL",
 	},
 	{
 		name: "analytics.outgoing_links",
@@ -229,30 +178,15 @@ const ANALYTICS_TABLES: TableDef[] = [
 			"path (Nullable String)",
 		],
 	},
-	{
-		name: "analytics.link_visits",
-		section: "link_visits",
-		description: "Short-link redirects served by the links service.",
-		keyColumns: [
-			"client_id (String)",
-			"timestamp (DateTime64)",
-			"link_id (String)",
-			"referrer (Nullable String)",
-			"country (Nullable String)",
-			"device_type (Nullable String)",
-			"browser_name (Nullable String)",
-		],
-	},
 ];
 
 const GUIDELINES = `## Query Guidelines
 - Use client_id = {websiteId:String} to filter by website. Only websiteId is auto-injected as a parameter. For date ranges use now() - INTERVAL N DAY, not custom parameters like {from:DateTime}.
 - The primary timestamp column on analytics.events is \`time\`. Avoid aliasing columns as \`time\` in CTEs/subqueries — it conflicts with ClickHouse's built-in time() function. Use \`ts\`, \`event_time\`, or \`event_ts\` as aliases instead.
-- Aggregation tables (*_hourly) are pre-computed for performance. Use toStartOfDay(), toStartOfHour() for time grouping.
+- Use toStartOfDay(), toStartOfHour() for time grouping.
 - Geographic data (country, region, city) exists only on analytics.events, NOT on web_vitals_spans or error_spans. Join via session_id if needed.
 - All timestamps are in UTC.
-- Use uniqMerge() for unique counts from AggregateFunction columns.
-- Properties columns contain JSON strings — use JSONExtractString(properties, 'key') to parse.
+- analytics.custom_events.properties contains JSON strings — use JSONExtractString(properties, 'key') to parse.
 
 ## Aggregate function preferences
 - Percentiles: use \`quantileTDigest(p)(col)\` for p50/p75/p95/p99. Plain \`quantile(p)\` uses reservoir sampling and is noisy at the tails (~10% error at p99). \`quantileTDigest\` is within 0.1% of exact at the same memory cost.
@@ -267,6 +201,8 @@ const GUIDELINES = `## Query Guidelines
 - \`created_at\` is NOT the canonical event timestamp. Use \`time\` on \`analytics.events\`.
 - \`page_path\` does NOT exist. The column is \`path\`.
 - \`event_type\` does NOT exist. The column is \`event_name\`.
+- Performance timing columns (\`load_time\`, \`ttfb\`, \`dom_ready_time\`, \`render_time\`) do NOT exist on analytics.events. Page performance lives in analytics.web_vitals_spans as metric_name/metric_value rows.
+- \`properties\` on analytics.events is always empty. Custom event properties live in analytics.custom_events — use the custom_events_* builders.
 - Pageviews are \`event_name = 'screen_view'\`. Never use \`event_name = 'pageview'\`.
 - \`device_type\` is often empty. Always handle: \`NULLIF(device_type, '') as device_type\` or \`if(device_type = '', 'Desktop', device_type)\`
 - For IN filters use tuple syntax: \`path IN ('/pricing', '/docs', '/demo')\`, NOT array syntax \`['/pricing', '/docs']\`
@@ -302,24 +238,24 @@ LIMIT 10`,
 --   custom_events, custom_events_discovery, custom_events_summary,
 --   custom_events_trends, custom_events_recent, custom_events_by_path,
 --   custom_events_property_top_values, custom_events_property_classification`,
-	errors: `-- Error rate trends (using aggregated table)
+	errors: `-- Error rate trends
 SELECT
-  toStartOfDay(hour) as date,
-  sum(error_count) as errors,
-  uniqMerge(affected_users) as users_affected
-FROM analytics.error_hourly
+  toStartOfDay(timestamp) as date,
+  count() as errors,
+  uniq(anonymous_id) as users_affected
+FROM analytics.error_spans
 WHERE client_id = {websiteId:String}
-  AND hour >= now() - INTERVAL 7 DAY
+  AND timestamp >= now() - INTERVAL 7 DAY
 GROUP BY date
 ORDER BY date`,
-	vitals: `-- Web Vitals performance (using aggregated table)
+	vitals: `-- Web Vitals performance
 SELECT
   metric_name,
-  quantileMerge(0.75)(p75) as p75_value,
-  quantileMerge(0.50)(p50) as p50_value
-FROM analytics.web_vitals_hourly
+  quantileTDigest(0.75)(metric_value) as p75_value,
+  quantileTDigest(0.50)(metric_value) as p50_value
+FROM analytics.web_vitals_spans
 WHERE client_id = {websiteId:String}
-  AND hour >= now() - INTERVAL 7 DAY
+  AND timestamp >= now() - INTERVAL 7 DAY
 GROUP BY metric_name`,
 	outgoing: `-- Top outgoing domains
 SELECT
@@ -347,17 +283,6 @@ WHERE client_id = {websiteId:String}
   AND timestamp >= now() - INTERVAL 7 DAY
 GROUP BY block_reason, bot_name
 ORDER BY blocked DESC`,
-	link_visits: `-- Short-link click breakdown
-SELECT
-  link_id,
-  country,
-  count() as visits
-FROM analytics.link_visits
-WHERE client_id = {websiteId:String}
-  AND timestamp >= now() - INTERVAL 7 DAY
-GROUP BY link_id, country
-ORDER BY visits DESC
-LIMIT 20`,
 };
 
 const STATEMENT_SEPARATOR = /\n\s*\n/;

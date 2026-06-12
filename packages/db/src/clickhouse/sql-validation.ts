@@ -10,14 +10,11 @@ const ALLOWED_TABLE_PREFIX = "analytics.";
 export const AGENT_TENANT_COLUMN_BY_TABLE: Readonly<Record<string, string>> = {
 	"analytics.events": "client_id",
 	"analytics.error_spans": "client_id",
-	"analytics.error_hourly": "client_id",
 	"analytics.web_vitals_spans": "client_id",
-	"analytics.web_vitals_hourly": "client_id",
 	"analytics.outgoing_links": "client_id",
 	"analytics.custom_events": "owner_id",
 	"analytics.revenue": "owner_id",
 	"analytics.blocked_traffic": "client_id",
-	"analytics.link_visits": "client_id",
 };
 
 export const AGENT_TABLE_COLUMNS: Readonly<
@@ -41,10 +38,8 @@ export const AGENT_TABLE_COLUMNS: Readonly<
 		"utm_campaign",
 		"utm_term",
 		"utm_content",
-		"load_time",
 		"time_on_page",
 		"scroll_depth",
-		"properties",
 		"event_name",
 	]),
 	"analytics.error_spans": new Set([
@@ -60,17 +55,6 @@ export const AGENT_TABLE_COLUMNS: Readonly<
 		"stack",
 		"error_type",
 	]),
-	"analytics.error_hourly": new Set([
-		"client_id",
-		"path",
-		"error_type",
-		"message_hash",
-		"hour",
-		"error_count",
-		"affected_users",
-		"affected_sessions",
-		"sample_message",
-	]),
 	"analytics.web_vitals_spans": new Set([
 		"client_id",
 		"anonymous_id",
@@ -79,18 +63,6 @@ export const AGENT_TABLE_COLUMNS: Readonly<
 		"path",
 		"metric_name",
 		"metric_value",
-	]),
-	"analytics.web_vitals_hourly": new Set([
-		"client_id",
-		"path",
-		"metric_name",
-		"hour",
-		"sample_count",
-		"p75",
-		"p50",
-		"avg_value",
-		"min_value",
-		"max_value",
 	]),
 	"analytics.outgoing_links": new Set([
 		"client_id",
@@ -125,15 +97,6 @@ export const AGENT_TABLE_COLUMNS: Readonly<
 		"block_reason",
 		"bot_name",
 		"path",
-	]),
-	"analytics.link_visits": new Set([
-		"client_id",
-		"timestamp",
-		"link_id",
-		"referrer",
-		"country",
-		"device_type",
-		"browser_name",
 	]),
 };
 

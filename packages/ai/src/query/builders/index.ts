@@ -94,7 +94,6 @@ export const PUBLIC_QUERY_TYPES = new Set<string>([
 	"vitals_by_browser",
 	"vitals_by_region",
 	"vitals_by_city",
-	"performance_overview",
 ] as const);
 
 export const QueryBuilders = Object.fromEntries(
