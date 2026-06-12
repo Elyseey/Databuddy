@@ -97,9 +97,12 @@ export function buildInvestigationBrief(params: {
 		"",
 		"Rules:",
 		"- Every claim needs a number from a query you actually ran.",
+		"- Compare equal-length periods only. If the window splits unevenly, trim a day or quote per-day rates; never headline a raw total from an 8-day window against a 7-day one.",
+		"- Quantify how much of the total change each cause explains (e.g. 'X accounts for 63 of the 230 lost visitors'). Say plainly what share remains unexplained.",
 		"- Report hypotheses you ruled out and what ruled them out.",
 		"- If you cannot establish a cause, say exactly what you eliminated and what data would settle it. Never hand-wave.",
 		"- Timing beats correlation: an effect that starts before its supposed cause is a dead end.",
+		"- If a data source errors or is not connected, name it as a gap in your findings; do not silently work around it.",
 	].join("\n");
 }
 
@@ -172,8 +175,9 @@ const MEMO_SYNTHESIS_SYSTEM = [
 	"You turn a completed analytics investigation into a structured memo.",
 	"Use ONLY facts present in the investigation findings and tool trace. Never invent numbers, dates, commits, or causes.",
 	"The headline must contain the most important number. Generic headlines ('Traffic changed recently') are failures.",
+	"Headline numbers must compare equal-length periods; prefer per-day rates when the underlying windows differ in length.",
 	"causalChain steps must each cite evidence that appears in the trace. If the investigation found no cause, leave causalChain empty and say what was ruled out.",
-	"Set confidence honestly: high only when cause, mechanism, and timing all check out.",
+	"Set confidence honestly: high only when cause, mechanism, and timing all check out AND the causal chain accounts for the majority of the observed change. If most of the change is unexplained, confidence is medium at best and the narrative must say what share remains unexplained.",
 ].join(" ");
 
 export interface RunInvestigationParams {

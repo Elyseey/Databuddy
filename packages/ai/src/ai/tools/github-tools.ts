@@ -4,6 +4,8 @@ import { createCachedTokenFn } from "./utils/oauth-token";
 
 const GITHUB_API = "https://api.github.com";
 const MAX_RESULTS = 10;
+const DEPLOY_FETCH_SIZE = 50;
+const MAX_COMMITS = 50;
 
 export async function githubFetch(
 	path: string,
@@ -39,14 +41,16 @@ export function createGitHubTools(params: GitHubToolsParams) {
 
 	const getRecentDeploysTool = tool({
 		description:
-			"Get recent GitHub deployments for a repo. Use when a metric changed and you want to check if a deploy happened in the same time window. Returns SHA, environment, timestamp, and author.",
+			"Get recent GitHub deployments for a repo. Use when a metric changed and you want to check if a deploy happened in the same time window. Returns SHA, environment, timestamp, and author. Environment names vary by platform (e.g. 'Databuddy / production', 'api - preview'), so the environment filter matches as a case-insensitive substring; check availableEnvironments in the response if a filter returns nothing.",
 		inputSchema: z.object({
 			owner: z.string().describe("GitHub repo owner (user or org)"),
 			repo: z.string().describe("GitHub repo name"),
 			environment: z
 				.string()
 				.optional()
-				.describe("Filter by environment (e.g. production, staging)"),
+				.describe(
+					"Case-insensitive substring filter on the environment name (e.g. 'production', 'preview')"
+				),
 			limit: z
 				.number()
 				.min(1)
@@ -61,11 +65,8 @@ export function createGitHubTools(params: GitHubToolsParams) {
 				return { error: "No GitHub account connected for this organization" };
 			}
 
-			const envFilter = environment
-				? `&environment=${encodeURIComponent(environment)}`
-				: "";
 			const data = await githubFetch(
-				`/repos/${owner}/${repo}/deployments?per_page=${limit}${envFilter}`,
+				`/repos/${owner}/${repo}/deployments?per_page=${DEPLOY_FETCH_SIZE}`,
 				token
 			);
 
@@ -83,10 +84,19 @@ export function createGitHubTools(params: GitHubToolsParams) {
 				creator: { login: string } | null;
 			}>;
 
+			const availableEnvironments = [
+				...new Set(deploys.map((d) => d.environment)),
+			];
+			const envNeedle = environment?.toLowerCase();
+			const matched = envNeedle
+				? deploys.filter((d) => d.environment.toLowerCase().includes(envNeedle))
+				: deploys;
+
 			return {
 				repo: `${owner}/${repo}`,
-				count: deploys.length,
-				deploys: deploys.map((d) => ({
+				count: matched.length,
+				availableEnvironments,
+				deploys: matched.slice(0, limit).map((d) => ({
 					sha: d.sha.slice(0, 7),
 					ref: d.ref,
 					environment: d.environment,
@@ -100,7 +110,7 @@ export function createGitHubTools(params: GitHubToolsParams) {
 
 	const getRecentCommitsTool = tool({
 		description:
-			"Get recent commits from a GitHub repo, optionally filtered by date range. Use when investigating what code changes happened around a metric anomaly. Returns commit message, author, and date.",
+			"Get recent commits from a GitHub repo, optionally filtered by date range. Use when investigating what code changes happened around a metric anomaly. Returns commit message, author, and date, newest first. When correlating a multi-day window, set limit high enough to cover the whole window or pass until to page backwards; otherwise you only see the newest commits.",
 		inputSchema: z.object({
 			owner: z.string().describe("GitHub repo owner"),
 			repo: z.string().describe("GitHub repo name"),
@@ -117,9 +127,9 @@ export function createGitHubTools(params: GitHubToolsParams) {
 			limit: z
 				.number()
 				.min(1)
-				.max(MAX_RESULTS)
+				.max(MAX_COMMITS)
 				.optional()
-				.default(5)
+				.default(30)
 				.describe("Number of commits to return"),
 		}),
 		execute: async ({ owner, repo, since, until, limit }) => {
