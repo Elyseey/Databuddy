@@ -46,6 +46,16 @@ const RESOURCE_SCOPE_OVERRIDES: Partial<
 		update: "manage:websites",
 		delete: "manage:websites",
 	},
+	monitor: {
+		create: "manage:websites",
+		update: "manage:websites",
+		delete: "manage:websites",
+	},
+	status_page: {
+		create: "manage:websites",
+		update: "manage:websites",
+		delete: "manage:websites",
+	},
 	organization: {
 		update: "manage:config",
 		delete: "manage:config",
