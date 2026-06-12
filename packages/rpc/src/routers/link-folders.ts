@@ -1,4 +1,11 @@
-import { and, asc, eq, isNull, isUniqueViolationFor } from "@databuddy/db";
+import {
+	and,
+	asc,
+	eq,
+	isNull,
+	isUniqueViolationFor,
+	withTransaction,
+} from "@databuddy/db";
 import { linkFolders, links } from "@databuddy/db/schema";
 import { randomUUIDv7 } from "bun";
 import { customAlphabet } from "nanoid";
@@ -239,11 +246,13 @@ export const linkFoldersRouter = {
 				permission: "delete",
 			});
 
-			await context.db
-				.update(links)
-				.set({ folderId: null, updatedAt: new Date() })
-				.where(eq(links.folderId, input.id));
-			await context.db.delete(linkFolders).where(eq(linkFolders.id, input.id));
+			await withTransaction(async (tx) => {
+				await tx
+					.update(links)
+					.set({ folderId: null, updatedAt: new Date() })
+					.where(eq(links.folderId, input.id));
+				await tx.delete(linkFolders).where(eq(linkFolders.id, input.id));
+			});
 
 			return { success: true };
 		}),
