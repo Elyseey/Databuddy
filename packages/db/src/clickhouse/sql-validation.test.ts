@@ -137,7 +137,9 @@ describe("validateAgentSQL", () => {
 		expect(AGENT_TENANT_COLUMN_BY_TABLE).toEqual({
 			"analytics.events": "client_id",
 			"analytics.error_spans": "client_id",
+			"analytics.error_hourly": "client_id",
 			"analytics.web_vitals_spans": "client_id",
+			"analytics.web_vitals_hourly": "client_id",
 			"analytics.outgoing_links": "client_id",
 			"analytics.custom_events": "owner_id",
 			"analytics.revenue": "owner_id",
