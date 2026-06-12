@@ -230,16 +230,18 @@ function validateGroupByField(field: string): void {
 	}
 }
 
-const ORDER_BY_REGEX = /^(\w+)\s+(ASC|DESC)$/i;
+const ORDER_BY_REGEX = /^(\w+)(?:\s+(ASC|DESC))?$/i;
 
-function validateOrderByField(orderBy: string): void {
-	const match = orderBy.match(ORDER_BY_REGEX);
+function normalizeOrderBy(orderBy: string): string {
+	const match = orderBy.trim().match(ORDER_BY_REGEX);
 	const field = match?.[1];
-	if (!(field && ALLOWED_ORDERBY_FIELDS.has(field))) {
+	if (!(match && field && ALLOWED_ORDERBY_FIELDS.has(field))) {
 		throw new Error(
-			`Ordering by '${orderBy}' is not permitted. Use '<field> ASC|DESC' where field is one of: ${listAllowed(ALLOWED_ORDERBY_FIELDS)}.`
+			`Ordering by '${orderBy}' is not permitted. Use '<field>' or '<field> ASC|DESC' where field is one of: ${listAllowed(ALLOWED_ORDERBY_FIELDS)}.`
 		);
 	}
+	const direction = match[2]?.toUpperCase() ?? "DESC";
+	return `${field} ${direction}`;
 }
 
 function buildDeviceTypeSQL(
@@ -1086,8 +1088,7 @@ export class SimpleQueryBuilder {
 
 	private buildOrderByClause(): string {
 		if (this.request.orderBy) {
-			validateOrderByField(this.request.orderBy);
-			return ` ORDER BY ${this.request.orderBy}`;
+			return ` ORDER BY ${normalizeOrderBy(this.request.orderBy)}`;
 		}
 		if (this.config.orderBy) {
 			return ` ORDER BY ${this.config.orderBy}`;
