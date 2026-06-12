@@ -1,6 +1,6 @@
 import { chQuery } from "@databuddy/db/clickhouse";
 import { captureError, mergeWideEvent } from "../lib/tracing";
-import { QueryBuilders } from "./builders";
+import { QueryBuilders, suggestQueryTypes } from "./builders";
 import {
 	getClickHouseQuerySettings,
 	SimpleQueryBuilder,
@@ -233,6 +233,13 @@ function getSchemaSignature(
 	return probeSignature(type, config);
 }
 
+function unknownTypeError(type: string): string {
+	const suggestions = suggestQueryTypes(type);
+	return suggestions.length
+		? `Unknown query type: ${type}. Did you mean: ${suggestions.join(", ")}?`
+		: `Unknown query type: ${type}`;
+}
+
 async function runSingle(
 	req: BatchRequest,
 	opts?: BatchOptions
@@ -242,7 +249,7 @@ async function runSingle(
 		return {
 			type: req.type,
 			data: [],
-			error: `Unknown query type: ${req.type}`,
+			error: unknownTypeError(req.type),
 		};
 	}
 
@@ -309,7 +316,7 @@ export function buildUnionQuery(
 			failures.push({
 				index,
 				type: req.type,
-				error: `Unknown query type: ${req.type}`,
+				error: unknownTypeError(req.type),
 			});
 			continue;
 		}

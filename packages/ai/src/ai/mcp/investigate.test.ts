@@ -93,7 +93,8 @@ describe("buildInvestigationBrief", () => {
 		expect(brief).toContain("example.com");
 		expect(brief).toContain("30-day");
 		expect(brief).toContain("1. Sweep");
-		expect(brief).toContain("3. Correlate");
+		expect(brief).toContain("2. Baseline health");
+		expect(brief).toContain("4. Correlate");
 		expect(brief).toContain("most consequential change");
 	});
 

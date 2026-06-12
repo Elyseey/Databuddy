@@ -1,6 +1,8 @@
 /** biome-ignore-all lint/performance/noBarrelFile: this is a barrel file */
 import { z } from "zod";
-import { QueryBuilders } from "./builders";
+import { QueryBuilders, suggestQueryTypes } from "./builders";
+
+export { suggestQueryTypes } from "./builders";
 import { SimpleQueryBuilder } from "./simple-builder";
 import type { FilterOperators, QueryRequest, TimeGranularity } from "./types";
 
@@ -58,37 +60,6 @@ const QuerySchema = z.object({
 	offset: z.number().min(0).optional(),
 	timezone: z.string().optional(),
 });
-
-const TOKEN_SEPARATOR = /[\s_]+/;
-
-export function suggestQueryTypes(input: string, limit = 5): string[] {
-	const lower = input.toLowerCase();
-	const all = Object.keys(QueryBuilders);
-	const prefixMatches = all.filter((t) => t.toLowerCase().startsWith(lower));
-	const substringMatches = all.filter(
-		(t) => !prefixMatches.includes(t) && t.toLowerCase().includes(lower)
-	);
-	const ranked = [...prefixMatches, ...substringMatches];
-	if (ranked.length >= limit) {
-		return ranked.slice(0, limit);
-	}
-
-	const inputTokens = new Set(lower.split(TOKEN_SEPARATOR).filter(Boolean));
-	const tokenMatches = all
-		.filter((t) => !ranked.includes(t))
-		.map((t) => ({
-			score: t
-				.toLowerCase()
-				.split("_")
-				.filter((token) => inputTokens.has(token)).length,
-			type: t,
-		}))
-		.filter((m) => m.score > 0)
-		.sort((a, b) => b.score - a.score)
-		.map((m) => m.type);
-
-	return [...ranked, ...tokenMatches].slice(0, limit);
-}
 
 function createBuilder(
 	request: QueryRequest,
