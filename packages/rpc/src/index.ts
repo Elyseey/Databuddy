@@ -8,8 +8,10 @@ export {
 export { setTrackingFn } from "./middleware/track-mutation";
 export {
 	type Context,
+	createInternalPrincipal,
 	createRPCContext,
 	createServiceAuth,
+	type InternalPrincipalInit,
 	type PreResolvedAuth,
 } from "./orpc";
 export { withWorkspace } from "./procedures/with-workspace";
