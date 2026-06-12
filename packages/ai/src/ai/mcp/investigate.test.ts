@@ -53,6 +53,10 @@ const sampleMemo: InvestigationMemo = {
 		},
 	],
 	confidence: { level: "high", reason: "cause, mechanism, and timing all align" },
+	verdict: {
+		type: "act",
+		reason: "deploy d4f21a9 is rollbackable and errors are still climbing",
+	},
 	actions: ["Roll back or patch d4f21a9"],
 };
 
@@ -161,6 +165,54 @@ describe("renderMemoMarkdown", () => {
 		expect(markdown).not.toContain("## Ruled out");
 		expect(markdown).not.toContain("## Do next");
 		expect(markdown).toContain("## Confidence: low");
+	});
+
+	test("labels act verdict and includes the reason", () => {
+		const markdown = renderMemoMarkdown(sampleMemo, buildReceipts(2, []));
+		expect(markdown).toContain(
+			"**Act now.** deploy d4f21a9 is rollbackable and errors are still climbing"
+		);
+	});
+
+	test("labels watch verdict", () => {
+		const watchMemo: InvestigationMemo = {
+			...sampleMemo,
+			verdict: { type: "watch", reason: "cause unconfirmed, trend worsening" },
+		};
+		const markdown = renderMemoMarkdown(watchMemo, buildReceipts(2, []));
+		expect(markdown).toContain(
+			"**Watch.** cause unconfirmed, trend worsening"
+		);
+	});
+
+	test("renders compact output for all_clear without full sections", () => {
+		const allClearMemo: InvestigationMemo = {
+			...sampleMemo,
+			verdict: {
+				type: "all_clear",
+				reason: "viral spike normalized, nothing is broken",
+			},
+			actions: ["Recheck direct traffic next week"],
+		};
+		const markdown = renderMemoMarkdown(allClearMemo, buildReceipts(5, sampleTrace));
+		expect(markdown).toContain(
+			"**All clear.** viral spike normalized, nothing is broken"
+		);
+		expect(markdown).toContain("Monitor: Recheck direct traffic next week");
+		expect(markdown).toContain("5 agent steps, 3 tool calls");
+		expect(markdown).not.toContain("## Causal chain");
+		expect(markdown).not.toContain("## Confidence");
+		expect(markdown).not.toContain("## Do next");
+	});
+
+	test("all_clear without actions omits the monitor line", () => {
+		const allClearMemo: InvestigationMemo = {
+			...sampleMemo,
+			verdict: { type: "all_clear", reason: "change is within normal variance" },
+			actions: [],
+		};
+		const markdown = renderMemoMarkdown(allClearMemo, buildReceipts(2, []));
+		expect(markdown).not.toContain("Monitor:");
 	});
 });
 

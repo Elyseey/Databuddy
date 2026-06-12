@@ -48,6 +48,16 @@ export const investigationMemoSchema = z.object({
 				"Why this confidence level, and what data would raise it if low"
 			),
 	}),
+	verdict: z.object({
+		type: z
+			.enum(["act", "watch", "all_clear"])
+			.describe(
+				"act: a fixable cause with material impact, the owner should do something today. watch: something real is moving but the cause is unconfirmed or not yet actionable; name the metric to monitor. all_clear: the change is explained and is either immaterial or outside the owner's control (viral decay, seasonality, spike normalization), nothing to do."
+			),
+		reason: z
+			.string()
+			.describe("One sentence justifying the verdict, with the key number."),
+	}),
 	actions: z
 		.array(z.string())
 		.describe("Concrete next steps ranked by impact. Empty if none warranted."),
@@ -140,7 +150,32 @@ export function renderMemoMarkdown(
 	memo: InvestigationMemo,
 	receipts: InvestigationReceipts
 ): string {
-	const sections = [`# ${memo.headline}`, "", memo.narrative];
+	if (memo.verdict.type === "all_clear") {
+		const lines = [
+			`# ${memo.headline}`,
+			"",
+			`**All clear.** ${memo.verdict.reason}`,
+			"",
+			memo.narrative,
+		];
+		if (memo.actions.length > 0) {
+			lines.push("", `Monitor: ${memo.actions[0]}`);
+		}
+		lines.push(
+			"",
+			`Receipts: ${receipts.steps} agent steps, ${receipts.queriesRun.length} tool calls (${receipts.sourcesChecked.join(", ")})`
+		);
+		return lines.join("\n");
+	}
+
+	const verdictLabel = memo.verdict.type === "act" ? "Act now" : "Watch";
+	const sections = [
+		`# ${memo.headline}`,
+		"",
+		`**${verdictLabel}.** ${memo.verdict.reason}`,
+		"",
+		memo.narrative,
+	];
 
 	if (memo.causalChain.length > 0) {
 		sections.push(
@@ -208,6 +243,9 @@ const MEMO_SYNTHESIS_SYSTEM = [
 	"Headline numbers must compare equal-length periods; prefer per-day rates when the underlying windows differ in length.",
 	"causalChain steps must each cite evidence that appears in the trace. If the investigation found no cause, leave causalChain empty and say what was ruled out.",
 	"Set confidence honestly: high only when cause, mechanism, and timing all check out AND the causal chain accounts for the majority of the observed change. If most of the change is unexplained, confidence is medium at best and the narrative must say what share remains unexplained.",
+	"Classify the verdict honestly. 'act' requires both a concrete fix the site owner can execute AND material impact, denominated in revenue or conversions when the site has them. A cause outside the owner's control (viral decay, seasonality, a spike normalizing back to baseline) is 'all_clear' no matter how large the numbers are. A real worsening trend without a confirmed fixable cause is 'watch'.",
+	"When the verdict is all_clear, keep the narrative to 2-3 sentences and limit actions to at most one monitoring step. Do not pad an all_clear finding into a full report.",
+	"Actions must be verbs the owner can execute today with an expected impact. Generic advice ('diversify acquisition', 'improve content') is a failure; omit it.",
 ].join(" ");
 
 export interface RunInvestigationParams {
