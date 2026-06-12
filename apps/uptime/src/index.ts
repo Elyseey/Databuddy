@@ -141,8 +141,7 @@ const healthCheck = Effect.gen(function* () {
 		[
 			probe("postgres", () => db.execute(sql`SELECT 1`).then(() => {})),
 			probe("bullmqRedis", async () => {
-				const client = await getUptimeQueue().client;
-				await client.ping();
+				await getUptimeQueue().count();
 			}),
 			probe("redpanda", async () => {
 				const broker = process.env.REDPANDA_BROKER;

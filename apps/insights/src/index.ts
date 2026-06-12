@@ -177,8 +177,7 @@ const app = new Elysia()
 		const [postgres, bullmqRedis] = await Promise.all([
 			probe(() => db.execute(sql`SELECT 1`).then(() => {})),
 			probe(async () => {
-				const client = await getInsightsQueue().client;
-				await client.ping();
+				await getInsightsQueue().count();
 			}),
 		]);
 
