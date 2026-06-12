@@ -37,7 +37,7 @@ async function setupOwnedSite(siteOverrides?: { isPublic?: boolean }) {
 	return { user, org, site };
 }
 
-async function seedTargetGroup(websiteId: string) {
+async function seedTargetGroup(websiteId: string, createdBy: string) {
 	await db()
 		.insert(targetGroups)
 		.values({
@@ -46,7 +46,7 @@ async function seedTargetGroup(websiteId: string) {
 			name: "Secret Targeting",
 			color: "#FF0000",
 			rules: [{ field: "country", operator: "equals", value: "US" }],
-			createdBy: "system",
+			createdBy,
 		});
 }
 
@@ -71,7 +71,7 @@ describe("cache-bypass auth: target-groups.list", () => {
 		"anon caller cannot read private-site target groups after authed prime",
 		async () => {
 			const { user, org, site } = await setupOwnedSite();
-			await seedTargetGroup(site.id);
+			await seedTargetGroup(site.id, user.id);
 
 			const authed = await call(
 				appRouter.targetGroups.list,
@@ -90,7 +90,7 @@ describe("cache-bypass auth: target-groups.list", () => {
 	iit("cross-org user is rejected after authed prime", async () => {
 		const a = await setupOwnedSite();
 		const b = await setupOwnedSite();
-		await seedTargetGroup(a.site.id);
+		await seedTargetGroup(a.site.id, a.user.id);
 
 		await call(
 			appRouter.targetGroups.list,
@@ -108,7 +108,7 @@ describe("cache-bypass auth: target-groups.list", () => {
 
 	iit("demo caller gets sanitized rules even when authed cache exists", async () => {
 		const { user, org, site } = await setupOwnedSite({ isPublic: true });
-		await seedTargetGroup(site.id);
+		await seedTargetGroup(site.id, user.id);
 
 		const authed = await call(
 			appRouter.targetGroups.list,
@@ -127,7 +127,7 @@ describe("cache-bypass auth: target-groups.list", () => {
 	iit("cross-org API key cannot read a website it does not own", async () => {
 		const a = await setupOwnedSite();
 		const orgB = await insertOrganization();
-		await seedTargetGroup(a.site.id);
+		await seedTargetGroup(a.site.id, a.user.id);
 
 		await call(
 			appRouter.targetGroups.list,
