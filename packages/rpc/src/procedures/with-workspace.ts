@@ -1,9 +1,5 @@
 import { hasKeyScope } from "@databuddy/api-keys/resolve";
-import {
-	LINKS_SCOPE_MAP,
-	type LinksPermission,
-	requiredScopesForResource,
-} from "@databuddy/api-keys/scopes";
+import { requiredScopesForResource } from "@databuddy/api-keys/scopes";
 import {
 	type PermissionFor,
 	type ResourceType,
@@ -246,27 +242,6 @@ export async function withWorkspace<R extends ResourceType = "organization">(
 		website,
 		getCreatedBy,
 	};
-}
-
-export async function withLinksAccess(
-	context: Context,
-	options: {
-		organizationId: string;
-		permission: LinksPermission;
-	}
-): Promise<Workspace> {
-	if (context.apiKey) {
-		const scope = LINKS_SCOPE_MAP[options.permission];
-		if (!hasKeyScope(context.apiKey, scope)) {
-			throw rpcError.forbidden(`API key missing ${scope} scope`);
-		}
-	}
-
-	return await withWorkspace(context, {
-		organizationId: options.organizationId,
-		resource: "link",
-		permissions: [options.permission],
-	});
 }
 
 export async function withFlagsWrite(

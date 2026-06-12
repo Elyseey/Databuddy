@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { requiredScopesForResource, LINKS_SCOPE_MAP } from "./scopes";
+import { requiredScopesForResource } from "./scopes";
 
 describe("requiredScopesForResource", () => {
 	test("website read requires read:data", () => {
@@ -42,11 +42,20 @@ describe("requiredScopesForResource", () => {
 	});
 });
 
-describe("LINKS_SCOPE_MAP", () => {
-	test("read maps to read:links", () => {
-		expect(LINKS_SCOPE_MAP.read).toBe("read:links");
+describe("link resource scopes", () => {
+	test("read requires read:links", () => {
+		expect(requiredScopesForResource("link", ["read"])).toEqual([
+			"read:links",
+		]);
 	});
-	test("create maps to write:links", () => {
-		expect(LINKS_SCOPE_MAP.create).toBe("write:links");
+	test("view_analytics requires read:links", () => {
+		expect(requiredScopesForResource("link", ["view_analytics"])).toEqual([
+			"read:links",
+		]);
+	});
+	test("create, update, delete require write:links", () => {
+		expect(
+			requiredScopesForResource("link", ["create", "update", "delete"])
+		).toEqual(["write:links"]);
 	});
 });
