@@ -10,10 +10,8 @@ import {
 import { db } from "@databuddy/db";
 import { readBooleanEnv } from "@databuddy/env/boolean";
 import { ratelimit } from "@databuddy/redis/rate-limit";
-import {
-	getBillingOwner,
-	getOrganizationOwnerId,
-} from "@databuddy/rpc/billing";
+import { getBillingOwner } from "@databuddy/rpc/billing";
+import { getOrganizationOwnerId } from "@databuddy/rpc/organization";
 import {
 	type GatedFeatureId,
 	GATED_FEATURES,

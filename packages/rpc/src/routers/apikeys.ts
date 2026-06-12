@@ -6,7 +6,6 @@ import {
 	withApiKeyCacheInvalidation,
 } from "@databuddy/api-keys/resolve";
 import { API_SCOPES } from "@databuddy/api-keys/scopes";
-import { websitesApi } from "@databuddy/auth";
 import { desc, eq } from "@databuddy/db";
 import { apikey } from "@databuddy/db/schema";
 import {
@@ -26,6 +25,7 @@ import {
 	sessionProcedure,
 	trackedProcedure,
 } from "../orpc";
+import { withWorkspace } from "../procedures/with-workspace";
 
 type ApiKey = ApiKeyRow;
 interface Metadata {
@@ -120,28 +120,17 @@ const verifyOutputSchema = z.discriminatedUnion("valid", [
 
 const getMeta = (key: ApiKey): Metadata => (key.metadata as Metadata) ?? {};
 
-async function verifyOrganizationAccess(
-	ctx: Pick<Context, "headers" | "user">,
-	organizationId: string
-) {
-	try {
-		const { success } = await websitesApi.hasPermission({
-			headers: ctx.headers,
-			body: {
-				organizationId,
-				permissions: { website: ["update"] },
-			},
-		});
-
-		if (!success) {
-			throw rpcError.forbidden("Missing organization permissions");
-		}
-	} catch (error) {
-		if (error instanceof Error && "code" in error) {
-			throw error;
-		}
-		throw rpcError.forbidden("Missing organization permissions");
+async function authorizeKeyManagement(ctx: Context, organizationId: string) {
+	if (!ctx.user) {
+		throw rpcError.forbidden(
+			"API key management requires a user session, not an API key"
+		);
 	}
+	await withWorkspace(ctx, {
+		organizationId,
+		resource: "website",
+		permissions: ["update"],
+	});
 }
 
 async function assertOrgAdmin(
@@ -154,18 +143,15 @@ async function assertOrgAdmin(
 			`${action} cannot be performed via an API key — use a user session`
 		);
 	}
-	const callerMember = await ctx.db.query.member.findFirst({
-		where: { organizationId, userId: ctx.user.id },
-		columns: { role: true },
-	});
-	if (callerMember?.role !== "owner" && callerMember?.role !== "admin") {
+	const workspace = await withWorkspace(ctx, { organizationId });
+	if (workspace.role !== "owner" && workspace.role !== "admin") {
 		throw rpcError.forbidden(
 			`Only organization owners or admins can ${action.toLowerCase()}`
 		);
 	}
 }
 
-async function getKeyWithAuth(ctx: Context, id: string) {
+async function getAuthorizedKey(ctx: Context, id: string) {
 	const key = await ctx.db.query.apikey.findFirst({ where: { id } });
 	if (!key) {
 		throw rpcError.notFound("API key", id);
@@ -173,7 +159,7 @@ async function getKeyWithAuth(ctx: Context, id: string) {
 	if (!key.organizationId) {
 		throw rpcError.notFound("API key", id);
 	}
-	await verifyOrganizationAccess(ctx, key.organizationId);
+	await authorizeKeyManagement(ctx, key.organizationId);
 	return key;
 }
 
@@ -249,7 +235,7 @@ export const apikeysRouter = {
 		.input(z.object({ organizationId: z.string() }))
 		.output(z.array(apiKeyFullOutputSchema))
 		.handler(async ({ context, input }) => {
-			await verifyOrganizationAccess(context, input.organizationId);
+			await authorizeKeyManagement(context, input.organizationId);
 			const rows = await context.db
 				.select()
 				.from(apikey)
@@ -270,7 +256,7 @@ export const apikeysRouter = {
 		.input(z.object({ id: z.string() }))
 		.output(apiKeyFullOutputSchema)
 		.handler(async ({ context, input }) =>
-			mapKey(await getKeyWithAuth(context, input.id), true)
+			mapKey(await getAuthorizedKey(context, input.id), true)
 		),
 
 	create: trackedProcedure
@@ -298,7 +284,7 @@ export const apikeysRouter = {
 		.output(apiKeyCreateOutputSchema)
 		.handler(async ({ context, input }) => {
 			setTrackProperties({ type: input.type, has_expiry: !!input.expiresAt });
-			await verifyOrganizationAccess(context, input.organizationId);
+			await authorizeKeyManagement(context, input.organizationId);
 
 			const grantingScopes =
 				input.scopes.length > 0 ||
@@ -380,7 +366,7 @@ export const apikeysRouter = {
 		)
 		.output(apiKeyOutputSchema)
 		.handler(async ({ context, input }) => {
-			const key = await getKeyWithAuth(context, input.id);
+			const key = await getAuthorizedKey(context, input.id);
 			const meta = getMeta(key);
 
 			const grantingScopes =
@@ -452,7 +438,7 @@ export const apikeysRouter = {
 		.input(z.object({ id: z.string() }))
 		.output(successOutputSchema)
 		.handler(async ({ context, input }) => {
-			const key = await getKeyWithAuth(context, input.id);
+			const key = await getAuthorizedKey(context, input.id);
 			if (!key.organizationId) {
 				throw rpcError.internal("Organization key required to revoke");
 			}
@@ -480,7 +466,7 @@ export const apikeysRouter = {
 		.input(z.object({ id: z.string() }))
 		.output(apiKeyCreateOutputSchema)
 		.handler(async ({ context, input }) => {
-			const key = await getKeyWithAuth(context, input.id);
+			const key = await getAuthorizedKey(context, input.id);
 			const meta = getMeta(key);
 
 			const ownerId = key.organizationId;
@@ -534,7 +520,7 @@ export const apikeysRouter = {
 		.input(z.object({ id: z.string() }))
 		.output(successOutputSchema)
 		.handler(async ({ context, input }) => {
-			const key = await getKeyWithAuth(context, input.id);
+			const key = await getAuthorizedKey(context, input.id);
 			if (!key.organizationId) {
 				throw rpcError.internal("Organization key required to delete");
 			}

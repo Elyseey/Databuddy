@@ -30,6 +30,7 @@ import { rpcError } from "../errors";
 import { logger } from "../lib/logger";
 import { protectedProcedure, publicProcedure, trackedProcedure } from "../orpc";
 import { setTrackProperties } from "../middleware/track-mutation";
+import { authorizeTransfer } from "../procedures/with-resource";
 import { withWorkspace } from "../procedures/with-workspace";
 import {
 	generateExport,
@@ -754,19 +755,14 @@ export const websitesRouter = {
 		.input(transferWebsiteSchema)
 		.output(websiteOutputSchema)
 		.handler(async ({ context, input }) => {
-			await withWorkspace(context, {
-				websiteId: input.websiteId,
-				permissions: ["update"],
-			});
-
 			if (!input.organizationId) {
 				throw rpcError.badRequest("Website must be transferred to a workspace");
 			}
 
-			await withWorkspace(context, {
-				organizationId: input.organizationId,
+			await authorizeTransfer(context, {
 				resource: "website",
-				permissions: ["create"],
+				id: input.websiteId,
+				targetOrganizationId: input.organizationId,
 			});
 
 			try {
@@ -789,15 +785,10 @@ export const websitesRouter = {
 		.input(transferWebsiteToOrgSchema)
 		.output(websiteOutputSchema)
 		.handler(async ({ context, input }) => {
-			await withWorkspace(context, {
-				websiteId: input.websiteId,
-				permissions: ["update"],
-			});
-
-			await withWorkspace(context, {
-				organizationId: input.targetOrganizationId,
+			await authorizeTransfer(context, {
 				resource: "website",
-				permissions: ["create"],
+				id: input.websiteId,
+				targetOrganizationId: input.targetOrganizationId,
 			});
 
 			try {

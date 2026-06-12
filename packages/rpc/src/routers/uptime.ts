@@ -11,6 +11,7 @@ import { rpcError } from "../errors";
 import { logger } from "../lib/logger";
 import { protectedProcedure, trackedProcedure } from "../orpc";
 import { setTrackProperties } from "../middleware/track-mutation";
+import { authorizeTransfer, withResource } from "../procedures/with-resource";
 import { withWorkspace } from "../procedures/with-workspace";
 import {
 	createScheduleWithScheduler,
@@ -25,9 +26,6 @@ import {
 	CRON_GRANULARITIES,
 	hasUptimeSchedule,
 } from "../services/uptime-scheduler";
-
-const monitorsProcedure = protectedProcedure;
-const trackedMonitorsProcedure = trackedProcedure;
 
 const granularityEnum = z.enum([
 	"minute",
@@ -73,27 +71,6 @@ async function invalidateStatusPageCachesForSchedule(
 	}
 }
 
-async function getScheduleAndAuthorize(
-	scheduleId: string,
-	context: Parameters<typeof withWorkspace>[0]
-) {
-	const schedule = await db.query.uptimeSchedules.findFirst({
-		where: { id: scheduleId },
-	});
-
-	if (!schedule) {
-		throw rpcError.notFound("Schedule", scheduleId);
-	}
-
-	await withWorkspace(context, {
-		organizationId: schedule.organizationId,
-		resource: "website",
-		permissions: ["update"],
-	});
-
-	return schedule;
-}
-
 const getScheduleOutputSchema = z
 	.object({
 		id: z.string(),
@@ -129,7 +106,7 @@ const listScheduleItemSchema = getScheduleOutputSchema
 	.loose();
 
 export const uptimeRouter = {
-	getScheduleByWebsiteId: monitorsProcedure
+	getScheduleByWebsiteId: protectedProcedure
 		.route({
 			description: "Returns uptime schedule for a website.",
 			method: "POST",
@@ -154,7 +131,7 @@ export const uptimeRouter = {
 			return schedule ?? null;
 		}),
 
-	listSchedules: monitorsProcedure
+	listSchedules: protectedProcedure
 		.route({
 			description:
 				"Returns uptime schedules for organization or all user workspaces.",
@@ -180,7 +157,7 @@ export const uptimeRouter = {
 
 			await withWorkspace(context, {
 				organizationId: orgId,
-				resource: "website",
+				resource: "monitor",
 				permissions: ["read"],
 			});
 
@@ -192,7 +169,7 @@ export const uptimeRouter = {
 			});
 		}),
 
-	getSchedule: monitorsProcedure
+	getSchedule: protectedProcedure
 		.route({
 			description: "Returns schedule with BullMQ scheduler status.",
 			method: "POST",
@@ -217,7 +194,7 @@ export const uptimeRouter = {
 
 			await withWorkspace(context, {
 				organizationId: dbSchedule.organizationId,
-				resource: "website",
+				resource: "monitor",
 				permissions: ["read"],
 			});
 
@@ -227,7 +204,7 @@ export const uptimeRouter = {
 			};
 		}),
 
-	createSchedule: trackedMonitorsProcedure
+	createSchedule: trackedProcedure
 		.route({
 			description:
 				"Creates an uptime monitor. Requires workspace update permission.",
@@ -263,7 +240,7 @@ export const uptimeRouter = {
 
 			await withWorkspace(context, {
 				organizationId,
-				resource: "website",
+				resource: "monitor",
 				permissions: ["update"],
 			});
 
@@ -309,7 +286,7 @@ export const uptimeRouter = {
 			};
 		}),
 
-	updateSchedule: trackedMonitorsProcedure
+	updateSchedule: trackedProcedure
 		.route({
 			description: "Updates an uptime schedule. Requires update permission.",
 			method: "POST",
@@ -333,10 +310,11 @@ export const uptimeRouter = {
 		)
 		.output(scheduleOutputSchema)
 		.handler(async ({ context, input }) => {
-			const existingSchedule = await getScheduleAndAuthorize(
-				input.scheduleId,
-				context
-			);
+			const existingSchedule = await withResource(context, {
+				resource: "monitor",
+				id: input.scheduleId,
+				permissions: ["update"],
+			});
 
 			const updateData: UptimeScheduleUpdate = {
 				updatedAt: new Date(),
@@ -386,7 +364,7 @@ export const uptimeRouter = {
 			};
 		}),
 
-	deleteSchedule: trackedMonitorsProcedure
+	deleteSchedule: trackedProcedure
 		.route({
 			description: "Deletes an uptime schedule. Requires update permission.",
 			method: "POST",
@@ -397,7 +375,11 @@ export const uptimeRouter = {
 		.input(z.object({ scheduleId: z.string() }))
 		.output(z.object({ success: z.literal(true) }))
 		.handler(async ({ context, input }) => {
-			await getScheduleAndAuthorize(input.scheduleId, context);
+			await withResource(context, {
+				resource: "monitor",
+				id: input.scheduleId,
+				permissions: ["update"],
+			});
 			await invalidateStatusPageCachesForSchedule(input.scheduleId);
 
 			await deleteScheduleWithScheduler(input.scheduleId);
@@ -406,7 +388,7 @@ export const uptimeRouter = {
 			return { success: true };
 		}),
 
-	togglePause: trackedMonitorsProcedure
+	togglePause: trackedProcedure
 		.route({
 			description: "Pauses or resumes an uptime schedule.",
 			method: "POST",
@@ -418,7 +400,11 @@ export const uptimeRouter = {
 		.output(z.object({ success: z.literal(true), isPaused: z.boolean() }))
 		.handler(async ({ context, input }) => {
 			setTrackProperties({ paused: input.pause });
-			const schedule = await getScheduleAndAuthorize(input.scheduleId, context);
+			const schedule = await withResource(context, {
+				resource: "monitor",
+				id: input.scheduleId,
+				permissions: ["update"],
+			});
 
 			if (schedule.isPaused === input.pause) {
 				throw rpcError.badRequest(
@@ -453,7 +439,7 @@ export const uptimeRouter = {
 			return { success: true, isPaused: input.pause };
 		}),
 
-	pauseSchedule: trackedMonitorsProcedure
+	pauseSchedule: trackedProcedure
 		.route({
 			description: "Pauses an uptime schedule. Legacy compatibility.",
 			method: "POST",
@@ -464,7 +450,11 @@ export const uptimeRouter = {
 		.input(z.object({ scheduleId: z.string() }))
 		.output(z.object({ success: z.literal(true), isPaused: z.literal(true) }))
 		.handler(async ({ context, input }) => {
-			const schedule = await getScheduleAndAuthorize(input.scheduleId, context);
+			const schedule = await withResource(context, {
+				resource: "monitor",
+				id: input.scheduleId,
+				permissions: ["update"],
+			});
 
 			if (schedule.isPaused) {
 				throw rpcError.badRequest("Schedule is already paused");
@@ -486,7 +476,7 @@ export const uptimeRouter = {
 			return { success: true, isPaused: true };
 		}),
 
-	transfer: trackedMonitorsProcedure
+	transfer: trackedProcedure
 		.route({
 			description:
 				"Transfers an uptime monitor to another organization. Requires update permission on source and create on target.",
@@ -503,18 +493,10 @@ export const uptimeRouter = {
 		)
 		.output(z.object({ success: z.literal(true) }))
 		.handler(async ({ context, input }) => {
-			const schedule = await getScheduleAndAuthorize(input.scheduleId, context);
-
-			if (schedule.organizationId === input.targetOrganizationId) {
-				throw rpcError.badRequest(
-					"Monitor already belongs to this organization"
-				);
-			}
-
-			await withWorkspace(context, {
-				organizationId: input.targetOrganizationId,
-				resource: "website",
-				permissions: ["create"],
+			const schedule = await authorizeTransfer(context, {
+				resource: "monitor",
+				id: input.scheduleId,
+				targetOrganizationId: input.targetOrganizationId,
 			});
 
 			await db
@@ -538,7 +520,7 @@ export const uptimeRouter = {
 			return { success: true };
 		}),
 
-	manualCheck: trackedMonitorsProcedure
+	manualCheck: trackedProcedure
 		.route({
 			description:
 				"Triggers an immediate uptime check for a monitor. Monitor must not be paused.",
@@ -550,7 +532,11 @@ export const uptimeRouter = {
 		.input(z.object({ scheduleId: z.string() }))
 		.output(z.object({ success: z.literal(true) }))
 		.handler(async ({ context, input }) => {
-			const schedule = await getScheduleAndAuthorize(input.scheduleId, context);
+			const schedule = await withResource(context, {
+				resource: "monitor",
+				id: input.scheduleId,
+				permissions: ["update"],
+			});
 
 			await triggerManualUptimeCheck(input.scheduleId, schedule.isPaused);
 			await invalidateStatusPageCachesForSchedule(input.scheduleId);
@@ -559,7 +545,7 @@ export const uptimeRouter = {
 			return { success: true };
 		}),
 
-	resumeSchedule: trackedMonitorsProcedure
+	resumeSchedule: trackedProcedure
 		.route({
 			description: "Resumes an uptime schedule. Legacy compatibility.",
 			method: "POST",
@@ -570,7 +556,11 @@ export const uptimeRouter = {
 		.input(z.object({ scheduleId: z.string() }))
 		.output(z.object({ success: z.literal(true), isPaused: z.literal(false) }))
 		.handler(async ({ context, input }) => {
-			const schedule = await getScheduleAndAuthorize(input.scheduleId, context);
+			const schedule = await withResource(context, {
+				resource: "monitor",
+				id: input.scheduleId,
+				permissions: ["update"],
+			});
 
 			if (!schedule.isPaused) {
 				throw rpcError.badRequest("Schedule is not paused");

@@ -13,11 +13,8 @@ import {
 	setRpcProcedureType,
 } from "./lib/rpc-log-context";
 import { runTracked } from "./middleware/track-mutation";
-import {
-	type BillingOwner,
-	getBillingOwner,
-	getOrganizationOwnerId,
-} from "./utils/billing";
+import { type BillingOwner, getBillingOwner } from "./utils/billing";
+import { getOrganizationOwnerId } from "./utils/organization";
 
 export interface PreResolvedAuth {
 	apiKey: ApiKeyRow | null;
