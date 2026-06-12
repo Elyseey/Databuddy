@@ -28,12 +28,9 @@ export async function applyAuthWideEvent(headers: Headers): Promise<void> {
 
 	authCache.set(headers, { session, apiKeyResult });
 
-	const user = session?.user as
-		| { id: string; email?: string; name?: string; role?: string }
-		| undefined;
-	const activeOrgId = (
-		session?.session as { activeOrganizationId?: string | null } | undefined
-	)?.activeOrganizationId;
+	const user = session?.user;
+	const role = (user as { role?: string } | undefined)?.role;
+	const activeOrgId = session?.session.activeOrganizationId;
 
 	const apiKey = apiKeyResult?.key ?? null;
 
@@ -45,8 +42,8 @@ export async function applyAuthWideEvent(headers: Headers): Promise<void> {
 		if (user.email) {
 			fields.user_email = user.email;
 		}
-		if (user.role) {
-			fields.user_role = user.role;
+		if (role) {
+			fields.user_role = role;
 		}
 	}
 
