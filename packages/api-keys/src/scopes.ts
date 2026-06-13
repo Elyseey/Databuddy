@@ -67,7 +67,7 @@ const RESOURCE_SCOPE_OVERRIDES: Partial<
 
 export function requiredScopesForResource(
 	resource: string,
-	permissions: string[]
+	permissions: readonly string[]
 ): ApiScope[] {
 	const scopes = new Set<ApiScope>();
 	const overrides = RESOURCE_SCOPE_OVERRIDES[resource];

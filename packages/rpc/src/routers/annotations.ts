@@ -10,7 +10,11 @@ import { z } from "zod";
 import { rpcError } from "../errors";
 import { setTrackProperties } from "../middleware/track-mutation";
 import { type Context, publicProcedure, trackedProcedure } from "../orpc";
-import { type Workspace, withWorkspace } from "../procedures/with-workspace";
+import {
+	type Workspace,
+	withPublicWorkspace,
+	withWorkspace,
+} from "../procedures/with-workspace";
 import { scopedCacheKey } from "../utils/scoped-cache-key";
 
 function annotationViewerSlot(workspace: Workspace, context: Context): string {
@@ -98,10 +102,9 @@ export const annotationsRouter = {
 		)
 		.output(z.array(annotationOutputSchema))
 		.handler(async ({ context, input }) => {
-			const workspace = await withWorkspace(context, {
+			const workspace = await withPublicWorkspace(context, {
 				websiteId: input.websiteId,
 				permissions: ["read"],
-				allowPublicAccess: true,
 			});
 
 			const viewerSlot = annotationViewerSlot(workspace, context);
@@ -174,10 +177,9 @@ export const annotationsRouter = {
 				});
 			}
 
-			const workspace = await withWorkspace(context, {
+			const workspace = await withPublicWorkspace(context, {
 				websiteId: annotationRow.websiteId,
 				permissions: ["read"],
-				allowPublicAccess: true,
 			});
 
 			if (workspace.tier === "demo") {

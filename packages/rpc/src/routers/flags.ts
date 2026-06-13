@@ -31,7 +31,11 @@ import { rpcError } from "../errors";
 import type { Context } from "../orpc";
 import { publicProcedure, trackedProcedure } from "../orpc";
 import { setTrackProperties } from "../middleware/track-mutation";
-import { type Workspace, withWorkspace } from "../procedures/with-workspace";
+import {
+	type Workspace,
+	withPublicWorkspace,
+	withWorkspace,
+} from "../procedures/with-workspace";
 import {
 	requireFeatureWithLimit,
 	requireUsageWithinLimit,
@@ -69,11 +73,10 @@ function authorizeFlagRead(
 	scope: { websiteId?: string; organizationId?: string }
 ): Promise<Workspace> {
 	if (scope.websiteId) {
-		return withWorkspace(context, {
+		return withPublicWorkspace(context, {
 			websiteId: scope.websiteId,
 			resource: "flag",
 			permissions: ["read"],
-			allowPublicAccess: true,
 		});
 	}
 	if (!scope.organizationId) {

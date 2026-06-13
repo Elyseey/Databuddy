@@ -6,7 +6,11 @@ import { randomUUIDv7 } from "bun";
 import { z } from "zod";
 import { rpcError } from "../errors";
 import { publicProcedure, trackedProcedure } from "../orpc";
-import { withWebsiteRead, withWorkspace } from "../procedures/with-workspace";
+import {
+	withPublicWorkspace,
+	withWebsiteRead,
+	withWorkspace,
+} from "../procedures/with-workspace";
 import { invalidateFlagEvaluationCaches } from "../utils/flags";
 import { scopedCacheKey } from "../utils/scoped-cache-key";
 
@@ -81,10 +85,9 @@ export const targetGroupsRouter = {
 		.input(listSchema)
 		.output(z.array(targetGroupOutputSchema))
 		.handler(async ({ context, input }) => {
-			const workspace = await withWorkspace(context, {
+			const workspace = await withPublicWorkspace(context, {
 				websiteId: input.websiteId,
 				permissions: ["read"],
-				allowPublicAccess: true,
 			});
 
 			const sanitize = workspace.tier === "demo";

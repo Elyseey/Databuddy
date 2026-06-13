@@ -31,7 +31,10 @@ import { logger } from "../lib/logger";
 import { protectedProcedure, publicProcedure, trackedProcedure } from "../orpc";
 import { setTrackProperties } from "../middleware/track-mutation";
 import { authorizeTransfer } from "../procedures/with-resource";
-import { withWorkspace } from "../procedures/with-workspace";
+import {
+	withPublicWorkspace,
+	withWorkspace,
+} from "../procedures/with-workspace";
 import {
 	generateExport,
 	validateExportDateRange,
@@ -564,10 +567,9 @@ export const websitesRouter = {
 		.input(z.object({ id: z.string() }))
 		.output(publicWebsiteSummarySchema)
 		.handler(async ({ context, input }) => {
-			const workspace = await withWorkspace(context, {
+			const workspace = await withPublicWorkspace(context, {
 				websiteId: input.id,
 				permissions: ["read"],
-				allowPublicAccess: true,
 			});
 
 			const site = workspace.website;
