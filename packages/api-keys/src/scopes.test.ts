@@ -42,6 +42,17 @@ describe("requiredScopesForResource", () => {
 	});
 });
 
+describe("flag resource scopes", () => {
+	test("read requires read:data", () => {
+		expect(requiredScopesForResource("flag", ["read"])).toEqual(["read:data"]);
+	});
+	test("create, update, delete require manage:flags", () => {
+		expect(
+			requiredScopesForResource("flag", ["create", "update", "delete"])
+		).toEqual(["manage:flags"]);
+	});
+});
+
 describe("link resource scopes", () => {
 	test("read requires read:links", () => {
 		expect(requiredScopesForResource("link", ["read"])).toEqual([

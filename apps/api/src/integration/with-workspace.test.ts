@@ -472,6 +472,93 @@ describe("withWorkspace", () => {
 		});
 	});
 
+	describe("flag resource", () => {
+		iit("allows API key with manage:flags alone to write flags", async () => {
+			const org = await insertOrganization();
+			const owner = await signUp();
+			await addToOrganization(owner.id, org.id, "owner");
+			const site = await insertWebsite({ organizationId: org.id });
+
+			const ws = await withWorkspace(apiKeyContext(org.id, ["manage:flags"]), {
+				websiteId: site.id,
+				resource: "flag",
+				permissions: ["update"],
+			});
+			expect(ws.tier).toBe("authed");
+			expect(ws.user).toBeNull();
+		});
+
+		iit("denies API key with manage:websites but without manage:flags", async () => {
+			const org = await insertOrganization();
+			const site = await insertWebsite({ organizationId: org.id });
+
+			await expectCode(
+				withWorkspace(apiKeyContext(org.id, ["manage:websites"]), {
+					websiteId: site.id,
+					resource: "flag",
+					permissions: ["update"],
+				}),
+				"FORBIDDEN",
+			);
+		});
+
+		iit("allows API key with read:data to read flags", async () => {
+			const org = await insertOrganization();
+			const owner = await signUp();
+			await addToOrganization(owner.id, org.id, "owner");
+
+			const ws = await withWorkspace(apiKeyContext(org.id, ["read:data"]), {
+				organizationId: org.id,
+				resource: "flag",
+				permissions: ["read"],
+			});
+			expect(ws.tier).toBe("authed");
+		});
+
+		iit("allows member to create and update flags", async () => {
+			const user = await signUp();
+			const org = await insertOrganization();
+			await addToOrganization(user.id, org.id, "member");
+
+			const ws = await withWorkspace(userContext(user, org.id), {
+				organizationId: org.id,
+				resource: "flag",
+				permissions: ["create", "update"],
+			});
+			expect(ws.role).toBe("member");
+		});
+
+		iit("denies member from deleting flags", async () => {
+			const user = await signUp();
+			const org = await insertOrganization();
+			await addToOrganization(user.id, org.id, "member");
+
+			await expectCode(
+				withWorkspace(userContext(user, org.id), {
+					organizationId: org.id,
+					resource: "flag",
+					permissions: ["delete"],
+				}),
+				"FORBIDDEN",
+			);
+		});
+
+		iit("denies viewer from writing flags", async () => {
+			const user = await signUp();
+			const org = await insertOrganization();
+			await addToOrganization(user.id, org.id, "viewer");
+
+			await expectCode(
+				withWorkspace(userContext(user, org.id), {
+					organizationId: org.id,
+					resource: "flag",
+					permissions: ["update"],
+				}),
+				"FORBIDDEN",
+			);
+		});
+	});
+
 	describe("plan gating", () => {
 		iit("rejects when required plan not met", async () => {
 			const user = await signUp();

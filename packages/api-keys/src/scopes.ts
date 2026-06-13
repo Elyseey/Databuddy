@@ -44,6 +44,11 @@ const RESOURCE_SCOPE_OVERRIDES: Partial<
 		update: "write:links",
 		delete: "write:links",
 	},
+	flag: {
+		create: "manage:flags",
+		update: "manage:flags",
+		delete: "manage:flags",
+	},
 	monitor: {
 		create: "manage:websites",
 		update: "manage:websites",

@@ -71,6 +71,7 @@ function authorizeFlagRead(
 	if (scope.websiteId) {
 		return withWorkspace(context, {
 			websiteId: scope.websiteId,
+			resource: "flag",
 			permissions: ["read"],
 			allowPublicAccess: true,
 		});
@@ -80,7 +81,7 @@ function authorizeFlagRead(
 	}
 	return withWorkspace(context, {
 		organizationId: scope.organizationId,
-		resource: "website",
+		resource: "flag",
 		permissions: ["read"],
 	});
 }
@@ -483,11 +484,12 @@ export const flagsRouter = {
 			const workspace = wsId
 				? await withWorkspace(context, {
 						websiteId: wsId,
-						permissions: ["update"],
+						resource: "flag",
+						permissions: ["create"],
 					})
 				: await withWorkspace(context, {
 						organizationId: orgId,
-						resource: "website",
+						resource: "flag",
 						permissions: ["create"],
 					});
 
@@ -745,12 +747,13 @@ export const flagsRouter = {
 			if (flag.websiteId) {
 				workspace = await withWorkspace(context, {
 					websiteId: flag.websiteId,
+					resource: "flag",
 					permissions: ["update"],
 				});
 			} else if (flag.organizationId) {
 				workspace = await withWorkspace(context, {
 					organizationId: flag.organizationId,
-					resource: "organization",
+					resource: "flag",
 					permissions: ["update"],
 				});
 			} else {
@@ -938,13 +941,14 @@ export const flagsRouter = {
 			if (flag.websiteId) {
 				workspace = await withWorkspace(context, {
 					websiteId: flag.websiteId,
+					resource: "flag",
 					permissions: ["delete"],
 				});
 			} else if (flag.organizationId) {
 				workspace = await withWorkspace(context, {
 					organizationId: flag.organizationId,
-					resource: "organization",
-					permissions: ["update"],
+					resource: "flag",
+					permissions: ["delete"],
 				});
 			} else {
 				throw rpcError.forbidden(

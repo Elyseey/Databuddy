@@ -6,11 +6,7 @@ import { randomUUIDv7 } from "bun";
 import { z } from "zod";
 import { rpcError } from "../errors";
 import { publicProcedure, trackedProcedure } from "../orpc";
-import {
-	withFlagsWrite,
-	withWebsiteRead,
-	withWorkspace,
-} from "../procedures/with-workspace";
+import { withWebsiteRead, withWorkspace } from "../procedures/with-workspace";
 import { invalidateFlagEvaluationCaches } from "../utils/flags";
 import { scopedCacheKey } from "../utils/scoped-cache-key";
 
@@ -173,8 +169,9 @@ export const targetGroupsRouter = {
 		.input(createSchema)
 		.output(targetGroupOutputSchema)
 		.handler(async ({ context, input }) => {
-			const workspace = await withFlagsWrite(context, {
+			const workspace = await withWorkspace(context, {
 				websiteId: input.websiteId,
+				resource: "flag",
 				permissions: ["update"],
 			});
 
@@ -224,8 +221,9 @@ export const targetGroupsRouter = {
 
 			const group = existingGroup[0];
 
-			await withFlagsWrite(context, {
+			await withWorkspace(context, {
 				websiteId: group.websiteId,
+				resource: "flag",
 				permissions: ["update"],
 			});
 
@@ -271,8 +269,9 @@ export const targetGroupsRouter = {
 
 			const group = existingGroup[0];
 
-			await withFlagsWrite(context, {
+			await withWorkspace(context, {
 				websiteId: group.websiteId,
+				resource: "flag",
 				permissions: ["delete"],
 			});
 

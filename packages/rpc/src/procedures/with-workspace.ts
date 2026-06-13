@@ -181,7 +181,7 @@ export async function withWorkspace<R extends ResourceType = "organization">(
 ): Promise<Workspace> {
 	const {
 		websiteId,
-		resource = "organization" as R,
+		resource,
 		permissions = [],
 		requiredPlans,
 		allowPublicAccess = false,
@@ -198,7 +198,9 @@ export async function withWorkspace<R extends ResourceType = "organization">(
 		throw rpcError.badRequest("Workspace is required");
 	}
 
-	const effectiveResource = websiteId ? "website" : (resource as string);
+	const effectiveResource =
+		(resource as string | undefined) ??
+		(websiteId ? "website" : "organization");
 	const effectivePermissions = permissions as string[];
 	const getCreatedBy = () => resolveCreatedBy(context, organizationId);
 
@@ -242,24 +244,6 @@ export async function withWorkspace<R extends ResourceType = "organization">(
 		website,
 		getCreatedBy,
 	};
-}
-
-export async function withFlagsWrite(
-	context: Context,
-	options: {
-		websiteId: string;
-		permissions: PermissionFor<"website">[];
-	}
-): Promise<Workspace & { website: Website }> {
-	if (context.apiKey && !hasKeyScope(context.apiKey, "manage:flags")) {
-		throw rpcError.forbidden("API key missing manage:flags scope");
-	}
-
-	return await withWorkspace<"website">(context, {
-		websiteId: options.websiteId,
-		resource: "website",
-		permissions: options.permissions,
-	});
 }
 
 async function resolveCreatedBy(
