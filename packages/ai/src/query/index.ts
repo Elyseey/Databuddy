@@ -1,8 +1,6 @@
 /** biome-ignore-all lint/performance/noBarrelFile: this is a barrel file */
 import { z } from "zod";
 import { QueryBuilders, suggestQueryTypes } from "./builders";
-
-export { suggestQueryTypes } from "./builders";
 import { SimpleQueryBuilder } from "./simple-builder";
 import type { FilterOperators, QueryRequest, TimeGranularity } from "./types";
 

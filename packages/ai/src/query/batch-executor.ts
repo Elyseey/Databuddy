@@ -194,7 +194,7 @@ export function extractOuterSelectColumns(sql: string): string[] {
 
 const signatureCache = new Map<string, string | null>();
 
-function probeSignature(
+function getSchemaSignature(
 	type: string,
 	config: SimpleQueryConfig
 ): string | null {
@@ -224,13 +224,6 @@ function probeSignature(
 
 	signatureCache.set(type, signature);
 	return signature;
-}
-
-function getSchemaSignature(
-	type: string,
-	config: SimpleQueryConfig
-): string | null {
-	return probeSignature(type, config);
 }
 
 function unknownTypeError(type: string): string {
