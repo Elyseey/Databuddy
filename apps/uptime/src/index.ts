@@ -159,7 +159,7 @@ const healthCheck = Effect.gen(function* () {
 								username: process.env.REDPANDA_USER,
 								password: process.env.REDPANDA_PASSWORD,
 							},
-							ssl: false,
+							ssl: process.env.REDPANDA_SSL === "true",
 						}),
 				});
 				const admin = kafka.admin();

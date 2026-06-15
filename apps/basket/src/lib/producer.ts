@@ -481,6 +481,7 @@ function initializeKafka(config: ProducerConfig): Producer | null {
 			username: config.username,
 			password: config.password,
 		},
+		ssl: process.env.REDPANDA_SSL === "true",
 	}).producer({
 		allowAutoTopicCreation: true,
 		retry: {
