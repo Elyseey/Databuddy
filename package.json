@@ -54,6 +54,7 @@
     "db:deploy": "dotenv -- turbo run db:deploy",
     "db:seed": "dotenv -- sh -c 'cd packages/db && bun run db:seed \"$@\"' --",
     "email:dev": "dotenv -- sh -c 'cd packages/email && bun run dev'",
+    "email:segments": "dotenv -- sh -c 'cd packages/db && bun run email:segments \"$@\"' --",
     "sdk:build": "turbo run build --filter @databuddy/sdk --filter @databuddy/cache",
     "dev:dashboard": "dotenv -- turbo run dev --filter @databuddy/dashboard --filter @databuddy/api --filter @databuddy/insights",
     "dev:insights": "dotenv -- turbo run dev --filter @databuddy/insights",
