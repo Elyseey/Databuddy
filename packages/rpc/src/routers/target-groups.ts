@@ -61,6 +61,7 @@ const targetGroupOutputSchema = z.record(z.string(), z.unknown());
 const successOutputSchema = z.object({ success: z.literal(true) });
 
 interface TargetGroupWithRules {
+	createdBy?: unknown;
 	rules?: unknown;
 	[key: string]: unknown;
 }
@@ -69,6 +70,7 @@ function sanitizeGroupForDemo<T extends TargetGroupWithRules>(group: T): T {
 	return {
 		...group,
 		rules: Array.isArray(group.rules) ? [] : group.rules,
+		createdBy: "",
 	};
 }
 

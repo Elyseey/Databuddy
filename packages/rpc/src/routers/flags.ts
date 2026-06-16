@@ -225,11 +225,14 @@ const checkCircularDependency = async (
 };
 
 interface FlagWithTargetGroups {
+	createdBy?: unknown;
 	rules?: unknown;
 	targetGroups?: Array<{
 		rules?: unknown;
+		createdBy?: unknown;
 		[key: string]: unknown;
 	}>;
+	userId?: unknown;
 	[key: string]: unknown;
 }
 
@@ -237,9 +240,12 @@ function sanitizeFlagForDemo<T extends FlagWithTargetGroups>(flag: T): T {
 	return {
 		...flag,
 		rules: Array.isArray(flag.rules) ? [] : flag.rules,
+		createdBy: "",
+		userId: null,
 		targetGroups: flag.targetGroups?.map((group) => ({
 			...group,
 			rules: Array.isArray(group.rules) ? [] : group.rules,
+			createdBy: "",
 		})),
 	};
 }
