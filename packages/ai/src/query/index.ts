@@ -83,8 +83,9 @@ function createBuilder(
 export const executeQuery = async (
 	request: QueryRequest,
 	websiteDomain?: string | null,
-	timezone?: string
-) => createBuilder(request, websiteDomain, timezone).execute();
+	timezone?: string,
+	abortSignal?: AbortSignal
+) => createBuilder(request, websiteDomain, timezone).execute(abortSignal);
 
 export const compileQuery = (
 	request: QueryRequest,

@@ -302,6 +302,12 @@ export async function runInvestigation(
 				"",
 				"Tool trace (what was actually queried and returned):",
 				compactTrace(trace.toolCalls),
+				...(trace.truncated
+					? [
+							"",
+							"NOTE: This investigation was stopped by a time limit before the agent finished gathering data. Base your memo only on the partial tool trace above. State in the verdict reason that the run was time-limited, and set confidence to 'low' unless the partial evidence is unambiguous.",
+						]
+					: []),
 			].join("\n"),
 		});
 

@@ -1104,9 +1104,10 @@ export class SimpleQueryBuilder {
 		return this.request.offset ? ` OFFSET ${this.request.offset}` : "";
 	}
 
-	async execute(): Promise<Record<string, unknown>[]> {
+	async execute(abortSignal?: AbortSignal): Promise<Record<string, unknown>[]> {
 		const { sql, params } = this.compile();
 		const rawData = await chQuery<Record<string, unknown>>(sql, params, {
+			abort_signal: abortSignal,
 			clickhouse_settings: getClickHouseQuerySettings(this.config.noCache),
 		});
 		return applyPlugins(rawData, this.config, this.websiteDomain);
