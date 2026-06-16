@@ -15,6 +15,7 @@ interface BatchResult {
 	type: string;
 }
 interface BatchOptions {
+	abortSignal?: AbortSignal;
 	timezone?: string;
 	websiteDomain?: string | null;
 }
@@ -252,7 +253,7 @@ async function runSingle(
 			{ ...req, timezone: opts?.timezone ?? req.timezone },
 			opts?.websiteDomain
 		);
-		const data = await builder.execute();
+		const data = await builder.execute(opts?.abortSignal);
 
 		mergeWideEvent({
 			query_type: req.type,
@@ -422,6 +423,7 @@ export async function executeBatch(
 				({ req }) => QueryBuilders[req.type]?.noCache
 			);
 			const rawRows = await chQuery(sql, params, {
+				abort_signal: opts?.abortSignal,
 				clickhouse_settings: getClickHouseQuerySettings(groupNoCache),
 			});
 
