@@ -10,15 +10,6 @@ export const API_SCOPES = [
 
 export type ApiScope = (typeof API_SCOPES)[number];
 
-export type LinksPermission = "read" | "create" | "update" | "delete";
-
-export const LINKS_SCOPE_MAP = {
-	read: "read:links",
-	create: "write:links",
-	update: "write:links",
-	delete: "write:links",
-} as const satisfies Record<LinksPermission, ApiScope>;
-
 type PermissionName =
 	| "read"
 	| "view_analytics"
@@ -46,6 +37,28 @@ const RESOURCE_SCOPE_OVERRIDES: Partial<
 		update: "manage:websites",
 		delete: "manage:websites",
 	},
+	link: {
+		read: "read:links",
+		view_analytics: "read:links",
+		create: "write:links",
+		update: "write:links",
+		delete: "write:links",
+	},
+	flag: {
+		create: "manage:flags",
+		update: "manage:flags",
+		delete: "manage:flags",
+	},
+	monitor: {
+		create: "manage:websites",
+		update: "manage:websites",
+		delete: "manage:websites",
+	},
+	status_page: {
+		create: "manage:websites",
+		update: "manage:websites",
+		delete: "manage:websites",
+	},
 	organization: {
 		update: "manage:config",
 		delete: "manage:config",
@@ -54,7 +67,7 @@ const RESOURCE_SCOPE_OVERRIDES: Partial<
 
 export function requiredScopesForResource(
 	resource: string,
-	permissions: string[]
+	permissions: readonly string[]
 ): ApiScope[] {
 	const scopes = new Set<ApiScope>();
 	const overrides = RESOURCE_SCOPE_OVERRIDES[resource];

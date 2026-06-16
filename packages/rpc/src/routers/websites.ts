@@ -27,10 +27,14 @@ import {
 } from "@databuddy/validation";
 import { z } from "zod";
 import { rpcError } from "../errors";
-import { logger, record } from "../lib/logger";
+import { logger } from "../lib/logger";
 import { protectedProcedure, publicProcedure, trackedProcedure } from "../orpc";
 import { setTrackProperties } from "../middleware/track-mutation";
-import { withWorkspace } from "../procedures/with-workspace";
+import { authorizeTransfer } from "../procedures/with-resource";
+import {
+	withPublicWorkspace,
+	withWorkspace,
+} from "../procedures/with-workspace";
 import {
 	generateExport,
 	validateExportDateRange,
@@ -507,31 +511,23 @@ export const websitesRouter = {
 		.input(z.object({ organizationId: z.string().optional() }).default({}))
 		.output(listWithChartsOutputSchema)
 		.handler(async ({ context, input }) => {
-			const workspace = await record("withWorkspace", () =>
-				withWorkspace(context, {
-					organizationId: input.organizationId,
-					resource: "website",
-					permissions: ["read"],
-				})
-			);
+			const workspace = await withWorkspace(context, {
+				organizationId: input.organizationId,
+				resource: "website",
+				permissions: ["read"],
+			});
 
 			if (!workspace.organizationId) {
 				throw rpcError.badRequest("Organization ID is required");
 			}
 
-			const websitesList = await record("websiteService.list", () =>
-				websiteService.list(workspace.organizationId)
-			);
+			const websitesList = await websiteService.list(workspace.organizationId);
 
 			const websiteIds = websitesList.map((site) => site.id);
-			const [chartData, activeUsers] = await record(
-				"fetchChartsAndActiveUsers",
-				() =>
-					Promise.all([
-						fetchChartData(websiteIds),
-						fetchActiveUsers(websiteIds),
-					])
-			);
+			const [chartData, activeUsers] = await Promise.all([
+				fetchChartData(websiteIds),
+				fetchActiveUsers(websiteIds),
+			]);
 
 			return { websites: websitesList, chartData, activeUsers };
 		}),
@@ -571,10 +567,9 @@ export const websitesRouter = {
 		.input(z.object({ id: z.string() }))
 		.output(publicWebsiteSummarySchema)
 		.handler(async ({ context, input }) => {
-			const workspace = await withWorkspace(context, {
+			const workspace = await withPublicWorkspace(context, {
 				websiteId: input.id,
 				permissions: ["read"],
-				allowPublicAccess: true,
 			});
 
 			const site = workspace.website;
@@ -762,19 +757,14 @@ export const websitesRouter = {
 		.input(transferWebsiteSchema)
 		.output(websiteOutputSchema)
 		.handler(async ({ context, input }) => {
-			await withWorkspace(context, {
-				websiteId: input.websiteId,
-				permissions: ["update"],
-			});
-
 			if (!input.organizationId) {
 				throw rpcError.badRequest("Website must be transferred to a workspace");
 			}
 
-			await withWorkspace(context, {
-				organizationId: input.organizationId,
+			await authorizeTransfer(context, {
 				resource: "website",
-				permissions: ["create"],
+				id: input.websiteId,
+				targetOrganizationId: input.organizationId,
 			});
 
 			try {
@@ -797,15 +787,10 @@ export const websitesRouter = {
 		.input(transferWebsiteToOrgSchema)
 		.output(websiteOutputSchema)
 		.handler(async ({ context, input }) => {
-			await withWorkspace(context, {
-				websiteId: input.websiteId,
-				permissions: ["update"],
-			});
-
-			await withWorkspace(context, {
-				organizationId: input.targetOrganizationId,
+			await authorizeTransfer(context, {
 				resource: "website",
-				permissions: ["create"],
+				id: input.websiteId,
+				targetOrganizationId: input.targetOrganizationId,
 			});
 
 			try {

@@ -24,10 +24,15 @@ function getActiveRpcRequestLogger(): RequestLogger | null {
 	}
 }
 
-/**
- * Merge RPC-specific fields into the active request wide event.
- * Auth and API key context is handled globally by applyAuthWideEvent.
- */
+function setOrLog(fields: Record<string, unknown>): void {
+	const requestLogger = getActiveRpcRequestLogger();
+	if (requestLogger) {
+		requestLogger.set(fields);
+		return;
+	}
+	log.info({ service: "rpc", ...fields });
+}
+
 export function enrichRpcWideEventContext(
 	context: RpcContextWithHeaders
 ): void {
@@ -35,7 +40,7 @@ export function enrichRpcWideEventContext(
 		return;
 	}
 
-	const fields: Record<string, string> = {};
+	const fields: Record<string, unknown> = {};
 
 	const clientId = context.headers.get("databuddy-client-id");
 	if (clientId) {
@@ -56,40 +61,23 @@ export function enrichRpcWideEventContext(
 		return;
 	}
 
-	const requestLogger = getActiveRpcRequestLogger();
-	if (requestLogger) {
-		requestLogger.set(fields as Record<string, unknown>);
-		return;
-	}
-	log.info({ service: "rpc", ...fields });
+	setOrLog(fields);
 }
 
 export function setRpcProcedureType(
 	procedureType: "public" | "protected" | "admin" | "website"
 ): void {
-	const requestLogger = getActiveRpcRequestLogger();
-	if (requestLogger) {
-		requestLogger.set({ rpc_procedure_type: procedureType });
-		return;
-	}
-	log.info({ service: "rpc", rpc_procedure_type: procedureType });
+	setOrLog({ rpc_procedure_type: procedureType });
 }
 
 export function setRpcProcedurePath(path: readonly string[]): void {
 	if (path.length === 0) {
 		return;
 	}
-	const procedure = path.join(".");
-	const fields = {
-		rpc_procedure: procedure,
+	setOrLog({
+		rpc_procedure: path.join("."),
 		rpc_router: path[0],
-	};
-	const requestLogger = getActiveRpcRequestLogger();
-	if (requestLogger) {
-		requestLogger.set(fields);
-		return;
-	}
-	log.info({ service: "rpc", ...fields });
+	});
 }
 
 export function recordORPCError(error: {
@@ -122,16 +110,7 @@ export function createAbortSignalInterceptor<T = unknown>() {
 		next: () => T;
 	}) => {
 		request.signal?.addEventListener("abort", () => {
-			const requestLogger = getActiveRpcRequestLogger();
-			if (requestLogger) {
-				requestLogger.set({
-					rpc_request_aborted: true,
-					rpc_abort_reason: String(request.signal?.reason),
-				});
-				return;
-			}
-			log.info({
-				service: "rpc",
+			setOrLog({
 				rpc_request_aborted: true,
 				rpc_abort_reason: String(request.signal?.reason),
 			});

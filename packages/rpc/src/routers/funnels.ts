@@ -17,7 +17,11 @@ import {
 } from "../lib/analytics-utils";
 import { setTrackProperties } from "../middleware/track-mutation";
 import { protectedProcedure, publicProcedure, trackedProcedure } from "../orpc";
-import { withWebsiteRead, withWorkspace } from "../procedures/with-workspace";
+import {
+	withPublicWorkspace,
+	withWebsiteRead,
+	withWorkspace,
+} from "../procedures/with-workspace";
 import { requireFeatureWithLimit } from "../types/billing";
 
 const cache = createDrizzleCache({ redis, namespace: "funnels" });
@@ -198,10 +202,9 @@ export const funnelsRouter = {
 				ttl: CACHE_TTL,
 				tables: ["funnelDefinitions"],
 				queryFn: async () => {
-					await withWorkspace(context, {
+					await withPublicWorkspace(context, {
 						websiteId: input.websiteId,
 						permissions: ["read"],
-						allowPublicAccess: true,
 					});
 					return context.db
 						.select({

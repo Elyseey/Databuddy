@@ -17,20 +17,15 @@ const REDIS_TIMEOUT_MS = 2000;
 let redisAvailable = true;
 let lastRedisCheck = 0;
 
-type TraceFn = (fields: Record<string, unknown>) => void;
-let _traceFn: TraceFn | null = null;
-
-export function setCacheTraceFn(fn: TraceFn) {
-	_traceFn = fn;
+export interface CacheLookupEvent {
+	durationMs: number;
+	hit: boolean;
 }
 
-function traceCache(prefix: string, hit: boolean, ms: number) {
-	if (_traceFn) {
-		_traceFn({
-			[`cache.${prefix}`]: hit ? "hit" : "miss",
-			[`cache.${prefix}.ms`]: ms,
-		});
-	}
+let _cacheTimingFn: ((event: CacheLookupEvent) => void) | null = null;
+
+export function setCacheTimingFn(fn: (event: CacheLookupEvent) => void) {
+	_cacheTimingFn = fn;
 }
 
 type CacheTagger<
@@ -255,14 +250,14 @@ export function cacheable<
 	const cachedFn = async (
 		...args: Parameters<T>
 	): Promise<Awaited<ReturnType<T>>> => {
-		const cacheStart = performance.now();
-
 		if (shouldSkipRedis()) {
-			traceCache(prefix, false, 0);
 			return fn(...args);
 		}
 
 		const key = getKey(...args);
+
+		const timingFn = _cacheTimingFn;
+		const lookupStartedAt = timingFn ? performance.now() : 0;
 
 		let cached: string | null = null;
 		try {
@@ -271,21 +266,19 @@ export function cacheable<
 			markRedisHealthy();
 		} catch {
 			markRedisUnhealthy();
-			traceCache(
-				prefix,
-				false,
-				Math.round((performance.now() - cacheStart) * 100) / 100
-			);
+			timingFn?.({
+				durationMs: performance.now() - lookupStartedAt,
+				hit: false,
+			});
 			return fn(...args);
 		}
 
-		if (cached) {
-			traceCache(
-				prefix,
-				true,
-				Math.round((performance.now() - cacheStart) * 100) / 100
-			);
+		timingFn?.({
+			durationMs: performance.now() - lookupStartedAt,
+			hit: Boolean(cached),
+		});
 
+		if (cached) {
 			if (staleWhileRevalidate && staleTime > 0) {
 				triggerBackgroundRevalidation(
 					key,
@@ -332,11 +325,6 @@ export function cacheable<
 				}
 			}
 
-			traceCache(
-				prefix,
-				false,
-				Math.round((performance.now() - cacheStart) * 100) / 100
-			);
 			return result;
 		} finally {
 			inflightRequests.delete(key);

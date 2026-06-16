@@ -99,7 +99,11 @@ export async function runMcpAgentWithTrace(
 		});
 
 		await trackPreparedUsage(prepared, result.totalUsage);
-		const answer = result.text ?? "No response generated.";
+		const stepCount = result.steps.length;
+		const rawAnswer = (result.text ?? "").trim();
+		const answer =
+			rawAnswer ||
+			`I ran ${stepCount} step${stepCount === 1 ? "" : "s"} but couldn't fit a summary into this turn. The question is wide enough that I exhausted the step budget gathering data. Ask me a narrower slice (one metric, one segment, one time range) and I'll give you a focused answer.`;
 		if (options.storeMemory !== false) {
 			storePreparedConversation(prepared, options.question, answer);
 		}
@@ -139,7 +143,8 @@ export async function* streamMcpAgentText(
 			storePreparedConversation(
 				prepared,
 				options.question,
-				answer.trim() || "No response generated."
+				answer.trim() ||
+					"I exhausted the step budget gathering data without composing a summary. Try a narrower question."
 			);
 		}
 	} finally {
@@ -326,6 +331,8 @@ const ANALYTICS_REQUEST_PATTERN =
 	/\b(analytics?|metrics?|traffic|visitors?|sessions?|page\s*views?|pageviews?|top pages?|pages?|referrers?|sources?|campaigns?|conversions?|events?|errors?|vitals?|performance|uptime|revenue|transactions?|llm|latency|bounce|countries|country|regions?|cities|devices?|browsers?|operating systems?|utm|fresh|current|latest|live|rerun|last \d+|last week|last month|today|yesterday)\b/i;
 const NON_ANALYTICS_TOOL_PATTERN =
 	/\b(remember|memory|forget|profile|profiles|flag|flags|feature flag|feature flags|funnel|funnels|goal|goals|annotation|annotations|link|links|short link|short links|digest|digests|subscribe|unsubscribe|create|update|delete|archive|enable|disable|rollout|target|folder|folders|navigate|open|go to|take me)\b/i;
+const INVESTIGATION_REQUEST_PATTERN =
+	/\b(why|what caused|root cause|because|reason|investigate|investigation|diagnose|debug|deploy|deployed|deployment|commit|commits|merged|pull request|pr|branch|release|rollback|regression|search console|google search|keyword|seo|impressions|ranking|scrape|crawl)\b/i;
 const COPY_ONLY_PATTERN = /\b(exact copy|copy only)\b/i;
 const SLACK_FOLLOW_UP_OPEN_TAG = "<slack_follow_up";
 const SLACK_FOLLOW_UP_CLOSE_TAG = "</slack_follow_up>";
@@ -447,6 +454,10 @@ export function selectActiveToolsForQuestion(options: {
 	).toLowerCase();
 	const hasAnalyticsRequest = ANALYTICS_REQUEST_PATTERN.test(text);
 	const hasNonAnalyticsToolRequest = NON_ANALYTICS_TOOL_PATTERN.test(text);
+	const hasInvestigationRequest = INVESTIGATION_REQUEST_PATTERN.test(text);
+	if (hasInvestigationRequest) {
+		return;
+	}
 	if (options.source === "slack") {
 		if (hasAnalyticsRequest && !hasNonAnalyticsToolRequest) {
 			return THREAD_REFERENCE_PATTERN.test(text)

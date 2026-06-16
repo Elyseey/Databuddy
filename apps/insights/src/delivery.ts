@@ -6,6 +6,7 @@ import {
 } from "@databuddy/db/schema";
 import { decrypt } from "@databuddy/encryption";
 import { env } from "@databuddy/env/insights";
+import type { ChainAssignment } from "./chain-detection";
 import { captureInsightsError, emitInsightsEvent } from "./lib/evlog-insights";
 
 const SLACK_POST_URL = "https://slack.com/api/chat.postMessage";
@@ -18,7 +19,9 @@ function truncate(value: string, max: number): string {
 }
 
 interface DigestInsight {
+	actions?: { label: string }[] | null;
 	description: string;
+	id: string;
 	severity: string;
 	suggestion: string;
 	title: string;
@@ -88,9 +91,15 @@ async function loadBotToken(organizationId: string): Promise<string | null> {
 	return decrypt(integration.ciphertext, key);
 }
 
+function chainSiteCount(insightId: string, chains: ChainAssignment[]): number {
+	const chain = chains.find((c) => c.insightIds.includes(insightId));
+	return chain ? new Set(chain.websiteIds).size : 0;
+}
+
 function buildBlocks(
 	websiteDomain: string,
-	insights: DigestInsight[]
+	insights: DigestInsight[],
+	chains: ChainAssignment[]
 ): SlackBlock[] {
 	const blocks: SlackBlock[] = [
 		{
@@ -102,14 +111,28 @@ function buildBlocks(
 		},
 	];
 	for (const insight of insights.slice(0, MAX_DIGEST_INSIGHTS)) {
+		const lines = [
+			`*${escapeMrkdwn(insight.title)}*`,
+			escapeMrkdwn(insight.description),
+			`_${escapeMrkdwn(insight.suggestion)}_`,
+		];
+		const actionLabels = (insight.actions ?? [])
+			.map((action) => action.label)
+			.filter(Boolean);
+		if (actionLabels.length > 0) {
+			lines.push(`Next: ${actionLabels.map(escapeMrkdwn).join(" · ")}`);
+		}
+		const siteCount = chainSiteCount(insight.id, chains);
+		if (siteCount > 1) {
+			lines.push(
+				`:link: Part of a pattern affecting ${siteCount} sites in your workspace`
+			);
+		}
 		blocks.push({
 			type: "section",
 			text: {
 				type: "mrkdwn",
-				text: truncate(
-					`*${escapeMrkdwn(insight.title)}*\n${escapeMrkdwn(insight.description)}\n_${escapeMrkdwn(insight.suggestion)}_`,
-					SLACK_SECTION_TEXT_MAX
-				),
+				text: truncate(lines.join("\n"), SLACK_SECTION_TEXT_MAX),
 			},
 		});
 	}
@@ -139,6 +162,7 @@ async function postToSlack(
 }
 
 export async function deliverInsightDigests(params: {
+	chains?: ChainAssignment[];
 	insights: DigestInsight[];
 	organizationId: string;
 	websiteDomain: string;
@@ -171,7 +195,11 @@ export async function deliverInsightDigests(params: {
 		return;
 	}
 
-	const blocks = buildBlocks(params.websiteDomain, params.insights);
+	const blocks = buildBlocks(
+		params.websiteDomain,
+		params.insights,
+		params.chains ?? []
+	);
 	const text = `Insights for ${params.websiteDomain}`;
 	for (const channelId of slackChannelIds) {
 		try {

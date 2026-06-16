@@ -19,6 +19,8 @@ sources:
       mechanism: SCRAM-SHA-256
       username: "${VECTOR_KAFKA_USER}"
       password: "${VECTOR_KAFKA_PASSWORD}"
+    tls:
+      enabled: true
     decoding:
       codec: json
 

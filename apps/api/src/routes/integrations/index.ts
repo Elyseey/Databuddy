@@ -8,6 +8,7 @@ import { ratelimit } from "@databuddy/redis/rate-limit";
 import { randomUUIDv7 } from "bun";
 import { Elysia, t } from "elysia";
 import { useLogger } from "evlog/elysia";
+import { z } from "zod";
 import {
 	createSlackOAuthState,
 	type SlackOAuthState,
@@ -157,16 +158,41 @@ function buildSlackAuthorizeUrl(
 	return url.toString();
 }
 
-async function readSlackJson(
-	response: Response
-): Promise<Record<string, unknown>> {
+const slackText = z
+	.string()
+	.nullish()
+	.transform((value) => (value?.trim() ? value : null))
+	.catch(null);
+
+const slackAccessSchema = z.object({
+	ok: z.boolean().catch(false),
+	error: slackText,
+	access_token: slackText,
+	app_id: slackText,
+	bot_user_id: slackText,
+	team: z.object({ id: slackText, name: slackText }).nullish().catch(null),
+	enterprise: z.object({ id: slackText }).nullish().catch(null),
+});
+
+const slackAuthTestSchema = z.object({
+	ok: z.boolean().catch(false),
+	error: slackText,
+	bot_id: slackText,
+	user_id: slackText,
+	team_id: slackText,
+	team: slackText,
+});
+
+async function readSlackJson<T extends z.ZodType>(
+	response: Response,
+	schema: T
+): Promise<z.infer<T>> {
 	const raw = await response.json().catch(() => null);
-	const body =
-		raw && typeof raw === "object" ? (raw as Record<string, unknown>) : null;
-	if (!body) {
+	const parsed = schema.safeParse(raw);
+	if (!parsed.success) {
 		throw new SlackInstallError("Slack returned an invalid response");
 	}
-	return body;
+	return parsed.data;
 }
 
 async function exchangeSlackCode(
@@ -183,27 +209,15 @@ async function exchangeSlackCode(
 		headers: { "Content-Type": "application/x-www-form-urlencoded" },
 		method: "POST",
 	});
-	const body = await readSlackJson(response);
-	if (body.ok !== true) {
+	const body = await readSlackJson(response, slackAccessSchema);
+	if (!body.ok) {
 		throw new SlackInstallError(
-			`Slack OAuth failed: ${typeof body.error === "string" && body.error.trim() ? body.error : "unknown_error"}`
+			`Slack OAuth failed: ${body.error ?? "unknown_error"}`
 		);
 	}
 
-	const team =
-		body.team && typeof body.team === "object"
-			? (body.team as Record<string, unknown>)
-			: null;
-	const enterprise =
-		body.enterprise && typeof body.enterprise === "object"
-			? (body.enterprise as Record<string, unknown>)
-			: null;
-	const accessToken =
-		typeof body.access_token === "string" && body.access_token.trim()
-			? body.access_token
-			: null;
-	const teamId =
-		typeof team?.id === "string" && team.id.trim() ? team.id : null;
+	const accessToken = body.access_token;
+	const teamId = body.team?.id ?? null;
 	if (!(accessToken && teamId)) {
 		throw new SlackInstallError(
 			"Slack did not return a bot token and workspace id"
@@ -212,21 +226,11 @@ async function exchangeSlackCode(
 
 	return {
 		accessToken,
-		appId:
-			typeof body.app_id === "string" && body.app_id.trim()
-				? body.app_id
-				: null,
-		botUserId:
-			typeof body.bot_user_id === "string" && body.bot_user_id.trim()
-				? body.bot_user_id
-				: null,
-		enterpriseId:
-			typeof enterprise?.id === "string" && enterprise.id.trim()
-				? enterprise.id
-				: null,
+		appId: body.app_id,
+		botUserId: body.bot_user_id,
+		enterpriseId: body.enterprise?.id ?? null,
 		teamId,
-		teamName:
-			typeof team?.name === "string" && team.name.trim() ? team.name : null,
+		teamName: body.team?.name ?? null,
 	};
 }
 
@@ -234,28 +238,18 @@ async function readSlackBotIdentity(token: string): Promise<SlackBotIdentity> {
 	const response = await fetch("https://slack.com/api/auth.test", {
 		headers: { Authorization: `Bearer ${token}` },
 	});
-	const body = await readSlackJson(response);
-	if (body.ok !== true) {
+	const body = await readSlackJson(response, slackAuthTestSchema);
+	if (!body.ok) {
 		throw new SlackInstallError(
-			`Slack token verification failed: ${typeof body.error === "string" && body.error.trim() ? body.error : "unknown_error"}`
+			`Slack token verification failed: ${body.error ?? "unknown_error"}`
 		);
 	}
 
 	return {
-		botId:
-			typeof body.bot_id === "string" && body.bot_id.trim()
-				? body.bot_id
-				: null,
-		botUserId:
-			typeof body.user_id === "string" && body.user_id.trim()
-				? body.user_id
-				: null,
-		teamId:
-			typeof body.team_id === "string" && body.team_id.trim()
-				? body.team_id
-				: null,
-		teamName:
-			typeof body.team === "string" && body.team.trim() ? body.team : null,
+		botId: body.bot_id,
+		botUserId: body.user_id,
+		teamId: body.team_id,
+		teamName: body.team,
 	};
 }
 

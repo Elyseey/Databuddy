@@ -32,8 +32,8 @@ import type { Context } from "../orpc";
 import { publicProcedure, trackedProcedure } from "../orpc";
 import { setTrackProperties } from "../middleware/track-mutation";
 import {
-	hasApiKeyOrgAccess,
 	type Workspace,
+	withPublicWorkspace,
 	withWorkspace,
 } from "../procedures/with-workspace";
 import {
@@ -73,10 +73,10 @@ function authorizeFlagRead(
 	scope: { websiteId?: string; organizationId?: string }
 ): Promise<Workspace> {
 	if (scope.websiteId) {
-		return withWorkspace(context, {
+		return withPublicWorkspace(context, {
 			websiteId: scope.websiteId,
+			resource: "flag",
 			permissions: ["read"],
-			allowPublicAccess: true,
 		});
 	}
 	if (!scope.organizationId) {
@@ -84,7 +84,7 @@ function authorizeFlagRead(
 	}
 	return withWorkspace(context, {
 		organizationId: scope.organizationId,
-		resource: "website",
+		resource: "flag",
 		permissions: ["read"],
 	});
 }
@@ -225,11 +225,14 @@ const checkCircularDependency = async (
 };
 
 interface FlagWithTargetGroups {
+	createdBy?: unknown;
 	rules?: unknown;
 	targetGroups?: Array<{
 		rules?: unknown;
+		createdBy?: unknown;
 		[key: string]: unknown;
 	}>;
+	userId?: unknown;
 	[key: string]: unknown;
 }
 
@@ -237,9 +240,12 @@ function sanitizeFlagForDemo<T extends FlagWithTargetGroups>(flag: T): T {
 	return {
 		...flag,
 		rules: Array.isArray(flag.rules) ? [] : flag.rules,
+		createdBy: "",
+		userId: null,
 		targetGroups: flag.targetGroups?.map((group) => ({
 			...group,
 			rules: Array.isArray(group.rules) ? [] : group.rules,
+			createdBy: "",
 		})),
 	};
 }
@@ -318,8 +324,7 @@ export const flagsRouter = {
 		.handler(async ({ context, input }) => {
 			const workspace = await authorizeFlagRead(context, input);
 			const scope = getScope(input.websiteId, input.organizationId);
-			const sanitize =
-				workspace.tier === "demo" && !hasApiKeyOrgAccess(workspace, context);
+			const sanitize = workspace.tier === "demo";
 
 			return flagsCache.withCache({
 				key: scopedCacheKey(
@@ -374,8 +379,7 @@ export const flagsRouter = {
 		.handler(async ({ context, input }) => {
 			const workspace = await authorizeFlagRead(context, input);
 			const scope = getScope(input.websiteId, input.organizationId);
-			const sanitize =
-				workspace.tier === "demo" && !hasApiKeyOrgAccess(workspace, context);
+			const sanitize = workspace.tier === "demo";
 
 			return flagsCache.withCache({
 				key: scopedCacheKey(
@@ -429,8 +433,7 @@ export const flagsRouter = {
 		.handler(async ({ context, input }) => {
 			const workspace = await authorizeFlagRead(context, input);
 			const scope = getScope(input.websiteId, input.organizationId);
-			const sanitize =
-				workspace.tier === "demo" && !hasApiKeyOrgAccess(workspace, context);
+			const sanitize = workspace.tier === "demo";
 
 			return flagsCache.withCache({
 				key: scopedCacheKey(
@@ -490,11 +493,12 @@ export const flagsRouter = {
 			const workspace = wsId
 				? await withWorkspace(context, {
 						websiteId: wsId,
-						permissions: ["update"],
+						resource: "flag",
+						permissions: ["create"],
 					})
 				: await withWorkspace(context, {
 						organizationId: orgId,
-						resource: "website",
+						resource: "flag",
 						permissions: ["create"],
 					});
 
@@ -752,12 +756,13 @@ export const flagsRouter = {
 			if (flag.websiteId) {
 				workspace = await withWorkspace(context, {
 					websiteId: flag.websiteId,
+					resource: "flag",
 					permissions: ["update"],
 				});
 			} else if (flag.organizationId) {
 				workspace = await withWorkspace(context, {
 					organizationId: flag.organizationId,
-					resource: "organization",
+					resource: "flag",
 					permissions: ["update"],
 				});
 			} else {
@@ -945,13 +950,14 @@ export const flagsRouter = {
 			if (flag.websiteId) {
 				workspace = await withWorkspace(context, {
 					websiteId: flag.websiteId,
+					resource: "flag",
 					permissions: ["delete"],
 				});
 			} else if (flag.organizationId) {
 				workspace = await withWorkspace(context, {
 					organizationId: flag.organizationId,
-					resource: "organization",
-					permissions: ["update"],
+					resource: "flag",
+					permissions: ["delete"],
 				});
 			} else {
 				throw rpcError.forbidden(

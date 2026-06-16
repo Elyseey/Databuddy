@@ -149,6 +149,12 @@ const PROFILE_ACTIVITY_CTE = `
 
 export const ProfilesBuilders: Record<string, SimpleQueryConfig> = {
 	profile_list: {
+		meta: {
+			description:
+				"List of identified user profiles with visit counts and metadata.",
+			category: "Profiles",
+			tags: ["profiles", "users", "identified"],
+		},
 		customSql: (ctx) => {
 			const {
 				websiteId,
@@ -306,6 +312,12 @@ export const ProfilesBuilders: Record<string, SimpleQueryConfig> = {
 	},
 
 	profile_detail: {
+		meta: {
+			description:
+				"Detailed profile information for a specific identified user, based on analytics, custom, error, vital, and link activity.",
+			category: "Profiles",
+			tags: ["profiles", "users", "detail"],
+		},
 		allowedFilters: ["anonymous_id"],
 		requiredFilters: ["anonymous_id"],
 		customSql: (ctx) => {
@@ -385,6 +397,12 @@ export const ProfilesBuilders: Record<string, SimpleQueryConfig> = {
 	},
 
 	profile_sessions: {
+		meta: {
+			description:
+				"Session history for a user profile, including analytics events, custom events, errors, outgoing links, and separate web vitals context.",
+			category: "Profiles",
+			tags: ["profiles", "sessions", "history"],
+		},
 		allowedFilters: ["anonymous_id"],
 		requiredFilters: ["anonymous_id"],
 		customSql: (ctx) => {

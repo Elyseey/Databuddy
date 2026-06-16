@@ -141,8 +141,7 @@ const healthCheck = Effect.gen(function* () {
 		[
 			probe("postgres", () => db.execute(sql`SELECT 1`).then(() => {})),
 			probe("bullmqRedis", async () => {
-				const client = await getUptimeQueue().client;
-				await client.ping();
+				await getUptimeQueue().count();
 			}),
 			probe("redpanda", async () => {
 				const broker = process.env.REDPANDA_BROKER;
@@ -160,7 +159,7 @@ const healthCheck = Effect.gen(function* () {
 								username: process.env.REDPANDA_USER,
 								password: process.env.REDPANDA_PASSWORD,
 							},
-							ssl: false,
+							ssl: process.env.REDPANDA_SSL === "true",
 						}),
 				});
 				const admin = kafka.admin();

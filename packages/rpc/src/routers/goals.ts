@@ -16,7 +16,11 @@ import {
 } from "../lib/analytics-utils";
 import { setTrackProperties } from "../middleware/track-mutation";
 import { publicProcedure, trackedProcedure } from "../orpc";
-import { withWebsiteRead, withWorkspace } from "../procedures/with-workspace";
+import {
+	withPublicWorkspace,
+	withWebsiteRead,
+	withWorkspace,
+} from "../procedures/with-workspace";
 import { requireFeatureWithLimit } from "../types/billing";
 
 const cache = createDrizzleCache({ redis, namespace: "goals" });
@@ -139,16 +143,20 @@ export const goalsRouter = {
 		.input(z.object({ websiteId: z.string() }))
 		.output(z.array(goalOutputSchema))
 		.use(withWebsiteRead)
-		.handler(
-			async ({ context, input }) =>
-				await context.db
-					.select()
-					.from(goals)
-					.where(
-						and(eq(goals.websiteId, input.websiteId), isNull(goals.deletedAt))
-					)
-					.orderBy(desc(goals.createdAt))
-		),
+		.handler(async ({ context, input }) => {
+			const rows = await context.db
+				.select()
+				.from(goals)
+				.where(
+					and(eq(goals.websiteId, input.websiteId), isNull(goals.deletedAt))
+				)
+				.orderBy(desc(goals.createdAt));
+
+			if (context.workspace.tier === "demo") {
+				return rows.map((row) => ({ ...row, createdBy: "" }));
+			}
+			return rows;
+		}),
 
 	getById: publicProcedure
 		.route({
@@ -172,16 +180,16 @@ export const goalsRouter = {
 				throw rpcError.notFound("goal", input.id);
 			}
 
-			try {
-				await withWorkspace(context, {
-					websiteId: goal.websiteId,
-					permissions: ["read"],
-					allowPublicAccess: true,
-				});
-			} catch {
+			const workspace = await withPublicWorkspace(context, {
+				websiteId: goal.websiteId,
+				permissions: ["read"],
+			}).catch(() => {
 				throw rpcError.notFound("goal", input.id);
-			}
+			});
 
+			if (workspace.tier === "demo") {
+				return { ...goal, createdBy: "" };
+			}
 			return goal;
 		}),
 

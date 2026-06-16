@@ -7,8 +7,7 @@ import { z } from "zod";
 import { rpcError } from "../errors";
 import { publicProcedure, trackedProcedure } from "../orpc";
 import {
-	hasApiKeyOrgAccess,
-	withFlagsWrite,
+	withPublicWorkspace,
 	withWebsiteRead,
 	withWorkspace,
 } from "../procedures/with-workspace";
@@ -62,6 +61,7 @@ const targetGroupOutputSchema = z.record(z.string(), z.unknown());
 const successOutputSchema = z.object({ success: z.literal(true) });
 
 interface TargetGroupWithRules {
+	createdBy?: unknown;
 	rules?: unknown;
 	[key: string]: unknown;
 }
@@ -70,6 +70,7 @@ function sanitizeGroupForDemo<T extends TargetGroupWithRules>(group: T): T {
 	return {
 		...group,
 		rules: Array.isArray(group.rules) ? [] : group.rules,
+		createdBy: "",
 	};
 }
 
@@ -86,14 +87,12 @@ export const targetGroupsRouter = {
 		.input(listSchema)
 		.output(z.array(targetGroupOutputSchema))
 		.handler(async ({ context, input }) => {
-			const workspace = await withWorkspace(context, {
+			const workspace = await withPublicWorkspace(context, {
 				websiteId: input.websiteId,
 				permissions: ["read"],
-				allowPublicAccess: true,
 			});
 
-			const sanitize =
-				workspace.tier === "demo" && !hasApiKeyOrgAccess(workspace, context);
+			const sanitize = workspace.tier === "demo";
 
 			return targetGroupsCache.withCache({
 				key: scopedCacheKey(
@@ -135,8 +134,7 @@ export const targetGroupsRouter = {
 		.use(withWebsiteRead)
 		.handler(async ({ context, input }) => {
 			const { workspace } = context;
-			const sanitize =
-				workspace.tier === "demo" && !hasApiKeyOrgAccess(workspace, context);
+			const sanitize = workspace.tier === "demo";
 
 			return await targetGroupsCache.withCache({
 				key: scopedCacheKey(
@@ -176,8 +174,9 @@ export const targetGroupsRouter = {
 		.input(createSchema)
 		.output(targetGroupOutputSchema)
 		.handler(async ({ context, input }) => {
-			const workspace = await withFlagsWrite(context, {
+			const workspace = await withWorkspace(context, {
 				websiteId: input.websiteId,
+				resource: "flag",
 				permissions: ["update"],
 			});
 
@@ -227,8 +226,9 @@ export const targetGroupsRouter = {
 
 			const group = existingGroup[0];
 
-			await withFlagsWrite(context, {
+			await withWorkspace(context, {
 				websiteId: group.websiteId,
+				resource: "flag",
 				permissions: ["update"],
 			});
 
@@ -274,8 +274,9 @@ export const targetGroupsRouter = {
 
 			const group = existingGroup[0];
 
-			await withFlagsWrite(context, {
+			await withWorkspace(context, {
 				websiteId: group.websiteId,
+				resource: "flag",
 				permissions: ["delete"],
 			});
 

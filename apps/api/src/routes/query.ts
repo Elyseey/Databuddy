@@ -10,17 +10,20 @@ import {
 import { db } from "@databuddy/db";
 import { readBooleanEnv } from "@databuddy/env/boolean";
 import { ratelimit } from "@databuddy/redis/rate-limit";
-import {
-	getBillingOwner,
-	getOrganizationOwnerId,
-} from "@databuddy/rpc/billing";
+import { getBillingOwner } from "@databuddy/rpc/billing";
+import { getOrganizationOwnerId } from "@databuddy/rpc/organization";
 import {
 	type GatedFeatureId,
 	GATED_FEATURES,
 	isFeatureAvailable,
 } from "@databuddy/shared/types/features";
 import type { CustomQueryRequest } from "@databuddy/ai/query/custom-query-types";
-import { compileQuery, executeBatch } from "@databuddy/ai/query";
+import {
+	allowedFilterFields,
+	compileQuery,
+	executeBatch,
+	isFilterFieldAllowed,
+} from "@databuddy/ai/query";
 import {
 	canReadQueryTypesPublicly,
 	QueryBuilders,
@@ -32,10 +35,13 @@ import {
 } from "@databuddy/ai/query/date-utils";
 import type { Filter, QueryRequest } from "@databuddy/ai/query/types";
 import { Elysia, t } from "elysia";
-import { getAccessibleWebsites } from "../lib/accessible-websites";
-import { resolveDatePreset } from "../lib/date-presets";
-import { mergeWideEvent } from "../lib/tracing";
-import { getCachedWebsiteDomain, getWebsiteDomain } from "../lib/website-utils";
+import { getAccessibleWebsites } from "@databuddy/ai/lib/accessible-websites";
+import {
+	getCachedWebsiteDomain,
+	getWebsiteDomain,
+} from "@databuddy/ai/lib/website-utils";
+import { resolveDatePreset } from "@databuddy/ai/lib/date-presets";
+import { mergeWideEvent } from "@databuddy/ai/lib/tracing";
 import {
 	CompileRequestSchema,
 	type CompileRequestType,
@@ -85,30 +91,6 @@ async function runPerWebsite<T>(key: string, fn: () => Promise<T>): Promise<T> {
 	}
 }
 
-const DEFAULT_ALLOWED_FILTERS = [
-	"path",
-	"query_string",
-	"referrer",
-	"country",
-	"region",
-	"city",
-	"timezone",
-	"language",
-	"device_type",
-	"browser_name",
-	"os_name",
-	"utm_source",
-	"utm_medium",
-	"utm_campaign",
-	"provider",
-	"model",
-	"type",
-	"finish_reason",
-	"error_name",
-	"http_status",
-	"user_id",
-	"trace_id",
-] as const;
 const MAX_HOURLY_DAYS = 30;
 const MS_PER_DAY = 86_400_000;
 
@@ -928,7 +910,8 @@ async function executeDynamicQuery(
 		const paramFrom = start ? normalizeDate(start) : from;
 		const paramTo = end ? normalizeDate(end) : to;
 
-		if (!QueryBuilders[name]) {
+		const config = QueryBuilders[name];
+		if (!config) {
 			return { id, error: `Unknown query type: ${name}` };
 		}
 
@@ -964,7 +947,9 @@ async function executeDynamicQuery(
 					paramFrom,
 					paramTo
 				),
-				filters: (request.filters || []) as Filter[],
+				filters: ((request.filters || []) as Filter[]).filter((f) =>
+					isFilterFieldAllowed(config, f.field)
+				),
 				limit: request.limit || 100,
 				offset: request.page ? (request.page - 1) * (request.limit || 100) : 0,
 				timezone,
@@ -1111,7 +1096,7 @@ export const query = new Elysia({ prefix: "/v1/query" })
 			Object.entries(QueryBuilders).map(([key, cfg]) => [
 				key,
 				{
-					allowedFilters: cfg.allowedFilters ?? DEFAULT_ALLOWED_FILTERS,
+					allowedFilters: allowedFilterFields(cfg),
 					customizable: cfg.customizable,
 					defaultLimit: cfg.limit,
 					publicAccess: cfg.publicAccess === true,

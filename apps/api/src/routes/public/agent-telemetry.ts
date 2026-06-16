@@ -1,4 +1,4 @@
-import { captureError, mergeWideEvent } from "@/lib/tracing";
+import { captureError, mergeWideEvent } from "@databuddy/ai/lib/tracing";
 import { db } from "@databuddy/db";
 import {
 	type AgentInstallIssue,

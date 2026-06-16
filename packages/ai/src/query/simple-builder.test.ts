@@ -535,6 +535,22 @@ describe("SimpleQueryBuilder.compile", () => {
 		).toThrow("not permitted");
 	});
 
+	it("defaults bare orderBy field to DESC", () => {
+		const { sql } = compile({}, { orderBy: "visitors" });
+		expect(sql).toContain("ORDER BY visitors DESC");
+	});
+
+	it("normalizes lowercase orderBy direction", () => {
+		const { sql } = compile({}, { orderBy: "visitors asc" });
+		expect(sql).toContain("ORDER BY visitors ASC");
+	});
+
+	it("throws on unknown bare orderBy field", () => {
+		expect(() => compile({}, { orderBy: "evil_field" })).toThrow(
+			"not permitted"
+		);
+	});
+
 	it("normalizes referrer filter values", () => {
 		const filters: Filter[] = [
 			{ field: "referrer", op: "eq", value: "google" },

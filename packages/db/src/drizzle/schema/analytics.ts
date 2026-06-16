@@ -237,6 +237,7 @@ export const analyticsInsights = pgTable(
 			"surface" | "investigated" | "deep"
 		>(),
 		actions: jsonb().$type<AnalyticsInsightAction[]>(),
+		chainId: text("chain_id"),
 		timezone: text().notNull().default("UTC"),
 		currentPeriodFrom: text("current_period_from").notNull(),
 		currentPeriodTo: text("current_period_to").notNull(),
@@ -270,6 +271,11 @@ export const analyticsInsights = pgTable(
 		index("analytics_insights_subject_key_idx").on(
 			table.websiteId,
 			table.subjectKey,
+			table.createdAt.desc()
+		),
+		index("analytics_insights_chain_id_idx").on(
+			table.organizationId,
+			table.chainId,
 			table.createdAt.desc()
 		),
 		uniqueIndex("analytics_insights_org_dedupe_key_uidx")

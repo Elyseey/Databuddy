@@ -63,11 +63,11 @@ import {
 	getMemoryContextCached,
 	shouldLoadMemoryContext,
 } from "@databuddy/ai/agents/cache";
-import { getAILogger } from "../lib/ai-logger";
-import { trackAgentEvent } from "../lib/databuddy";
+import { getAILogger } from "@databuddy/ai/lib/ai-logger";
+import { trackAgentEvent } from "@databuddy/ai/lib/databuddy";
 import { getResolvedAuth } from "../lib/auth-wide-event";
-import { captureError, mergeWideEvent } from "../lib/tracing";
-import { getAccessibleWebsites } from "../lib/accessible-websites";
+import { captureError, mergeWideEvent } from "@databuddy/ai/lib/tracing";
+import { getAccessibleWebsites } from "@databuddy/ai/lib/accessible-websites";
 
 function jsonError(status: number, code: string, message: string): Response {
 	return new Response(
@@ -521,20 +521,20 @@ export const agent = new Elysia({ prefix: "/v1/agent" })
 			const conversationId = body.id ?? generateId();
 			const userId = user?.id ?? null;
 			const organizationId = apiKey?.organizationId ?? null;
+			const principal = userId ?? (apiKey ? `apikey:${apiKey.id}` : null);
 
 			mergeWideEvent({
 				agent_chat_id: conversationId,
-				agent_user_id: userId ?? `apikey:${apiKey?.id ?? "unknown"}`,
+				...(principal ? { agent_user_id: principal } : {}),
 				...(organizationId ? { organization_id: organizationId } : {}),
 				source: "slack",
 			});
 
 			try {
-				if (!(user || apiKey)) {
+				if (!principal) {
 					return jsonError(401, "AUTH_REQUIRED", "Authentication required");
 				}
 
-				const principal = user?.id ?? `apikey:${apiKey?.id ?? "unknown"}`;
 				const rl = await ratelimit(`agent:ask:${principal}`, 30, 60);
 				if (!rl.success) {
 					return jsonError(
@@ -588,7 +588,7 @@ export const agent = new Elysia({ prefix: "/v1/agent" })
 					agent_error: true,
 					agent_type: AGENT_TYPE,
 					agent_chat_id: conversationId,
-					agent_user_id: userId ?? "unknown",
+					...(principal ? { agent_user_id: principal } : {}),
 					error_type: getErrorName(error),
 					source: "slack",
 				});
@@ -606,7 +606,7 @@ export const agent = new Elysia({ prefix: "/v1/agent" })
 				let organizationId: string | null = null;
 
 				mergeWideEvent({
-					agent_user_id: user?.id ?? "unknown",
+					...(user?.id ? { agent_user_id: user.id } : {}),
 					agent_chat_id: chatId,
 				});
 
@@ -939,7 +939,7 @@ export const agent = new Elysia({ prefix: "/v1/agent" })
 								},
 								websiteId: defaultWebsiteId,
 								conversationId: chatId,
-								domain: defaultDomain ?? "unknown",
+								...(defaultDomain ? { domain: defaultDomain } : {}),
 							}
 						);
 					}
@@ -1051,7 +1051,12 @@ export const agent = new Elysia({ prefix: "/v1/agent" })
 						onFinish: async ({ messages }) => {
 							try {
 								await clearActiveStream(streamScope, chatId, streamId);
-							} catch {}
+							} catch (cleanupError) {
+								captureError(cleanupError, {
+									agent_stream_cleanup_error: true,
+									agent_chat_id: chatId,
+								});
+							}
 							if (!persistedUserId) {
 								return;
 							}
@@ -1117,7 +1122,12 @@ export const agent = new Elysia({ prefix: "/v1/agent" })
 								reader.releaseLock();
 								try {
 									await markStreamDone(streamKey);
-								} catch {}
+								} catch (cleanupError) {
+									captureError(cleanupError, {
+										agent_stream_cleanup_error: true,
+										agent_chat_id: chatId,
+									});
+								}
 							}
 						})().catch((storageError) => {
 							captureError(storageError, {
@@ -1184,7 +1194,7 @@ export const agent = new Elysia({ prefix: "/v1/agent" })
 						agent_type: AGENT_TYPE,
 						agent_chat_id: chatId,
 						...(body.websiteId ? { agent_website_id: body.websiteId } : {}),
-						agent_user_id: user?.id ?? "unknown",
+						...(user?.id ? { agent_user_id: user.id } : {}),
 						error_type: getErrorName(error),
 					});
 					return jsonError(500, "INTERNAL_ERROR", getErrorMessage(error));

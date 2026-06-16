@@ -759,13 +759,3 @@ export const getTotalWebsiteUsers = async (
 	);
 	return result?.count ?? 0;
 };
-
-// Re-export for backwards compatibility
-export const buildFilterConditions = (
-	filters: Filter[],
-	_prefix: string,
-	params: ClickhouseQueryParams
-): { conditions: string; errors: string[] } => ({
-	conditions: buildFilterSQL(filters, params),
-	errors: [],
-});
