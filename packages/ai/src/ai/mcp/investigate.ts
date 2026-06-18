@@ -223,6 +223,28 @@ export function renderMemoMarkdown(
 	return sections.join("\n");
 }
 
+export function buildFallbackMemo(answer: string): InvestigationMemo {
+	const narrative =
+		answer.trim() ||
+		"The investigation finished gathering data but produced no written findings.";
+	return {
+		headline: "Investigation completed; structured memo unavailable.",
+		narrative,
+		causalChain: [],
+		deadEnds: [],
+		confidence: {
+			level: "low",
+			reason:
+				"The synthesis step failed, so this memo is the agent's raw findings without structured verification. Re-run to get a graded verdict.",
+		},
+		verdict: {
+			type: "watch",
+			reason: "Findings were gathered but not synthesized into a graded verdict.",
+		},
+		actions: [],
+	};
+}
+
 function compactTrace(toolCalls: McpAgentToolTrace[]): string {
 	return toolCalls
 		.map((call) => {
@@ -313,6 +335,13 @@ export async function runInvestigation(
 			].join("\n"),
 		});
 
+		return {
+			memo,
+			receipts,
+			markdown: renderMemoMarkdown(memo, receipts),
+		};
+	} catch {
+		const memo = buildFallbackMemo(trace.answer);
 		return {
 			memo,
 			receipts,
