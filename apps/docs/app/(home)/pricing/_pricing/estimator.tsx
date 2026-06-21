@@ -1,4 +1,3 @@
-import { flush, track } from "@databuddy/sdk";
 import Link from "next/link";
 import { useMemo, useState } from "react";
 import { SciFiButton } from "@/components/landing/scifi-btn";
@@ -15,18 +14,11 @@ import {
 	formatInteger,
 	formatMoney,
 } from "./estimator-utils";
+import { trackPricingPlanClick } from "./track-pricing";
 import type { NormalizedPlan } from "./types";
 
 interface Props {
 	plans: NormalizedPlan[];
-}
-
-function trackEstimatorCta(planId: string) {
-	track("pricing_plan_clicked", {
-		plan: planId,
-		placement: "pricing_estimator",
-	});
-	flush();
 }
 
 export function Estimator({ plans }: Props) {
@@ -154,7 +146,12 @@ export function Estimator({ plans }: Props) {
 										<SciFiButton asChild>
 											<Link
 												href="/contact"
-												onClick={() => trackEstimatorCta("enterprise")}
+												onClick={() =>
+													trackPricingPlanClick(
+														"enterprise",
+														"pricing_estimator"
+													)
+												}
 											>
 												CONTACT US
 											</Link>
@@ -208,7 +205,10 @@ export function Estimator({ plans }: Props) {
 											<Link
 												href={`https://app.databuddy.cc/register${bestPlan ? `?plan=${bestPlan.id}` : ""}`}
 												onClick={() =>
-													trackEstimatorCta(bestPlan?.id ?? "unknown")
+													trackPricingPlanClick(
+														bestPlan?.id ?? "unknown",
+														"pricing_estimator"
+													)
 												}
 												rel="noopener noreferrer"
 												target="_blank"
