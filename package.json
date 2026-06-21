@@ -37,9 +37,9 @@
   "scripts": {
     "prepare": "lefthook install",
     "setup": "bun run setup.ts",
-    "build": "dotenv -- turbo run build",
+    "build": "NODE_ENV=production dotenv -- turbo run build",
     "dev": "dotenv -- turbo run dev",
-    "start": "dotenv -- turbo run start",
+    "start": "NODE_ENV=production dotenv -- turbo run start",
     "test": "dotenv -- turbo run test",
     "test:watch": "dotenv -- bun test --watch ./apps",
     "test:coverage": "dotenv -- bun test --coverage ./apps",
