@@ -314,8 +314,10 @@ export async function runInvestigation(
 
 	const controller = new AbortController();
 	const timeout = setTimeout(() => controller.abort(), SYNTHESIS_TIMEOUT_MS);
+
+	let memo: InvestigationMemo;
 	try {
-		const { object: memo } = await generateObject({
+		const result = await generateObject({
 			abortSignal: controller.signal,
 			model: models.balanced,
 			schema: investigationMemoSchema,
@@ -334,22 +336,18 @@ export async function runInvestigation(
 					: []),
 			].join("\n"),
 		});
-
-		return {
-			memo,
-			receipts,
-			markdown: renderMemoMarkdown(memo, receipts),
-		};
+		memo = result.object;
 	} catch {
-		const memo = buildFallbackMemo(trace.answer);
-		return {
-			memo,
-			receipts,
-			markdown: renderMemoMarkdown(memo, receipts),
-		};
+		memo = buildFallbackMemo(trace.answer);
 	} finally {
 		clearTimeout(timeout);
 	}
+
+	return {
+		memo,
+		receipts,
+		markdown: renderMemoMarkdown(memo, receipts),
+	};
 }
 
 export const investigateTool = defineMcpTool(
