@@ -121,6 +121,13 @@ vi.mock("@utils/ip-geo", () => ({
 	),
 	extractIpFromRequest: vi.fn(() => "1.2.3.4"),
 	extractTrustedClientIp: vi.fn(() => "1.2.3.4"),
+	getVisitorCountryForAutoMode: vi.fn((events: Array<{ anonymizeVisitorIds?: unknown }>) =>
+		Promise.resolve(
+			events.some((event) => event.anonymizeVisitorIds === "auto")
+				? "US"
+				: undefined
+		)
+	),
 	closeGeoIPReader: noop,
 }));
 

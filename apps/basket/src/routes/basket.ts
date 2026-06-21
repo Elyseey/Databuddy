@@ -357,7 +357,11 @@ const app = new Elysia()
 				events,
 				request
 			);
-			await insertCustomEvents(events, visitorCountry);
+			if (visitorCountry === undefined) {
+				await insertCustomEvents(events);
+			} else {
+				await insertCustomEvents(events, visitorCountry);
+			}
 
 			return Response.json({
 				status: "success",

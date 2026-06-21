@@ -327,7 +327,11 @@ export const trackRoute = new Elysia().post(
 			}));
 
 			const visitorCountry = await getVisitorCountryForAutoMode(spans, request);
-			await insertCustomEvents(spans, visitorCountry);
+			if (visitorCountry === undefined) {
+				await insertCustomEvents(spans);
+			} else {
+				await insertCustomEvents(spans, visitorCountry);
+			}
 
 			return json(
 				{ status: "success", type: "custom_event", count: spans.length },
