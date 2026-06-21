@@ -1,4 +1,5 @@
 import { CheckIcon, XMarkIcon as XIcon } from "@databuddy/ui/icons";
+import { flush, track } from "@databuddy/sdk";
 import Link from "next/link";
 import { SciFiButton } from "@/components/landing/scifi-btn";
 import { GatedFeaturePricingRows } from "./gated-feature-rows";
@@ -26,6 +27,14 @@ function FeatureX() {
 			<XIcon className="size-4 text-muted-foreground" weight="bold" />
 		</span>
 	);
+}
+
+function trackPricingPlanClick(planId: string) {
+	track("pricing_plan_clicked", {
+		plan: planId,
+		placement: "pricing_comparison_table",
+	});
+	flush();
 }
 
 export function PlansComparisonTable({ plans }: Props) {
@@ -244,16 +253,16 @@ export function PlansComparisonTable({ plans }: Props) {
 										{p.id === "enterprise" ? (
 											<Link
 												data-plan={p.id}
-												data-track="pricing_plan_clicked"
 												href="/contact"
+												onClick={() => trackPricingPlanClick(p.id)}
 											>
 												CONTACT US
 											</Link>
 										) : (
 											<Link
 												data-plan={p.id}
-												data-track="pricing_plan_clicked"
 												href={`https://app.databuddy.cc/register?plan=${p.id}`}
+												onClick={() => trackPricingPlanClick(p.id)}
 												rel="noopener noreferrer"
 												target="_blank"
 											>
