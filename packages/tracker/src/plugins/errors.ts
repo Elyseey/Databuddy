@@ -48,9 +48,9 @@ export function initErrorTracking(tracker: BaseTracker): () => void {
 			timestamp: Date.now(),
 			path: window.location.pathname,
 			anonymousId: tracker.anonymousId,
-			anonymizeVisitorIds: tracker.options.anonymizeVisitorIds,
 			sessionId: tracker.sessionId,
 			...error,
+			anonymizeVisitorIds: tracker.options.anonymizeVisitorIds,
 		};
 
 		logger.log("Queueing error", errorSpan);

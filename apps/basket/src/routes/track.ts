@@ -21,7 +21,7 @@ import {
 	rethrowOrWrap,
 } from "@lib/structured-errors";
 import { record } from "@lib/tracing";
-import { extractTrustedClientIp, getGeo } from "@utils/ip-geo";
+import { extractTrustedClientIp, getVisitorCountryForAutoMode } from "@utils/ip-geo";
 import { isValidIpFromSettings } from "@utils/origin-ip-validation";
 import { VALIDATION_LIMITS, validatePayloadSize } from "@utils/validation";
 import { Elysia } from "elysia";
@@ -326,16 +326,8 @@ export const trackRoute = new Elysia().post(
 				source: event.source,
 			}));
 
-			const visitorCountry = spans.some(
-				(event) => event.anonymizeVisitorIds === "auto"
-			)
-				? (await getGeo(extractTrustedClientIp(request) ?? "", request)).country
-				: undefined;
-			if (visitorCountry === undefined) {
-				await insertCustomEvents(spans);
-			} else {
-				await insertCustomEvents(spans, visitorCountry);
-			}
+			const visitorCountry = await getVisitorCountryForAutoMode(spans, request);
+			await insertCustomEvents(spans, visitorCountry);
 
 			return json(
 				{ status: "success", type: "custom_event", count: spans.length },

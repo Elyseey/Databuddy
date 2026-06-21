@@ -43,7 +43,7 @@ import {
 	rethrowOrWrap,
 } from "@lib/structured-errors";
 import { record } from "@lib/tracing";
-import { getGeo } from "@utils/ip-geo";
+import { extractTrustedClientIp, getGeo, getVisitorCountryForAutoMode } from "@utils/ip-geo";
 import {
 	batchBotIgnoredItem,
 	batchSchemaItemFailure,
@@ -78,9 +78,12 @@ function processTrackEventData(
 			getGeo(ip, request),
 			parseUserAgent(userAgent),
 		]);
+		const trustedCountry = request && extractTrustedClientIp(request)
+			? geoData.country
+			: undefined;
 		const anonymizeVisitorIds = shouldAnonymizeVisitorIds(
 			trackData.anonymizeVisitorIds,
-			geoData.country
+			trustedCountry
 		);
 		const salt = anonymizeVisitorIds ? await getDailySalt() : undefined;
 
@@ -131,18 +134,6 @@ async function processOutgoingLinkData(
 	};
 }
 
-async function getVisitorCountryForAutoMode(
-	events: Array<{ anonymizeVisitorIds?: unknown }>,
-	ip: string,
-	request: Request
-): Promise<string | undefined> {
-	if (!events.some((event) => event.anonymizeVisitorIds === "auto")) {
-		return;
-	}
-
-	return (await getGeo(ip, request)).country;
-}
-
 const app = new Elysia()
 	.get("/px.jpg", async ({ query, request }) => {
 		const log = useLogger();
@@ -185,7 +176,6 @@ const app = new Elysia()
 				}
 				const visitorCountry = await getVisitorCountryForAutoMode(
 					[vitalParse.data],
-					ip,
 					request
 				);
 				insertIndividualVitals([vitalParse.data], clientId, visitorCountry);
@@ -197,7 +187,6 @@ const app = new Elysia()
 				}
 				const visitorCountry = await getVisitorCountryForAutoMode(
 					[errorParse.data],
-					ip,
 					request
 				);
 				insertErrorSpans([errorParse.data], clientId, visitorCountry);
@@ -246,7 +235,6 @@ const app = new Elysia()
 
 			const visitorCountry = await getVisitorCountryForAutoMode(
 				parseResult.data,
-				ip,
 				request
 			);
 			await insertIndividualVitals(parseResult.data, clientId, visitorCountry);
@@ -294,7 +282,6 @@ const app = new Elysia()
 
 			const visitorCountry = await getVisitorCountryForAutoMode(
 				parseResult.data,
-				ip,
 				request
 			);
 			await insertErrorSpans(parseResult.data, clientId, visitorCountry);
@@ -368,14 +355,9 @@ const app = new Elysia()
 
 			const visitorCountry = await getVisitorCountryForAutoMode(
 				events,
-				ip,
 				request
 			);
-			if (visitorCountry === undefined) {
-				await insertCustomEvents(events);
-			} else {
-				await insertCustomEvents(events, visitorCountry);
-			}
+			await insertCustomEvents(events, visitorCountry);
 
 			return Response.json({
 				status: "success",
@@ -498,7 +480,10 @@ const app = new Elysia()
 			let hasResolvedBatchVisitorCountry = false;
 			const getBatchVisitorCountry = async () => {
 				if (!hasResolvedBatchVisitorCountry) {
-					batchVisitorCountry = (await getGeo(ip, request)).country;
+					const trustedIp = extractTrustedClientIp(request);
+					batchVisitorCountry = trustedIp
+						? (await getGeo(trustedIp, request)).country
+						: undefined;
 					hasResolvedBatchVisitorCountry = true;
 				}
 				return batchVisitorCountry;

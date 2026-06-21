@@ -13,7 +13,7 @@ import {
 	shouldAnonymizeVisitorIds,
 } from "@lib/security";
 import { record } from "@lib/tracing";
-import { getGeo } from "@utils/ip-geo";
+import { extractTrustedClientIp, getGeo } from "@utils/ip-geo";
 import { parseUserAgent } from "@utils/user-agent";
 import {
 	sanitizeString,
@@ -148,9 +148,12 @@ export function insertTrackEvent(
 			return;
 		}
 
+		const trustedCountry = request && extractTrustedClientIp(request)
+			? geoData.country
+			: undefined;
 		const anonymizeVisitorIds = shouldAnonymizeVisitorIds(
 			trackData.anonymizeVisitorIds,
-			geoData.country
+			trustedCountry
 		);
 		const [salt, ua] = await Promise.all([
 			anonymizeVisitorIds ? getDailySalt() : Promise.resolve(undefined),
@@ -214,9 +217,10 @@ export function insertOutgoingLink(
 
 		const now = Date.now();
 
+		const trustedIp = request ? extractTrustedClientIp(request) : null;
 		const visitorCountry =
-			linkData.anonymizeVisitorIds === "auto"
-				? (await getGeo(ip, request)).country
+			linkData.anonymizeVisitorIds === "auto" && trustedIp
+				? (await getGeo(trustedIp, request)).country
 				: undefined;
 		const anonymizeVisitorIds = shouldAnonymizeVisitorIds(
 			linkData.anonymizeVisitorIds,

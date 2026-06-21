@@ -3,7 +3,9 @@ import { VALIDATION_LIMITS } from "../constants";
 
 const anonymizeVisitorIds = z
 	.union([z.boolean(), z.literal("auto")])
-	.optional();
+	.nullable()
+	.optional()
+	.transform((value) => value ?? undefined);
 
 const boundedPropertiesJson = z
 	.json()

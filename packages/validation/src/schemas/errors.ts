@@ -3,7 +3,9 @@ import { MAX_FUTURE_MS, MIN_TIMESTAMP, VALIDATION_LIMITS } from "../constants";
 
 const anonymizeVisitorIds = z
 	.union([z.boolean(), z.literal("auto")])
-	.optional();
+	.nullable()
+	.optional()
+	.transform((value) => value ?? undefined);
 
 const timestampSchema = z
 	.number()
