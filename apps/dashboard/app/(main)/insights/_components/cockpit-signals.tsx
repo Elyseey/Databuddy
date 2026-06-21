@@ -139,6 +139,7 @@ export function CockpitSignals(): ReactElement {
 			critical: insights.filter((i) => i.severity === "critical").length,
 			warning: insights.filter((i) => i.severity === "warning").length,
 			info: insights.filter((i) => i.severity === "info").length,
+			resolved: insights.filter((i) => i.status === "resolved").length,
 		}),
 		[insights]
 	);
@@ -215,6 +216,12 @@ export function CockpitSignals(): ReactElement {
 					<span className="text-muted-foreground text-xs tabular-nums">
 						{visibleCount} of {insights.length}{" "}
 						{insights.length === 1 ? "signal" : "signals"}
+						{counts.resolved > 0 && (
+							<span className="text-emerald-600">
+								{" "}
+								&middot; {counts.resolved} resolved
+							</span>
+						)}
 					</span>
 				)}
 			</Card.Header>
