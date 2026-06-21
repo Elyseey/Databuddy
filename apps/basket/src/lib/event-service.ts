@@ -127,7 +127,7 @@ export function insertTrackEvent(
 	clientId: string,
 	userAgent: string,
 	ip: string,
-	request?: Request
+	request: Request
 ): Promise<void> {
 	return record("insertTrackEvent", async () => {
 		const log = useLogger();
@@ -148,7 +148,7 @@ export function insertTrackEvent(
 			return;
 		}
 
-		const trustedCountry = request && extractTrustedClientIp(request)
+		const trustedCountry = extractTrustedClientIp(request)
 			? geoData.country
 			: undefined;
 		const anonymizeVisitorIds = shouldAnonymizeVisitorIds(
@@ -194,7 +194,7 @@ export function insertOutgoingLink(
 	linkData: any,
 	clientId: string,
 	ip: string,
-	request?: Request
+	request: Request
 ): Promise<void> {
 	return record("insertOutgoingLink", async () => {
 		const log = useLogger();
@@ -217,7 +217,7 @@ export function insertOutgoingLink(
 
 		const now = Date.now();
 
-		const trustedIp = request ? extractTrustedClientIp(request) : null;
+		const trustedIp = extractTrustedClientIp(request);
 		const visitorCountry =
 			linkData.anonymizeVisitorIds === "auto" && trustedIp
 				? (await getGeo(trustedIp, request)).country

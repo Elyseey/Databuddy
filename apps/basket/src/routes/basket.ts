@@ -69,7 +69,7 @@ function processTrackEventData(
 	clientId: string,
 	userAgent: string,
 	ip: string,
-	request?: Request
+	request: Request
 ) {
 	return record("processTrackEventData", async () => {
 		const eventId = parseEventId(trackData.eventId, () => randomUUIDv7());
@@ -78,7 +78,7 @@ function processTrackEventData(
 			getGeo(ip, request),
 			parseUserAgent(userAgent),
 		]);
-		const trustedCountry = request && extractTrustedClientIp(request)
+		const trustedCountry = extractTrustedClientIp(request)
 			? geoData.country
 			: undefined;
 		const anonymizeVisitorIds = shouldAnonymizeVisitorIds(
@@ -357,11 +357,7 @@ const app = new Elysia()
 				events,
 				request
 			);
-			if (visitorCountry === undefined) {
-				await insertCustomEvents(events);
-			} else {
-				await insertCustomEvents(events, visitorCountry);
-			}
+			await insertCustomEvents(events, visitorCountry);
 
 			return Response.json({
 				status: "success",
