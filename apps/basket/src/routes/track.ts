@@ -21,7 +21,10 @@ import {
 	rethrowOrWrap,
 } from "@lib/structured-errors";
 import { record } from "@lib/tracing";
-import { extractTrustedClientIp, getVisitorCountryForAutoMode } from "@utils/ip-geo";
+import {
+	extractTrustedClientIp,
+	getVisitorCountryForAutoMode,
+} from "@utils/ip-geo";
 import { isValidIpFromSettings } from "@utils/origin-ip-validation";
 import { VALIDATION_LIMITS, validatePayloadSize } from "@utils/validation";
 import { Elysia } from "elysia";

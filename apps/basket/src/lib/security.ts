@@ -107,7 +107,13 @@ export function applyVisitorIdPrivacy(
 		return sanitized;
 	}
 
-	return saltAnonymousId(sanitized, salt ?? "");
+	if (!salt) {
+		throw new Error(
+			"applyVisitorIdPrivacy requires a salt when anonymizeVisitorIds is true"
+		);
+	}
+
+	return saltAnonymousId(sanitized, salt);
 }
 
 export function checkDuplicate(

@@ -50,8 +50,10 @@ function sortInsights(items: Insight[], mode: SortMode): Insight[] {
 			return sorted.sort((a, b) => b.priority - a.priority);
 		case "newest":
 			return sorted.sort((a, b) => {
-				const aTime = a.createdAt ? new Date(a.createdAt).getTime() : 0;
-				const bTime = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+				const aSource = a.resolvedAt ?? a.createdAt;
+				const bSource = b.resolvedAt ?? b.createdAt;
+				const aTime = aSource ? new Date(aSource).getTime() : 0;
+				const bTime = bSource ? new Date(bSource).getTime() : 0;
 				return bTime - aTime;
 			});
 		case "change":

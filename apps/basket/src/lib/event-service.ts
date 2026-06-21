@@ -193,7 +193,6 @@ export function insertTrackEvent(
 export function insertOutgoingLink(
 	linkData: any,
 	clientId: string,
-	ip: string,
 	request: Request
 ): Promise<void> {
 	return record("insertOutgoingLink", async () => {

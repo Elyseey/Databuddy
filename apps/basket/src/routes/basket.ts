@@ -43,7 +43,11 @@ import {
 	rethrowOrWrap,
 } from "@lib/structured-errors";
 import { record } from "@lib/tracing";
-import { extractTrustedClientIp, getGeo, getVisitorCountryForAutoMode } from "@utils/ip-geo";
+import {
+	extractTrustedClientIp,
+	getGeo,
+	getVisitorCountryForAutoMode,
+} from "@utils/ip-geo";
 import {
 	batchBotIgnoredItem,
 	batchSchemaItemFailure,
@@ -167,7 +171,7 @@ const app = new Elysia()
 			if (eventType === "track") {
 				insertTrackEvent(eventData, clientId, userAgent, ip, request);
 			} else if (eventType === "outgoing_link") {
-				insertOutgoingLink(eventData, clientId, ip, request);
+				insertOutgoingLink(eventData, clientId, request);
 			} else if (eventType === "web_vitals") {
 				const vitalParse = individualVitalSchema.safeParse(eventData);
 				if (!vitalParse.success) {
@@ -206,7 +210,7 @@ const app = new Elysia()
 		log.set({ route: "vitals" });
 
 		try {
-			const { clientId, userAgent, ip } = await validateRequest(
+			const { clientId, userAgent } = await validateRequest(
 				body,
 				query,
 				request
@@ -253,7 +257,7 @@ const app = new Elysia()
 		log.set({ route: "errors" });
 
 		try {
-			const { clientId, userAgent, ip } = await validateRequest(
+			const { clientId, userAgent } = await validateRequest(
 				body,
 				query,
 				request
@@ -307,7 +311,7 @@ const app = new Elysia()
 		};
 
 		try {
-			const { clientId, userAgent, organizationId, ip } = await validateRequest(
+			const { clientId, userAgent, organizationId } = await validateRequest(
 				body,
 				query,
 				request
@@ -430,7 +434,7 @@ const app = new Elysia()
 					throw createIngestSchemaValidationError(parseResult.error.issues);
 				}
 
-				insertOutgoingLink(parseResult.data, clientId, ip, request);
+				insertOutgoingLink(parseResult.data, clientId, request);
 				return Response.json({ status: "success", type: "outgoing_link" });
 			}
 
