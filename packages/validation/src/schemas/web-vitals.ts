@@ -1,6 +1,10 @@
 import z from "zod";
 import { MAX_FUTURE_MS, MIN_TIMESTAMP, VALIDATION_LIMITS } from "../constants";
 
+const anonymizeVisitorIds = z
+	.union([z.boolean(), z.literal("auto")])
+	.optional();
+
 const timestampSchema = z
 	.number()
 	.int()
@@ -71,6 +75,7 @@ export const individualVitalSchema = z.object({
 		.max(VALIDATION_LIMITS.ANONYMOUS_ID_MAX_LENGTH)
 		.nullable()
 		.optional(),
+	anonymizeVisitorIds,
 	sessionId: z
 		.string()
 		.max(VALIDATION_LIMITS.SESSION_ID_MAX_LENGTH)

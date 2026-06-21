@@ -106,6 +106,8 @@ vi.mock("@lib/security", () => ({
 	getDailySalt: vi.fn(() => Promise.resolve("test-salt")),
 	saltAnonymousId: vi.fn((id: string) => `salted_${id}`),
 	checkDuplicate: vi.fn(() => Promise.resolve(false)),
+	applyVisitorIdPrivacy: vi.fn((id: string) => `salted_${id}`),
+	shouldAnonymizeVisitorIds: vi.fn(() => true),
 }));
 
 vi.mock("@utils/ip-geo", () => ({
@@ -801,6 +803,7 @@ describe("POST /track", () => {
 			namespace: "auth",
 			source: "node",
 			anonymousId: "anon_123",
+			anonymizeVisitorIds: false,
 			sessionId: "sess_456",
 		});
 		expect(mockInsertCustomEvents).toHaveBeenCalledWith([
@@ -809,9 +812,30 @@ describe("POST /track", () => {
 				namespace: "auth",
 				source: "node",
 				anonymous_id: "anon_123",
+				anonymizeVisitorIds: false,
 				session_id: "sess_456",
 			}),
 		]);
+	});
+
+	test("resolves request country for auto visitor anonymization", async () => {
+		mockInsertCustomEvents.mockClear();
+		await post(trackRoute, "/track", {
+			name: "signup",
+			websiteId: "ws_test",
+			anonymousId: "anon_123",
+			anonymizeVisitorIds: "auto",
+		});
+		expect(mockInsertCustomEvents).toHaveBeenCalledWith(
+			[
+				expect.objectContaining({
+					event_name: "signup",
+					anonymous_id: "anon_123",
+					anonymizeVisitorIds: "auto",
+				}),
+			],
+			"US"
+		);
 	});
 
 	test("website_id auth accepts matching website batch → 200", async () => {
