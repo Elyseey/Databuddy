@@ -1,4 +1,4 @@
-import { isNotNull } from "drizzle-orm";
+import { isNotNull, sql } from "drizzle-orm";
 import {
 	boolean,
 	doublePrecision,
@@ -277,6 +277,15 @@ export const analyticsInsights = pgTable(
 			table.organizationId,
 			table.chainId,
 			table.createdAt.desc()
+		),
+		index("analytics_insights_org_resolved_sort_idx").on(
+			table.organizationId,
+			sql`coalesce(${table.resolvedAt}, ${table.createdAt}) desc`
+		),
+		index("analytics_insights_website_resolved_sort_idx").on(
+			table.organizationId,
+			table.websiteId,
+			sql`coalesce(${table.resolvedAt}, ${table.createdAt}) desc`
 		),
 		uniqueIndex("analytics_insights_org_dedupe_key_uidx")
 			.on(table.organizationId, table.dedupeKey)
