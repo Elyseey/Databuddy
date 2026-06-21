@@ -239,7 +239,8 @@ export function buildFallbackMemo(answer: string): InvestigationMemo {
 		},
 		verdict: {
 			type: "watch",
-			reason: "Findings were gathered but not synthesized into a graded verdict.",
+			reason:
+				"Findings were gathered but not synthesized into a graded verdict.",
 		},
 		actions: [],
 	};

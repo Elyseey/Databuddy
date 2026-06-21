@@ -1,6 +1,8 @@
 import "./tools.test-env";
 
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
+import * as actualAi from "ai";
+import * as actualRunAgent from "./run-agent";
 
 const traceResult = {
 	answer: "Pageviews fell 30% on /pricing after June 8.",
@@ -20,10 +22,12 @@ const traceResult = {
 let synthesisShouldThrow = false;
 
 mock.module("./run-agent", () => ({
+	...actualRunAgent,
 	runMcpAgentWithTrace: async () => traceResult,
 }));
 
 mock.module("ai", () => ({
+	...actualAi,
 	generateObject: async () => {
 		if (synthesisShouldThrow) {
 			throw new Error("synthesis exploded");
@@ -56,6 +60,11 @@ const params = {
 describe("runInvestigation synthesis wiring", () => {
 	beforeEach(() => {
 		synthesisShouldThrow = false;
+	});
+
+	afterAll(() => {
+		mock.module("ai", () => actualAi);
+		mock.module("./run-agent", () => actualRunAgent);
 	});
 
 	test("returns the synthesized memo when generateObject succeeds", async () => {
