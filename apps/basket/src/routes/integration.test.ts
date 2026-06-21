@@ -106,6 +106,8 @@ vi.mock("@lib/security", () => ({
 	getDailySalt: vi.fn(() => Promise.resolve("test-salt")),
 	saltAnonymousId: vi.fn((id: string) => `salted_${id}`),
 	checkDuplicate: vi.fn(() => Promise.resolve(false)),
+	applyVisitorIdPrivacy: vi.fn((id: string) => `salted_${id}`),
+	shouldAnonymizeVisitorIds: vi.fn(() => true),
 }));
 
 vi.mock("@utils/ip-geo", () => ({
@@ -119,6 +121,13 @@ vi.mock("@utils/ip-geo", () => ({
 	),
 	extractIpFromRequest: vi.fn(() => "1.2.3.4"),
 	extractTrustedClientIp: vi.fn(() => "1.2.3.4"),
+	getVisitorCountryForAutoMode: vi.fn((events: Array<{ anonymizeVisitorIds?: unknown }>) =>
+		Promise.resolve(
+			events.some((event) => event.anonymizeVisitorIds === "auto")
+				? "US"
+				: undefined
+		)
+	),
 	closeGeoIPReader: noop,
 }));
 
@@ -563,24 +572,30 @@ describe("POST /track", () => {
 		mockHasGlobalAccess.mockReturnValue(true);
 		const res = await post(trackRoute, "/track", { name: "org_event" });
 		expect(res.status).toBe(200);
-		expect(mockInsertCustomEvents).toHaveBeenCalledWith([
-			expect.objectContaining({
-				event_name: "org_event",
-				website_id: undefined,
-				owner_id: "org_1",
-			}),
-		]);
+		expect(mockInsertCustomEvents).toHaveBeenCalledWith(
+			[
+				expect.objectContaining({
+					event_name: "org_event",
+					website_id: undefined,
+					owner_id: "org_1",
+				}),
+			],
+			undefined
+		);
 	});
 
 	test("website-scoped api key + no websiteId → 200 (org-scoped event)", async () => {
 		const res = await post(trackRoute, "/track", { name: "org_event" });
 		expect(res.status).toBe(200);
-		expect(mockInsertCustomEvents).toHaveBeenCalledWith([
-			expect.objectContaining({
-				event_name: "org_event",
-				website_id: undefined,
-			}),
-		]);
+		expect(mockInsertCustomEvents).toHaveBeenCalledWith(
+			[
+				expect.objectContaining({
+					event_name: "org_event",
+					website_id: undefined,
+				}),
+			],
+			undefined
+		);
 	});
 
 	test("website-scoped api key + websiteId outside scope → 403", async () => {
@@ -730,12 +745,15 @@ describe("POST /track", () => {
 			websiteId: "ws_anywhere",
 		});
 		expect(res.status).toBe(200);
-		expect(mockInsertCustomEvents).toHaveBeenCalledWith([
-			expect.objectContaining({
-				event_name: "any_event",
-				website_id: "ws_anywhere",
-			}),
-		]);
+		expect(mockInsertCustomEvents).toHaveBeenCalledWith(
+			[
+				expect.objectContaining({
+					event_name: "any_event",
+					website_id: "ws_anywhere",
+				}),
+			],
+			undefined
+		);
 	});
 
 	test("api key with no scope → 403 (regression: trackMissingScope)", async () => {
@@ -784,13 +802,16 @@ describe("POST /track", () => {
 		mockHasGlobalAccess.mockReturnValue(true);
 		mockInsertCustomEvents.mockClear();
 		await post(trackRoute, "/track", { name: "org_event" });
-		expect(mockInsertCustomEvents).toHaveBeenCalledWith([
-			expect.objectContaining({
-				owner_id: "org_1",
-				website_id: undefined,
-				event_name: "org_event",
-			}),
-		]);
+		expect(mockInsertCustomEvents).toHaveBeenCalledWith(
+			[
+				expect.objectContaining({
+					owner_id: "org_1",
+					website_id: undefined,
+					event_name: "org_event",
+				}),
+			],
+			undefined
+		);
 	});
 
 	test("preserves namespace, source, anonymousId, sessionId on insert", async () => {
@@ -801,17 +822,42 @@ describe("POST /track", () => {
 			namespace: "auth",
 			source: "node",
 			anonymousId: "anon_123",
+			anonymizeVisitorIds: false,
 			sessionId: "sess_456",
 		});
-		expect(mockInsertCustomEvents).toHaveBeenCalledWith([
-			expect.objectContaining({
-				event_name: "signup",
-				namespace: "auth",
-				source: "node",
-				anonymous_id: "anon_123",
-				session_id: "sess_456",
-			}),
-		]);
+		expect(mockInsertCustomEvents).toHaveBeenCalledWith(
+			[
+				expect.objectContaining({
+					event_name: "signup",
+					namespace: "auth",
+					source: "node",
+					anonymous_id: "anon_123",
+					anonymizeVisitorIds: false,
+					session_id: "sess_456",
+				}),
+			],
+			undefined
+		);
+	});
+
+	test("resolves request country for auto visitor anonymization", async () => {
+		mockInsertCustomEvents.mockClear();
+		await post(trackRoute, "/track", {
+			name: "signup",
+			websiteId: "ws_test",
+			anonymousId: "anon_123",
+			anonymizeVisitorIds: "auto",
+		});
+		expect(mockInsertCustomEvents).toHaveBeenCalledWith(
+			[
+				expect.objectContaining({
+					event_name: "signup",
+					anonymous_id: "anon_123",
+					anonymizeVisitorIds: "auto",
+				}),
+			],
+			"US"
+		);
 	});
 
 	test("website_id auth accepts matching website batch → 200", async () => {
@@ -822,10 +868,13 @@ describe("POST /track", () => {
 		]);
 
 		expect(res.status).toBe(200);
-		expect(mockInsertCustomEvents).toHaveBeenCalledWith([
-			expect.objectContaining({ event_name: "signup", website_id: "ws_test" }),
-			expect.objectContaining({ event_name: "purchase", website_id: "ws_test" }),
-		]);
+		expect(mockInsertCustomEvents).toHaveBeenCalledWith(
+			[
+				expect.objectContaining({ event_name: "signup", website_id: "ws_test" }),
+				expect.objectContaining({ event_name: "purchase", website_id: "ws_test" }),
+			],
+			undefined
+		);
 	});
 
 	test("website_id auth rejects mixed-website batch", async () => {

@@ -276,6 +276,22 @@ export function extractTrustedClientIp(request: Request): string | null {
 	return extractIpFromRequest(request) || null;
 }
 
+export async function getVisitorCountryForAutoMode(
+	events: Array<{ anonymizeVisitorIds?: unknown }>,
+	request: Request
+): Promise<string | undefined> {
+	if (!events.some((event) => event.anonymizeVisitorIds === "auto")) {
+		return;
+	}
+
+	const trustedIp = extractTrustedClientIp(request);
+	if (!trustedIp) {
+		return;
+	}
+
+	return (await getGeo(trustedIp, request)).country;
+}
+
 export function closeGeoIPReader(): void {
 	if (reader) {
 		reader = null;

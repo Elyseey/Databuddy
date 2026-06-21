@@ -15,6 +15,8 @@ When a mistake could have been avoided with better repo context (wrong app, pack
 
 Keep additions **minimal**: one bullet, a new `rg` hint, or a routing note—enough that the next session does not repeat it. If the lesson is for SDK/API customers, add it under `.agents/skills/databuddy/` instead.
 
+- Repo-local `.agents/skills` is versioned project guidance. Put new personal or experimental agent skills under `/Users/iza/.agents/skills` unless the user explicitly wants the skill committed with Databuddy.
+
 ## Quick Map
 
 - Prod infrastructure repo is local at `/Users/iza/Documents/GitHub/databuddy-infra` (`databuddy-analytics/infra`); ClickHouse cluster inventory is `clickhouse/ansible/inventory.yml`, not `/Users/iza/Dev/Databuddy/infra` or `DatabuddyOPS`.
@@ -159,6 +161,8 @@ Read [codebase-map.md](./references/codebase-map.md) when you need deeper routin
 
 - Published SDK logic: `packages/sdk/src`
 - Browser tracker bundle: `packages/tracker/src`
+- Public SDK/tracker visitor ID privacy is only `anonymizeVisitorIds` (`true`/omitted = anonymized, `false` = raw IDs, `"auto"` = raw only in Databuddy's conservative country allowlist).
+- Keep visitor ID privacy internals small and direct; avoid exported helper stacks or storage/hashing vocabulary for this option.
 - If the user reports missing analytics events, inspect both the producer side and `apps/basket`
 
 ## Verification
