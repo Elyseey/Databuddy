@@ -31,7 +31,15 @@ export const chartType = pgEnum("chart_type", ["metrics"]);
 
 export interface DataFilter {
 	field: string;
-	operator: "equals" | "contains" | "not_equals" | "in" | "not_in";
+	operator:
+		| "contains"
+		| "ends_with"
+		| "equals"
+		| "in"
+		| "not_contains"
+		| "not_equals"
+		| "not_in"
+		| "starts_with";
 	value: string | string[];
 }
 
