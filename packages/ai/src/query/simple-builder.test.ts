@@ -65,6 +65,12 @@ const GLOBAL_FILTER_FIELDS = [
 	"utm_campaign",
 ] as const;
 
+const NUMERIC_PROFILE_FILTER_FIELDS = new Set([
+	"session_count",
+	"total_events",
+	"unique_pages",
+]);
+
 const QUERY_BUILDER_ENTRIES = Object.entries(QueryBuilders);
 const FILTERABLE_BUILDER_CASES = QUERY_BUILDER_ENTRIES.flatMap(
 	([type, config]) =>
@@ -75,7 +81,11 @@ const FILTERABLE_BUILDER_CASES = QUERY_BUILDER_ENTRIES.flatMap(
 		)
 );
 
-function filterValueForOperator(op: Filter["op"]): Filter["value"] {
+function filterValueForOperator(field: string, op: Filter["op"]): Filter["value"] {
+	if (NUMERIC_PROFILE_FILTER_FIELDS.has(field)) {
+		return op === "in" || op === "not_in" ? [1, 2] : 1;
+	}
+
 	return op === "in" || op === "not_in"
 		? ["dynamic-value-a", "dynamic-value-b"]
 		: "dynamic-value";
@@ -92,6 +102,12 @@ function makeRequiredFilters(config: SimpleQueryConfig): Filter[] {
 function isSensibleFilterOperator(field: string, op: Filter["op"]): boolean {
 	// These builders fetch a single entity from a scalar id read directly by customSql.
 	if ((field === "anonymous_id" || field === "session_id") && op !== "eq") {
+		return false;
+	}
+	if (
+		NUMERIC_PROFILE_FILTER_FIELDS.has(field) &&
+		(op === "contains" || op === "not_contains" || op === "starts_with")
+	) {
 		return false;
 	}
 	return true;
@@ -166,7 +182,7 @@ describe("SimpleQueryBuilder.compile", () => {
 		)
 	)("allows global filter $field with $op", ({ field, op }) => {
 		const filters: Filter[] = [
-			{ field, op, value: filterValueForOperator(op) },
+			{ field, op, value: filterValueForOperator(field, op) },
 		];
 
 		expect(() => compile({}, { filters })).not.toThrow();
@@ -177,7 +193,7 @@ describe("SimpleQueryBuilder.compile", () => {
 		({ config, field, op, type }) => {
 			const filters: Filter[] = [
 				...makeRequiredFilters(config),
-				{ field, op, value: filterValueForOperator(op) },
+				{ field, op, value: filterValueForOperator(field, op) },
 			];
 
 			const { sql } = compileBuilder(type, config, { filters });
@@ -453,6 +469,83 @@ describe("SimpleQueryBuilder.compile", () => {
 
 		expect(sql).toContain("session_id = {f0:String}");
 		expect(params.f0).toBe("session-1");
+	});
+
+	it("applies profile_list event_name filters through a custom-events visitor subquery", () => {
+		const config = QueryBuilders.profile_list;
+		if (!config) {
+			throw new Error("profile_list builder is missing");
+		}
+
+		const { params, sql } = new SimpleQueryBuilder(
+			config,
+			makeRequest({
+				filters: [{ field: "event_name", op: "eq", value: "signup" }],
+				type: "profile_list",
+			})
+		).compile();
+
+		expect(sql).toContain("AND anonymous_id IN (");
+		expect(sql).toContain("FROM analytics.custom_events");
+		expect(sql).toContain("AND event_name = {f0:String}");
+		expect(sql).not.toContain("eventNameFilter");
+		expect(params.f0).toBe("signup");
+	});
+
+	it("keeps profile_list event_name operator semantics in the custom-events subquery", () => {
+		const config = QueryBuilders.profile_list;
+		if (!config) {
+			throw new Error("profile_list builder is missing");
+		}
+
+		const { params, sql } = new SimpleQueryBuilder(
+			config,
+			makeRequest({
+				filters: [{ field: "event_name", op: "contains", value: "signup" }],
+				type: "profile_list",
+			})
+		).compile();
+
+		expect(sql).toContain("AND event_name LIKE {f0:String}");
+		expect(params.f0).toBe("%signup%");
+	});
+
+	it("applies profile_list aggregate filters in HAVING with numeric params", () => {
+		const config = QueryBuilders.profile_list;
+		if (!config) {
+			throw new Error("profile_list builder is missing");
+		}
+
+		const { params, sql } = new SimpleQueryBuilder(
+			config,
+			makeRequest({
+				filters: [{ field: "session_count", op: "not_in", value: [1, 2] }],
+				type: "profile_list",
+			})
+		).compile();
+
+		expect(sql).toContain("HAVING session_count NOT IN {f0:Array(Float64)}");
+		expect(sql).not.toContain("session_count NOT IN {f0:Array(String)}");
+		expect(params.f0).toEqual([1, 2]);
+	});
+
+	it("rejects text operators for profile_list aggregate filters", () => {
+		const config = QueryBuilders.profile_list;
+		if (!config) {
+			throw new Error("profile_list builder is missing");
+		}
+
+		expect(() =>
+			new SimpleQueryBuilder(
+				config,
+				makeRequest({
+					filters: [
+						{ field: "session_count", op: "contains", value: "1" },
+					],
+					type: "profile_list",
+				})
+			).compile()
+		).toThrow("supports only eq, ne, in, and not_in operators");
 	});
 
 	it("allows anonymous_id for the profile_detail builder", () => {
