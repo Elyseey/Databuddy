@@ -1,7 +1,6 @@
 "use client";
 
 import { authClient } from "@databuddy/auth/client";
-import { track } from "@databuddy/sdk";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { parseAsString, useQueryState } from "nuqs";
@@ -9,6 +8,12 @@ import { Suspense, useState } from "react";
 import { toast } from "sonner";
 import { GithubMark, GoogleMark } from "@/components/ui/brand-icons";
 import VisuallyHidden from "@/components/ui/visuallyhidden";
+import {
+	APP_EVENTS,
+	readUtmProperties,
+	type SignupMethod,
+	trackAppEvent,
+} from "@/lib/app-events";
 import {
 	CaretLeftIcon,
 	EyeIcon,
@@ -53,18 +58,19 @@ function RegisterPageContent() {
 		setFormData((prev) => ({ ...prev, [name]: value }));
 	};
 
-	const trackSignUp = (
-		method: "email" | "social",
-		provider?: "github" | "google"
+	const getSignupProperties = (method: SignupMethod) => ({
+		...readUtmProperties(new URLSearchParams(window.location.search)),
+		method,
+		plan: selectedPlan || undefined,
+	});
+
+	const trackSignup = (
+		eventName:
+			| typeof APP_EVENTS.signupCompleted
+			| typeof APP_EVENTS.signupStarted,
+		method: SignupMethod
 	) => {
-		try {
-			track("signup_completed", {
-				method: method === "social" ? `${method}_${provider}` : method,
-				plan: selectedPlan || undefined,
-			});
-		} catch (error) {
-			console.error("Failed to track sign up event:", error);
-		}
+		trackAppEvent(eventName, getSignupProperties(method), { flush: true });
 	};
 
 	const getCallbackUrl = () => {
@@ -97,6 +103,7 @@ function RegisterPageContent() {
 		}
 
 		setIsLoading(true);
+		trackSignup(APP_EVENTS.signupStarted, "email");
 
 		const { error } = await authClient.signUp.email({
 			email: formData.email,
@@ -105,7 +112,7 @@ function RegisterPageContent() {
 			callbackURL: getCallbackUrl(),
 			fetchOptions: {
 				onSuccess: () => {
-					trackSignUp("email");
+					trackSignup(APP_EVENTS.signupCompleted, "email");
 					toast.success(
 						"Account created! Please check your email to verify your account."
 					);
@@ -147,6 +154,7 @@ function RegisterPageContent() {
 
 	const handleSocialLogin = async (provider: "github" | "google") => {
 		setIsLoading(true);
+		trackSignup(APP_EVENTS.signupStarted, `social_${provider}`);
 
 		try {
 			const result = await authClient.signIn.social({
@@ -164,8 +172,6 @@ function RegisterPageContent() {
 				setIsLoading(false);
 				return;
 			}
-
-			trackSignUp("social", provider);
 
 			if (result.data?.url) {
 				window.location.href = result.data.url;

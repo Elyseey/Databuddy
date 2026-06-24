@@ -1,6 +1,5 @@
 "use client";
 
-import { track } from "@databuddy/sdk";
 import { useQuery } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
 import { createHighlighterCoreSync } from "shiki/core";
@@ -11,6 +10,7 @@ import tsx from "shiki/langs/tsx.mjs";
 import vesper from "shiki/themes/vesper.mjs";
 import { toast } from "sonner";
 import { orpc } from "@/lib/orpc";
+import { APP_EVENTS, trackAppEvent } from "@/lib/app-events";
 import { Badge, Button, Card } from "@databuddy/ui";
 import { Tabs } from "@databuddy/ui/client";
 import {
@@ -398,30 +398,24 @@ export function StepInstallTracking({
 		setCopiedBlockId(blockId);
 		toast.success(message);
 		setTimeout(() => setCopiedBlockId(null), COPY_SUCCESS_TIMEOUT);
-		try {
-			track("onboarding_tracking_copied", {
-				block: blockId,
-				method: AI_TOOLS.some((t) => t.id === blockId)
-					? "ai"
-					: blockId.includes("install")
-						? "sdk"
-						: "script",
-			});
-		} catch {}
+		trackAppEvent(APP_EVENTS.onboardingTrackingCopied, {
+			block: blockId,
+			method: AI_TOOLS.some((t) => t.id === blockId)
+				? "ai"
+				: blockId.includes("install")
+					? "sdk"
+					: "script",
+		});
 	};
 
 	const handleCheckStatus = async () => {
 		setIsRefreshing(true);
-		try {
-			track("onboarding_tracking_check_status");
-		} catch {}
+		trackAppEvent(APP_EVENTS.onboardingTrackingCheckStatus);
 		try {
 			const result = await refetchTrackingSetup();
 			if (result.data?.tracking_setup) {
 				toast.success("Tracking verified! Data is flowing.");
-				try {
-					track("onboarding_tracking_verified");
-				} catch {}
+				trackAppEvent(APP_EVENTS.onboardingTrackingVerified);
 				onComplete();
 			} else {
 				toast.info("No tracking detected yet. Check your installation.");
