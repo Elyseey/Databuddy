@@ -2,7 +2,7 @@
 
 import { List } from "@/components/ui/composables/list";
 import { Skeleton } from "@databuddy/ui";
-import type { Goal } from "@/hooks/use-goals";
+import type { Goal, GoalAnalyticsResult } from "@/hooks/use-goals";
 import { formatNumber } from "@/lib/formatters";
 import { cn } from "@/lib/utils";
 import {
@@ -11,15 +11,12 @@ import {
 	MouseMiddleClickIcon,
 	PencilSimpleIcon,
 	TrashIcon,
+	WarningCircleIcon,
 } from "@databuddy/ui/icons";
 import { DropdownMenu } from "@databuddy/ui/client";
 
 interface GoalItemProps {
-	analytics?: {
-		total_users_entered: number;
-		total_users_completed: number;
-		overall_conversion_rate: number;
-	} | null;
+	analytics?: GoalAnalyticsResult;
 	goal: Goal;
 	isLoadingAnalytics?: boolean;
 	onDelete: (goalId: string) => void;
@@ -35,23 +32,20 @@ const GOAL_TYPE_CONFIG = {
 		icon: MouseMiddleClickIcon,
 		bg: "bg-violet-500/10 text-violet-600 dark:text-violet-400",
 	},
+	CUSTOM: {
+		icon: MouseMiddleClickIcon,
+		bg: "bg-muted text-muted-foreground",
+	},
 } as const;
 
-function MiniGoalChart({ rate }: { rate: number }) {
-	const percentage = Math.max(0, Math.min(100, rate)) / 100;
-	const activeLines = Math.floor(percentage * 24);
-
+function GoalProgress({ rate }: { rate: number }) {
+	const clampedRate = Math.max(0, Math.min(100, rate));
 	return (
-		<div className="flex h-5 w-32 items-end gap-[1.5px] lg:w-44">
-			{Array.from({ length: 24 }).map((_, i) => (
-				<div
-					className={cn(
-						"h-full w-[2px] rounded-sm",
-						i < activeLines ? "bg-chart-1" : "scale-y-[0.6] bg-muted"
-					)}
-					key={`bar-${i + 1}`}
-				/>
-			))}
+		<div className="h-2 w-32 overflow-hidden rounded-full bg-muted lg:w-44">
+			<div
+				className="h-full rounded-full bg-chart-1 transition-[width]"
+				style={{ width: `${clampedRate}%` }}
+			/>
 		</div>
 	);
 }
@@ -63,11 +57,12 @@ export function GoalItem({
 	onEdit,
 	onDelete,
 }: GoalItemProps) {
-	const rate = analytics?.overall_conversion_rate ?? 0;
-	const users = analytics?.total_users_completed ?? 0;
-	const config =
-		GOAL_TYPE_CONFIG[goal.type as keyof typeof GOAL_TYPE_CONFIG] ??
-		GOAL_TYPE_CONFIG.PAGE_VIEW;
+	const analyticsData = analytics?.ok ? analytics.data : null;
+	const analyticsError = analytics && !analytics.ok ? analytics.error : null;
+	const rate = analyticsData?.overall_conversion_rate ?? 0;
+	const users = analyticsData?.total_users_completed ?? 0;
+	const eligibleUsers = analyticsData?.total_users_entered ?? 0;
+	const config = GOAL_TYPE_CONFIG[goal.type];
 	const TypeIcon = config.icon;
 
 	return (
@@ -108,14 +103,25 @@ export function GoalItem({
 							<Skeleton className="h-3 w-8 rounded" />
 						</div>
 					</>
+				) : analyticsError ? (
+					<div className="flex w-72 items-center justify-end gap-2 text-destructive text-xs">
+						<WarningCircleIcon className="size-4 shrink-0" weight="duotone" />
+						<span className="truncate">{analyticsError}</span>
+					</div>
 				) : (
 					<>
-						<MiniGoalChart rate={rate} />
+						<GoalProgress rate={rate} />
 						<div className="flex w-16 flex-col items-end">
 							<span className="font-semibold text-sm tabular-nums">
 								{formatNumber(users)}
 							</span>
-							<span className="text-muted-foreground text-xs">Users</span>
+							<span className="text-muted-foreground text-xs">Completed</span>
+						</div>
+						<div className="flex w-20 flex-col items-end">
+							<span className="font-semibold text-sm tabular-nums">
+								{formatNumber(eligibleUsers)}
+							</span>
+							<span className="text-muted-foreground text-xs">Eligible</span>
 						</div>
 						<div className="flex w-16 flex-col items-end">
 							<span className="font-semibold text-sm text-success tabular-nums">
@@ -130,6 +136,11 @@ export function GoalItem({
 			<List.Cell className="w-14 pt-0.5 text-right lg:hidden">
 				{isLoadingAnalytics ? (
 					<Skeleton className="ms-auto h-4 w-12 rounded" />
+				) : analyticsError ? (
+					<WarningCircleIcon
+						className="ms-auto size-4 text-destructive"
+						weight="duotone"
+					/>
 				) : (
 					<span className="font-semibold text-sm tabular-nums">
 						{rate.toFixed(1)}%
