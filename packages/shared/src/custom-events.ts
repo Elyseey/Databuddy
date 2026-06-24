@@ -33,6 +33,12 @@ export const MARKETING_PARAM_KEYS = [
 	"wolref",
 ] as const;
 
+export const SIGNUP_METHODS = [
+	"email",
+	"social_github",
+	"social_google",
+] as const;
+
 export type AppEventName = (typeof APP_EVENTS)[keyof typeof APP_EVENTS];
 export type EmptyAppEventName =
 	| typeof APP_EVENTS.onboardingCompleted
@@ -46,7 +52,7 @@ export type AppEventNameWithProperties = Exclude<
 >;
 export type UtmParamKey = (typeof UTM_PARAM_KEYS)[number];
 export type UtmProperties = Partial<Record<UtmParamKey, string>>;
-export type SignupMethod = "email" | "social_github" | "social_google";
+export type SignupMethod = (typeof SIGNUP_METHODS)[number];
 export type OnboardingStepId = "website" | "tracking" | "team" | "explore";
 
 type EmptyProperties = Record<never, never>;
@@ -97,4 +103,11 @@ export function readUtmProperties(params: URLSearchParams): UtmProperties {
 	}
 
 	return properties;
+}
+
+export function isSignupMethod(value: unknown): value is SignupMethod {
+	return (
+		typeof value === "string" &&
+		(SIGNUP_METHODS as readonly string[]).includes(value)
+	);
 }

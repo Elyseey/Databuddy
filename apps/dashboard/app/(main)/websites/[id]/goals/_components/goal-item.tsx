@@ -62,7 +62,7 @@ export function GoalItem({
 	const rate = analyticsData?.overall_conversion_rate ?? 0;
 	const users = analyticsData?.total_users_completed ?? 0;
 	const eligibleUsers = analyticsData?.total_users_entered ?? 0;
-	const config = GOAL_TYPE_CONFIG[goal.type];
+	const config = GOAL_TYPE_CONFIG[goal.type] ?? GOAL_TYPE_CONFIG.PAGE_VIEW;
 	const TypeIcon = config.icon;
 
 	return (

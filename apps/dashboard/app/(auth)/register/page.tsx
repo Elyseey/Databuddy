@@ -11,6 +11,8 @@ import VisuallyHidden from "@/components/ui/visuallyhidden";
 import {
 	APP_EVENTS,
 	readUtmProperties,
+	storePendingSocialSignup,
+	type SignupEventProperties,
 	type SignupMethod,
 	trackAppEvent,
 } from "@/lib/app-events";
@@ -58,7 +60,9 @@ function RegisterPageContent() {
 		setFormData((prev) => ({ ...prev, [name]: value }));
 	};
 
-	const getSignupProperties = (method: SignupMethod) => ({
+	const getSignupProperties = (
+		method: SignupMethod
+	): SignupEventProperties => ({
 		...readUtmProperties(new URLSearchParams(window.location.search)),
 		method,
 		plan: selectedPlan || undefined,
@@ -68,9 +72,9 @@ function RegisterPageContent() {
 		eventName:
 			| typeof APP_EVENTS.signupCompleted
 			| typeof APP_EVENTS.signupStarted,
-		method: SignupMethod
+		properties: SignupEventProperties
 	) => {
-		trackAppEvent(eventName, getSignupProperties(method), { flush: true });
+		trackAppEvent(eventName, properties, { flush: true });
 	};
 
 	const getCallbackUrl = () => {
@@ -103,7 +107,8 @@ function RegisterPageContent() {
 		}
 
 		setIsLoading(true);
-		trackSignup(APP_EVENTS.signupStarted, "email");
+		const signupProperties = getSignupProperties("email");
+		trackSignup(APP_EVENTS.signupStarted, signupProperties);
 
 		const { error } = await authClient.signUp.email({
 			email: formData.email,
@@ -112,7 +117,7 @@ function RegisterPageContent() {
 			callbackURL: getCallbackUrl(),
 			fetchOptions: {
 				onSuccess: () => {
-					trackSignup(APP_EVENTS.signupCompleted, "email");
+					trackSignup(APP_EVENTS.signupCompleted, signupProperties);
 					toast.success(
 						"Account created! Please check your email to verify your account."
 					);
@@ -154,7 +159,8 @@ function RegisterPageContent() {
 
 	const handleSocialLogin = async (provider: "github" | "google") => {
 		setIsLoading(true);
-		trackSignup(APP_EVENTS.signupStarted, `social_${provider}`);
+		const signupProperties = getSignupProperties(`social_${provider}`);
+		trackSignup(APP_EVENTS.signupStarted, signupProperties);
 
 		try {
 			const result = await authClient.signIn.social({
@@ -174,6 +180,7 @@ function RegisterPageContent() {
 			}
 
 			if (result.data?.url) {
+				storePendingSocialSignup(signupProperties);
 				window.location.href = result.data.url;
 				return;
 			}

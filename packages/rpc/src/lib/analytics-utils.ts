@@ -103,11 +103,18 @@ interface ReferrerRow {
 // Helpers
 const ESCAPE_BACKSLASH_REGEX = /\\/g;
 const ESCAPE_LIKE_WILDCARDS_REGEX = /[%_]/g;
-const TRAILING_SLASH_REGEX = /\/+$/;
 const escapeClickhouseString = (value: string): string =>
 	value
 		.replace(ESCAPE_BACKSLASH_REGEX, "\\\\")
 		.replace(ESCAPE_LIKE_WILDCARDS_REGEX, "\\$&");
+
+const trimTrailingSlashes = (value: string): string => {
+	let end = value.length;
+	while (end > 0 && value.charCodeAt(end - 1) === 47) {
+		end--;
+	}
+	return value.slice(0, end);
+};
 
 const formatDuration = (seconds: number): string => {
 	if (!seconds || seconds <= 0) {
@@ -171,6 +178,12 @@ const buildFilterSQL = (
 
 		const key = `f${i}`;
 		const sqlField = field === "path" ? normalizedPathExpression(field) : field;
+		const normalizeExactPathValue =
+			field === "path" &&
+			(operator === "equals" ||
+				operator === "not_equals" ||
+				operator === "in" ||
+				operator === "not_in");
 
 		if (operator === "is_null") {
 			parts.push(`${sqlField} IS NULL`);
@@ -187,7 +200,9 @@ const buildFilterSQL = (
 				continue;
 			}
 			const negate = operator === "not_in" || operator === "not_equals";
-			params[key] = value;
+			params[key] = normalizeExactPathValue
+				? value.map(normalizeGoalPathTarget)
+				: value;
 			parts.push(
 				`${sqlField} ${negate ? "NOT IN" : "IN"} {${key}:Array(String)}`
 			);
@@ -219,7 +234,9 @@ const buildFilterSQL = (
 		}
 
 		const isNegative = operator === "not_equals" || operator === "not_in";
-		params[key] = value;
+		params[key] = normalizeExactPathValue
+			? normalizeGoalPathTarget(value)
+			: value;
 		parts.push(`${sqlField} ${isNegative ? "!=" : "="} {${key}:String}`);
 	}
 
@@ -260,7 +277,7 @@ const normalizeGoalPathTarget = (target: string): string => {
 	if (!pathOnly.startsWith("/")) {
 		pathOnly = `/${pathOnly}`;
 	}
-	const withoutTrailingSlash = pathOnly.replace(TRAILING_SLASH_REGEX, "");
+	const withoutTrailingSlash = trimTrailingSlashes(pathOnly);
 	return withoutTrailingSlash || "/";
 };
 

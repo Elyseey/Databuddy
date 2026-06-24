@@ -1,5 +1,11 @@
 import { describe, expect, it } from "bun:test";
-import { APP_EVENTS, MARKETING_PARAM_KEYS, readUtmProperties } from "./custom-events";
+import {
+	APP_EVENTS,
+	MARKETING_PARAM_KEYS,
+	SIGNUP_METHODS,
+	isSignupMethod,
+	readUtmProperties,
+} from "./custom-events";
 
 const SNAKE_CASE_EVENT_NAME = /^[a-z][a-z0-9]*(?:_[a-z0-9]+)*$/;
 
@@ -30,6 +36,13 @@ describe("custom event helpers", () => {
 			"oppref",
 			"wolref",
 		]);
+	});
+
+	it("keeps signup methods typed and parseable", () => {
+		expect(SIGNUP_METHODS).toEqual(["email", "social_github", "social_google"]);
+		expect(isSignupMethod("social_github")).toBe(true);
+		expect(isSignupMethod("github")).toBe(false);
+		expect(isSignupMethod(null)).toBe(false);
 	});
 
 	it("reads only trimmed UTM properties", () => {

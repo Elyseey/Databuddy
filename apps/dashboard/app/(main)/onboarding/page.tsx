@@ -3,7 +3,11 @@
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useWebsitesLight } from "@/hooks/use-websites";
-import { APP_EVENTS, trackAppEvent } from "@/lib/app-events";
+import {
+	APP_EVENTS,
+	consumePendingSocialSignup,
+	trackAppEvent,
+} from "@/lib/app-events";
 import { OnboardingStepIndicator } from "./_components/onboarding-step-indicator";
 import { StepCreateWebsite } from "./_components/step-create-website";
 import { StepExplore } from "./_components/step-explore";
@@ -74,6 +78,12 @@ export default function OnboardingPage() {
 
 	// Track onboarding start once
 	useEffect(() => {
+		const signupProperties = consumePendingSocialSignup();
+		if (signupProperties) {
+			trackAppEvent(APP_EVENTS.signupCompleted, signupProperties, {
+				flush: true,
+			});
+		}
 		trackAppEvent(APP_EVENTS.onboardingStarted);
 	}, []);
 
