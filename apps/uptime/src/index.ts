@@ -1,5 +1,6 @@
 import { shutdownPostgres } from "@databuddy/db";
 import { closeUptimeQueue } from "@databuddy/redis";
+import { databuddyEvlogRedaction } from "@databuddy/shared/evlog-redaction";
 import { Elysia } from "elysia";
 import { Effect } from "effect";
 import { initLogger, log } from "evlog";
@@ -22,6 +23,7 @@ initLogger({
 		region: process.env.RAILWAY_REPLICA_REGION,
 		commitHash: process.env.RAILWAY_GIT_COMMIT_SHA,
 	},
+	redact: databuddyEvlogRedaction,
 	drain: uptimeLoggerDrain,
 	sampling: {},
 });

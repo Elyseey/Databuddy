@@ -9,6 +9,7 @@ import { shutdownPostgres } from "@databuddy/db";
 import { clickHouse } from "@databuddy/db/clickhouse";
 import { disconnect, disposeRuntime, runPromise } from "@lib/producer";
 import { Kafka } from "kafkajs";
+import { databuddyEvlogRedaction } from "@databuddy/shared/evlog-redaction";
 import {
 	handleUncaughtException,
 	handleUnhandledRejection,
@@ -26,6 +27,7 @@ import { evlog } from "evlog/elysia";
 
 initLogger({
 	env: { service: "basket" },
+	redact: databuddyEvlogRedaction,
 	drain: basketLoggerDrain,
 	sampling: {
 		rates: { info: 20, warn: 50, debug: 5 },

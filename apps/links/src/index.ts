@@ -1,5 +1,6 @@
 import { db, shutdownPostgres, sql } from "@databuddy/db";
 import { redis } from "@databuddy/redis";
+import { databuddyEvlogRedaction } from "@databuddy/shared/evlog-redaction";
 import { Elysia, redirect } from "elysia";
 import { initLogger, log } from "evlog";
 import { evlog } from "evlog/elysia";
@@ -10,6 +11,7 @@ import { preloadGeoDatabase } from "./utils/geo";
 
 initLogger({
 	env: { service: "links" },
+	redact: databuddyEvlogRedaction,
 	drain,
 	sampling: {
 		rates: { info: 20, warn: 50, debug: 5 },

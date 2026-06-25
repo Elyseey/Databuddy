@@ -19,6 +19,8 @@
     "./analytics-filters": "./src/analytics-filters.ts",
     "./agent-credits": "./src/agent-credits.ts",
     "./tracking-blocks": "./src/tracking-blocks.ts",
+    "./evlog-fields": "./src/evlog-fields.ts",
+    "./evlog-redaction": "./src/evlog-redaction.ts",
     "./evlog-superlog": "./src/evlog-superlog.ts"
   },
   "scripts": {

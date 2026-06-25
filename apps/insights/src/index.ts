@@ -1,6 +1,7 @@
 import { setAiRequestLoggerProvider } from "@databuddy/ai/lib/request-logger";
 import { db, shutdownPostgres, sql } from "@databuddy/db";
 import { closeInsightsQueue, getInsightsQueue } from "@databuddy/redis";
+import { databuddyEvlogRedaction } from "@databuddy/shared/evlog-redaction";
 import { Elysia } from "elysia";
 import { initLogger } from "evlog";
 import {
@@ -30,6 +31,7 @@ initLogger({
 		region: process.env.RAILWAY_REPLICA_REGION,
 		commitHash: process.env.RAILWAY_GIT_COMMIT_SHA,
 	},
+	redact: databuddyEvlogRedaction,
 	drain: insightsLoggerDrain,
 	sampling: {},
 });
