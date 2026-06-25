@@ -1,11 +1,11 @@
 import { hasKeyScope } from "@databuddy/api-keys/resolve";
 import { requiredScopesForResource } from "@databuddy/api-keys/scopes";
+import type { User } from "@databuddy/auth";
 import {
 	type PermissionFor,
 	type ResourceType,
 	roleHasPermission,
-	type User,
-} from "@databuddy/auth";
+} from "@databuddy/auth/permissions";
 import { db } from "@databuddy/db";
 import { cacheNamespaces, cacheable } from "@databuddy/redis";
 import type { PlanId } from "@databuddy/shared/types/features";
