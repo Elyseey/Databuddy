@@ -103,7 +103,7 @@ process.on("SIGINT", () => shutdown("SIGINT"));
 
 type ProbeResult =
 	| { status: "ok"; latency_ms: number }
-	| { status: "error"; latency_ms: number; error: string };
+	| { status: "error"; latency_ms: number; code: "UNAVAILABLE" };
 
 const probe = (_name: string, fn: () => Promise<void>) =>
 	Effect.gen(function* () {
@@ -120,10 +120,16 @@ const probe = (_name: string, fn: () => Promise<void>) =>
 			),
 			Effect.catch(
 				(err): Effect.Effect<ProbeResult> =>
-					Effect.succeed({
-						status: "error",
-						latency_ms: Math.round(performance.now() - start),
-						error: err instanceof Error ? err.message : "unknown",
+					Effect.sync(() => {
+						log.error({
+							health_probe: _name,
+							error_message: err instanceof Error ? err.message : String(err),
+						});
+						return {
+							status: "error",
+							latency_ms: Math.round(performance.now() - start),
+							code: "UNAVAILABLE",
+						};
 					})
 			)
 		);
@@ -191,6 +197,14 @@ const app = new Elysia()
 			error_step: "elysia",
 			elysia_code: String(code),
 		});
+		return Response.json(
+			{
+				success: false,
+				error: "Internal server error",
+				code: "INTERNAL_SERVER_ERROR",
+			},
+			{ status: 500 }
+		);
 	})
 	.get("/health/status", async () => {
 		const result = await Effect.runPromise(healthCheck);

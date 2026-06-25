@@ -25,8 +25,22 @@ const app = new Elysia()
 	.use(evlog({ enrich }))
 	.get("/", () => redirect(rootRedirectUrl, 302))
 	.get("/health", () => Response.json({ status: "ok" }))
+	.onError(({ error }) => {
+		log.error({
+			error_message: error instanceof Error ? error.message : String(error),
+			error_step: "elysia",
+		});
+		return Response.json(
+			{
+				success: false,
+				error: "Internal server error",
+				code: "INTERNAL_SERVER_ERROR",
+			},
+			{ status: 500 }
+		);
+	})
 	.get("/health/status", async () => {
-		async function ping(probe: () => Promise<void>) {
+		async function ping(name: string, probe: () => Promise<void>) {
 			const start = performance.now();
 			try {
 				await probe();
@@ -35,17 +49,21 @@ const app = new Elysia()
 					latency_ms: Math.round(performance.now() - start),
 				};
 			} catch (err) {
+				log.error({
+					health_probe: name,
+					error_message: err instanceof Error ? err.message : String(err),
+				});
 				return {
 					status: "error" as const,
 					latency_ms: Math.round(performance.now() - start),
-					error: err instanceof Error ? err.message : "unknown",
+					code: "UNAVAILABLE",
 				};
 			}
 		}
 
 		const [postgres, cache] = await Promise.all([
-			ping(() => db.execute(sql`SELECT 1`).then(() => {})),
-			ping(() => redis.ping().then(() => {})),
+			ping("postgres", () => db.execute(sql`SELECT 1`).then(() => {})),
+			ping("redis", () => redis.ping().then(() => {})),
 		]);
 
 		const services = { postgres, redis: cache };
