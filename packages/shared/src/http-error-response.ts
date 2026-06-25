@@ -22,6 +22,8 @@ const SAFE_MESSAGE_BY_CODE: Record<string, string> = {
 	VALIDATION: "Invalid request",
 };
 
+const PUBLIC_RESPONSE_CODES = new Set(Object.keys(SAFE_MESSAGE_BY_CODE));
+
 export function buildHttpErrorResponse({
 	code,
 	error,
@@ -40,8 +42,12 @@ export function buildHttpErrorResponse({
 }
 
 function getResponseCode(code: string | number | undefined, status: number) {
-	if (code != null && status < 500) {
-		return String(code);
+	if (
+		typeof code === "string" &&
+		status < 500 &&
+		PUBLIC_RESPONSE_CODES.has(code)
+	) {
+		return code;
 	}
 	return status >= 500 ? "INTERNAL_SERVER_ERROR" : `HTTP_${status}`;
 }

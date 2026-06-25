@@ -46,6 +46,33 @@ describe("buildHttpErrorResponse", () => {
 		});
 	});
 
+	it("does not expose unknown client error codes", () => {
+		expect(
+			buildHttpErrorResponse({
+				code: "PRIVATE_PROVIDER_LIMIT",
+				error: { status: 429, message: "provider key is rate limited" },
+			})
+		).toEqual({
+			status: 429,
+			payload: {
+				success: false,
+				error: "Rate limit exceeded",
+				code: "HTTP_429",
+			},
+		});
+	});
+
+	it("treats numeric codes as status values, not public error codes", () => {
+		expect(buildHttpErrorResponse({ code: 404, error: new Error("missing") })).toEqual({
+			status: 404,
+			payload: {
+				success: false,
+				error: "Not found",
+				code: "HTTP_404",
+			},
+		});
+	});
+
 	it("falls back to internal server error for unknown failures", () => {
 		expect(buildHttpErrorResponse({ error: new Error("boom") })).toEqual({
 			status: 500,
