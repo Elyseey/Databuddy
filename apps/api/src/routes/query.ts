@@ -595,7 +595,7 @@ async function verifyScheduleAccess(
 
 	if (ctx.apiKey) {
 		const orgMatch =
-			hasKeyScope(ctx.apiKey, "read:data") &&
+			hasKeyScope(ctx.apiKey, "read:monitors") &&
 			ctx.apiKey.organizationId === schedule.organizationId;
 		if (!orgMatch) {
 			mergeWideEvent({ access_result: "api_key_denied" });
@@ -1055,7 +1055,12 @@ export const query = new Elysia({ prefix: "/v1/query" })
 		]);
 		const user = session?.user ?? null;
 
-		if (apiKey && !hasKeyScope(apiKey, "read:data")) {
+		if (
+			apiKey &&
+			!(
+				hasKeyScope(apiKey, "read:data") || hasKeyScope(apiKey, "read:monitors")
+			)
+		) {
 			return {
 				auth: {
 					apiKey: null,

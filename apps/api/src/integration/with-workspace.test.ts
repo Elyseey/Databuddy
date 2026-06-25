@@ -584,6 +584,88 @@ describe("withWorkspace", () => {
 		});
 	});
 
+	describe("monitor resource", () => {
+		iit("allows API key with read:monitors to read monitors", async () => {
+			const org = await insertOrganization();
+
+			const ws = await withWorkspace(apiKeyContext(org.id, ["read:monitors"]), {
+				organizationId: org.id,
+				resource: "monitor",
+				permissions: ["read"],
+			});
+			expect(ws.tier).toBe("authed");
+			expect(ws.user).toBeNull();
+		});
+
+		iit("denies API key with read:data from reading monitors", async () => {
+			const org = await insertOrganization();
+
+			await expectCode(
+				withWorkspace(apiKeyContext(org.id, ["read:data"]), {
+					organizationId: org.id,
+					resource: "monitor",
+					permissions: ["read"],
+				}),
+				"FORBIDDEN",
+			);
+		});
+
+		iit("allows API key with write:monitors to write monitors", async () => {
+			const org = await insertOrganization();
+
+			const ws = await withWorkspace(apiKeyContext(org.id, ["write:monitors"]), {
+				organizationId: org.id,
+				resource: "monitor",
+				permissions: ["update"],
+			});
+			expect(ws.tier).toBe("authed");
+		});
+	});
+
+	describe("status page resource", () => {
+		iit("allows API key with read:status_pages to read status pages", async () => {
+			const org = await insertOrganization();
+
+			const ws = await withWorkspace(
+				apiKeyContext(org.id, ["read:status_pages"]),
+				{
+					organizationId: org.id,
+					resource: "status_page",
+					permissions: ["read"],
+				},
+			);
+			expect(ws.tier).toBe("authed");
+			expect(ws.user).toBeNull();
+		});
+
+		iit("denies API key with read:data from reading status pages", async () => {
+			const org = await insertOrganization();
+
+			await expectCode(
+				withWorkspace(apiKeyContext(org.id, ["read:data"]), {
+					organizationId: org.id,
+					resource: "status_page",
+					permissions: ["read"],
+				}),
+				"FORBIDDEN",
+			);
+		});
+
+		iit("allows API key with write:status_pages to write status pages", async () => {
+			const org = await insertOrganization();
+
+			const ws = await withWorkspace(
+				apiKeyContext(org.id, ["write:status_pages"]),
+				{
+					organizationId: org.id,
+					resource: "status_page",
+					permissions: ["update"],
+				},
+			);
+			expect(ws.tier).toBe("authed");
+		});
+	});
+
 	describe("plan gating", () => {
 		iit("rejects when required plan not met", async () => {
 			const user = await signUp();
