@@ -190,7 +190,9 @@ describe("buildBasketErrorPayload", () => {
 		const issues = [{ message: "bad", path: ["x"], code: "custom" }];
 		const err = createIngestSchemaValidationError(issues as any);
 		const { payload } = buildBasketErrorPayload(err);
-		expect(payload.errors).toBe(issues);
+		expect(payload.errors).toEqual([
+			{ code: "custom", field: "x", message: "bad" },
+		]);
 	});
 
 	test("respects elysiaCode option", () => {

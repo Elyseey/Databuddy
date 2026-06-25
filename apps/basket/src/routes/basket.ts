@@ -597,11 +597,12 @@ const app = new Elysia()
 						});
 					}
 				} catch (error) {
+					log.error(error instanceof Error ? error : new Error(String(error)));
 					results.push({
 						status: "error",
 						message: "Processing failed",
+						code: "EVENT_PROCESSING_FAILED",
 						eventType,
-						error: String(error),
 					});
 				}
 			}
@@ -619,16 +620,33 @@ const app = new Elysia()
 				},
 			});
 
-			return Response.json({
-				status: "success",
-				batch: true,
-				processed: results.length,
-				batched: {
-					track: trackEvents.length,
-					outgoing_link: outgoingLinkEvents.length,
+			const failedCount = results.filter(
+				(result) =>
+					typeof result === "object" &&
+					result !== null &&
+					"status" in result &&
+					result.status === "error"
+			).length;
+			const responseStatus =
+				failedCount === 0
+					? "success"
+					: failedCount === results.length
+						? "error"
+						: "partial";
+
+			return Response.json(
+				{
+					status: responseStatus,
+					batch: true,
+					processed: results.length,
+					batched: {
+						track: trackEvents.length,
+						outgoing_link: outgoingLinkEvents.length,
+					},
+					results,
 				},
-				results,
-			});
+				{ status: responseStatus === "error" ? 400 : 200 }
+			);
 		} catch (error) {
 			rethrowOrWrap(error, log);
 		}

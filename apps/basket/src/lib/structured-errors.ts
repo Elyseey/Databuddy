@@ -4,6 +4,7 @@ import type { z } from "zod";
 export const basketErrors = {
 	trackPayloadTooLarge: () =>
 		createError({
+			code: "basket.TRACK_PAYLOAD_TOO_LARGE",
 			message: "Payload too large",
 			status: 413,
 			why: "Request body exceeds the maximum allowed size.",
@@ -12,6 +13,7 @@ export const basketErrors = {
 
 	trackInvalidBody: () =>
 		createError({
+			code: "basket.TRACK_INVALID_BODY",
 			message: "Invalid request body",
 			status: 400,
 			why: "The JSON body did not match the custom event schema.",
@@ -20,6 +22,7 @@ export const basketErrors = {
 
 	trackMissingScope: () =>
 		createError({
+			code: "basket.TRACK_MISSING_SCOPE",
 			message: "API key missing track:events scope",
 			status: 403,
 			why: "The API key is not allowed to send track events.",
@@ -28,6 +31,7 @@ export const basketErrors = {
 
 	trackMissingOwner: () =>
 		createError({
+			code: "basket.TRACK_MISSING_OWNER",
 			message: "API key missing owner",
 			status: 400,
 			why: "The key is not linked to a user or organization.",
@@ -36,6 +40,7 @@ export const basketErrors = {
 
 	trackMissingCredentials: () =>
 		createError({
+			code: "basket.TRACK_MISSING_CREDENTIALS",
 			message: "API key or website_id required",
 			status: 401,
 			why: "Neither an API key nor a website_id query parameter was provided.",
@@ -44,6 +49,7 @@ export const basketErrors = {
 
 	trackWebsiteNotFound: () =>
 		createError({
+			code: "basket.TRACK_WEBSITE_NOT_FOUND",
 			message: "Website not found",
 			status: 404,
 			why: "No active website matches the given website_id.",
@@ -52,6 +58,7 @@ export const basketErrors = {
 
 	trackWebsiteNoOrganization: () =>
 		createError({
+			code: "basket.TRACK_WEBSITE_NO_ORGANIZATION",
 			message: "Website missing organization",
 			status: 400,
 			why: "The website is not linked to an organization.",
@@ -60,6 +67,7 @@ export const basketErrors = {
 
 	trackWebsiteScopeMismatch: () =>
 		createError({
+			code: "basket.TRACK_WEBSITE_SCOPE_MISMATCH",
 			message: "Website scope mismatch",
 			status: 403,
 			why: "The event website_id does not match the authenticated website.",
@@ -68,6 +76,7 @@ export const basketErrors = {
 
 	trackRateLimited: () =>
 		createError({
+			code: "basket.TRACK_RATE_LIMITED",
 			message: "Rate limit exceeded",
 			status: 429,
 			why: "Too many /track requests from this principal.",
@@ -76,6 +85,7 @@ export const basketErrors = {
 
 	ingestPayloadTooLarge: () =>
 		createError({
+			code: "basket.INGEST_PAYLOAD_TOO_LARGE",
 			message: "Payload too large",
 			status: 413,
 			why: "Request body exceeds the maximum allowed size.",
@@ -84,6 +94,7 @@ export const basketErrors = {
 
 	ingestMissingClientId: () =>
 		createError({
+			code: "basket.INGEST_MISSING_CLIENT_ID",
 			message: "Missing client ID",
 			status: 400,
 			why: "No client_id query parameter or databuddy-client-id header was sent.",
@@ -92,6 +103,7 @@ export const basketErrors = {
 
 	ingestInvalidClientId: () =>
 		createError({
+			code: "basket.INGEST_INVALID_CLIENT_ID",
 			message: "Invalid or inactive client ID",
 			status: 400,
 			why: "The Client ID is unknown, inactive, or not found.",
@@ -100,6 +112,7 @@ export const basketErrors = {
 
 	ingestOriginNotAuthorized: () =>
 		createError({
+			code: "basket.INGEST_ORIGIN_NOT_AUTHORIZED",
 			message: "Origin not authorized",
 			status: 403,
 			why: "The request Origin does not match allowed origins for this website.",
@@ -108,6 +121,7 @@ export const basketErrors = {
 
 	ingestIpNotAuthorized: () =>
 		createError({
+			code: "basket.INGEST_IP_NOT_AUTHORIZED",
 			message: "IP address not authorized",
 			status: 403,
 			why: "The client IP is not in the allowed list for this website.",
@@ -116,6 +130,7 @@ export const basketErrors = {
 
 	ingestWebsiteMissingOrganization: () =>
 		createError({
+			code: "basket.INGEST_WEBSITE_MISSING_ORGANIZATION",
 			message: "Website missing organization",
 			status: 400,
 			why: "Custom events require the website to belong to an organization.",
@@ -124,6 +139,7 @@ export const basketErrors = {
 
 	ingestUnknownEventType: () =>
 		createError({
+			code: "basket.INGEST_UNKNOWN_EVENT_TYPE",
 			message: "Unknown event type",
 			status: 400,
 			why: "The type field does not match a supported ingestion event.",
@@ -132,6 +148,7 @@ export const basketErrors = {
 
 	ingestBatchNotArray: () =>
 		createError({
+			code: "basket.INGEST_BATCH_NOT_ARRAY",
 			message: "Batch endpoint expects array of events",
 			status: 400,
 			why: "The request body must be a JSON array of events.",
@@ -140,6 +157,7 @@ export const basketErrors = {
 
 	ingestBatchTooLarge: () =>
 		createError({
+			code: "basket.INGEST_BATCH_TOO_LARGE",
 			message: "Batch too large",
 			status: 400,
 			why: "The batch exceeds the maximum number of events per request.",
@@ -148,6 +166,7 @@ export const basketErrors = {
 
 	billingLimitExceeded: () =>
 		createError({
+			code: "basket.BILLING_LIMIT_EXCEEDED",
 			message: "Event quota exceeded",
 			status: 402,
 			why: "The billing provider denied this usage check.",
@@ -156,6 +175,7 @@ export const basketErrors = {
 
 	billingCheckUnavailable: () =>
 		createError({
+			code: "basket.BILLING_CHECK_UNAVAILABLE",
 			message: "Billing check unavailable",
 			status: 503,
 			why: "The event quota could not be verified before ingestion.",
@@ -171,6 +191,7 @@ export function createIngestSchemaValidationError(
 	issues: z.ZodIssue[]
 ): IngestSchemaValidationError {
 	const err = createError({
+		code: "basket.INVALID_EVENT_SCHEMA",
 		message: "Invalid event schema",
 		status: 400,
 		why: "The JSON did not match the expected event shape.",
@@ -215,20 +236,19 @@ export function buildBasketErrorPayload(
 ): { status: number; payload: Record<string, unknown> } {
 	const parsed = parseError(error);
 	const isDevelopment = process.env.NODE_ENV === "development";
-	const errorMessage = error instanceof Error ? error.message : String(error);
 	const statusCode =
 		parsed.status >= 400 && parsed.status < 600 ? parsed.status : 500;
-	const safeClientError =
-		isDevelopment || (statusCode >= 400 && statusCode < 500)
-			? errorMessage
-			: "An internal server error occurred";
-	const exposeStructured =
-		isDevelopment || (parsed.status >= 400 && parsed.status < 500);
+	const exposeStructured = isDevelopment || error instanceof EvlogError;
+	const safeClientError = getSafeBasketErrorMessage({
+		error,
+		isDevelopment,
+		statusCode,
+	});
 
-	const codeString =
-		options.elysiaCode == null
-			? "INTERNAL_SERVER_ERROR"
-			: String(options.elysiaCode);
+	const codeString = getBasketErrorCode({
+		elysiaCode: options.elysiaCode,
+		parsedCode: parsed.code,
+	});
 
 	const payload: Record<string, unknown> = {
 		success: false,
@@ -250,8 +270,90 @@ export function buildBasketErrorPayload(
 	}
 
 	if (isIngestSchemaValidationError(error)) {
-		payload.errors = error.issues;
+		payload.errors = sanitizeValidationIssues(error.issues);
 	}
 
 	return { status: statusCode, payload };
+}
+
+function getBasketErrorCode({
+	elysiaCode,
+	parsedCode,
+}: {
+	elysiaCode?: string | number;
+	parsedCode: unknown;
+}): string {
+	if (typeof parsedCode === "string" && parsedCode !== "") {
+		return parsedCode;
+	}
+	return elysiaCode == null ? "INTERNAL_SERVER_ERROR" : String(elysiaCode);
+}
+
+function sanitizeValidationIssues(
+	issues: z.ZodIssue[]
+): Array<{ code: string; field: string; message: string }> {
+	return issues.flatMap((issue) => {
+		const nestedIssues = getNestedUnionIssues(issue);
+		if (nestedIssues.length > 0) {
+			return sanitizeValidationIssues(nestedIssues);
+		}
+		return [
+			{
+				code: issue.code,
+				field: issue.path.join("."),
+				message: issue.message,
+			},
+		];
+	});
+}
+
+function getNestedUnionIssues(issue: z.ZodIssue): z.ZodIssue[] {
+	const errors = "errors" in issue ? issue.errors : null;
+	if (!Array.isArray(errors)) {
+		return [];
+	}
+	return errors.flatMap((branch) =>
+		Array.isArray(branch) ? (branch as z.ZodIssue[]) : []
+	);
+}
+
+function getSafeBasketErrorMessage({
+	error,
+	isDevelopment,
+	statusCode,
+}: {
+	error: unknown;
+	isDevelopment: boolean;
+	statusCode: number;
+}): string {
+	if (isDevelopment) {
+		return error instanceof Error ? error.message : String(error);
+	}
+
+	if (error instanceof EvlogError) {
+		return error.message;
+	}
+
+	if (statusCode === 401) {
+		return "Authentication required";
+	}
+	if (statusCode === 403) {
+		return "Forbidden";
+	}
+	if (statusCode === 404) {
+		return "Not found";
+	}
+	if (statusCode === 413) {
+		return "Payload too large";
+	}
+	if (statusCode === 429) {
+		return "Rate limit exceeded";
+	}
+	if (statusCode === 503) {
+		return "Service temporarily unavailable";
+	}
+	if (statusCode >= 400 && statusCode < 500) {
+		return "Invalid request";
+	}
+	return "An internal server error occurred";
 }
