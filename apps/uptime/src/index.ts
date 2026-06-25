@@ -1,5 +1,6 @@
 import { shutdownPostgres } from "@databuddy/db";
 import { closeUptimeQueue } from "@databuddy/redis";
+import { buildHttpErrorResponse } from "@databuddy/shared/http-error-response";
 import { databuddyEvlogRedaction } from "@databuddy/shared/evlog-redaction";
 import { Elysia } from "elysia";
 import { Effect } from "effect";
@@ -195,18 +196,23 @@ const app = new Elysia()
 		})
 	)
 	.onError(function handleError({ error, code }) {
-		captureError(error, {
+		const { payload, status } = buildHttpErrorResponse({ code, error });
+		const event: Record<string, string | number | boolean> = {
 			error_step: "elysia",
-			elysia_code: String(code),
-		});
-		return Response.json(
-			{
-				success: false,
-				error: "Internal server error",
-				code: "INTERNAL_SERVER_ERROR",
-			},
-			{ status: 500 }
-		);
+			status,
+		};
+		if (code != null) {
+			event.elysia_code = String(code);
+		}
+		if (status >= 500) {
+			captureError(error, event);
+		} else {
+			log.warn({
+				...event,
+				error_message: error instanceof Error ? error.message : String(error),
+			});
+		}
+		return Response.json(payload, { status });
 	})
 	.get("/health/status", async () => {
 		const result = await Effect.runPromise(healthCheck);

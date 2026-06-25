@@ -35,11 +35,14 @@ export function handleAppError({ error, code }: AppErrorContext) {
 		parsedCode: parsed.code,
 	});
 	const isDevelopment = process.env.NODE_ENV === "development";
-	const exposeStructured = isDevelopment || isStructuredError(error);
+	const isClientError = statusCode >= 400 && statusCode < 500;
+	const exposeStructured =
+		isDevelopment || (isClientError && isStructuredError(error));
 	const safeClientError = getSafeErrorMessage({
 		code: errorCode,
 		error,
 		isDevelopment,
+		isClientError,
 		statusCode,
 	});
 
@@ -74,11 +77,13 @@ function getErrorCode({
 function getSafeErrorMessage({
 	code,
 	error,
+	isClientError,
 	isDevelopment,
 	statusCode,
 }: {
 	code: string;
 	error: unknown;
+	isClientError: boolean;
 	isDevelopment: boolean;
 	statusCode: number;
 }): string {
@@ -86,7 +91,7 @@ function getSafeErrorMessage({
 		return error instanceof Error ? error.message : String(error);
 	}
 
-	if (isStructuredError(error) && error instanceof Error) {
+	if (isClientError && isStructuredError(error) && error instanceof Error) {
 		return error.message;
 	}
 

@@ -495,6 +495,27 @@ describe("POST /batch", () => {
 		expect(results[1].status).toBe("error");
 		expect(results[1].message).toBe("Unknown event type");
 	});
+
+	test("all invalid batch items keep transport 200 with per-item errors", async () => {
+		const res = await post(basketApp, "/batch", [
+			{ type: "bogus_type" },
+			{ type: "also_bogus" },
+		]);
+		expect(res.status).toBe(200);
+		const body = await json(res);
+		expect(body.status).toBe("error");
+		expect(body.processed).toBe(2);
+		expect(body.results).toEqual([
+			expect.objectContaining({
+				status: "error",
+				message: "Unknown event type",
+			}),
+			expect.objectContaining({
+				status: "error",
+				message: "Unknown event type",
+			}),
+		]);
+	});
 });
 
 // ── GET /px.jpg ──

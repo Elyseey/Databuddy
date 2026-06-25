@@ -6,20 +6,20 @@ import { ZodToJsonSchemaConverter } from "@orpc/zod/zod4";
 import { onError } from "@orpc/server";
 import {
 	API_KEY_DESCRIPTION,
+	type HiddenOpenApiRouter,
 	HIDDEN_OPENAPI_ROUTERS,
 	OPENAPI_DESCRIPTION,
 	OPENAPI_TAGS,
 } from "./openapi-config";
 import { logOrpcHandlerError } from "./interceptors";
 
+const hiddenOpenApiRouters = new Set<string>(HIDDEN_OPENAPI_ROUTERS);
+
 const docsRouter = Object.fromEntries(
 	Object.entries(appRouter).filter(
-		([key]: [string, unknown]) =>
-			!HIDDEN_OPENAPI_ROUTERS.includes(
-				key as (typeof HIDDEN_OPENAPI_ROUTERS)[number]
-			)
+		([key]: [string, unknown]) => !hiddenOpenApiRouters.has(key)
 	)
-) as Omit<typeof appRouter, (typeof HIDDEN_OPENAPI_ROUTERS)[number]>;
+) as Omit<typeof appRouter, HiddenOpenApiRouter>;
 
 export const openApiHandler = new OpenAPIHandler(docsRouter, {
 	plugins: [

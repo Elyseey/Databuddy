@@ -10,6 +10,7 @@ import type {
 	SignupMethod,
 } from "@databuddy/shared/custom-events";
 import {
+	SIGNUP_METHODS,
 	UTM_PARAM_KEYS,
 	isSignupMethod,
 } from "@databuddy/shared/custom-events";
@@ -58,10 +59,13 @@ export function trackAppEvent<Name extends AppEventName>(
 	}
 }
 
-const SOCIAL_SIGNUP_METHODS = new Set<SignupMethod>([
-	"social_github",
-	"social_google",
-]);
+const SOCIAL_SIGNUP_METHODS = new Set<SignupMethod>(
+	SIGNUP_METHODS.filter(isSocialSignupMethod)
+);
+
+export function isSocialSignupMethod(method: SignupMethod): boolean {
+	return method.startsWith("social_");
+}
 
 function trimStoredString(value: unknown, maxLength = 160): string | undefined {
 	if (typeof value !== "string") {

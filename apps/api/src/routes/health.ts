@@ -7,7 +7,7 @@ type PingResult =
 	| { status: "ok"; latency_ms: number }
 	| { status: "error"; latency_ms: number; code: "UNAVAILABLE" };
 
-async function ping(
+export async function ping(
 	name: string,
 	probe: () => Promise<unknown>
 ): Promise<PingResult> {
@@ -19,7 +19,8 @@ async function ping(
 			latency_ms: Math.round(performance.now() - start),
 		};
 	} catch (err) {
-		useLogger().error(err instanceof Error ? err : new Error(String(err)), {
+		useLogger().warn("Health probe unavailable", {
+			error_message: err instanceof Error ? err.message : String(err),
 			health_probe: name,
 		});
 		return {

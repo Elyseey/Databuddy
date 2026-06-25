@@ -634,19 +634,16 @@ const app = new Elysia()
 						? "error"
 						: "partial";
 
-			return Response.json(
-				{
-					status: responseStatus,
-					batch: true,
-					processed: results.length,
-					batched: {
-						track: trackEvents.length,
-						outgoing_link: outgoingLinkEvents.length,
-					},
-					results,
+			return Response.json({
+				status: responseStatus,
+				batch: true,
+				processed: results.length,
+				batched: {
+					track: trackEvents.length,
+					outgoing_link: outgoingLinkEvents.length,
 				},
-				{ status: responseStatus === "error" ? 400 : 200 }
-			);
+				results,
+			});
 		} catch (error) {
 			rethrowOrWrap(error, log);
 		}

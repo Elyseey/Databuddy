@@ -1,5 +1,6 @@
 import { db, shutdownPostgres, sql } from "@databuddy/db";
 import { redis } from "@databuddy/redis";
+import { buildHttpErrorResponse } from "@databuddy/shared/http-error-response";
 import { databuddyEvlogRedaction } from "@databuddy/shared/evlog-redaction";
 import { Elysia, redirect } from "elysia";
 import { initLogger, log } from "evlog";
@@ -27,19 +28,22 @@ const app = new Elysia()
 	.use(evlog({ enrich }))
 	.get("/", () => redirect(rootRedirectUrl, 302))
 	.get("/health", () => Response.json({ status: "ok" }))
-	.onError(({ error }) => {
-		log.error({
+	.onError(({ code, error }) => {
+		const { payload, status } = buildHttpErrorResponse({ code, error });
+		const event: Record<string, string | number> = {
 			error_message: error instanceof Error ? error.message : String(error),
 			error_step: "elysia",
-		});
-		return Response.json(
-			{
-				success: false,
-				error: "Internal server error",
-				code: "INTERNAL_SERVER_ERROR",
-			},
-			{ status: 500 }
-		);
+			status,
+		};
+		if (code != null) {
+			event.elysia_code = String(code);
+		}
+		if (status >= 500) {
+			log.error(event);
+		} else {
+			log.warn(event);
+		}
+		return Response.json(payload, { status });
 	})
 	.get("/health/status", async () => {
 		async function ping(name: string, probe: () => Promise<void>) {

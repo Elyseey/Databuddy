@@ -1,4 +1,11 @@
-export const HIDDEN_OPENAPI_ROUTERS = ["revenue", "billing"] as const;
+import type { AppRouter } from "@databuddy/rpc";
+
+export const HIDDEN_OPENAPI_ROUTERS = [
+	"revenue",
+	"billing",
+] as const satisfies readonly (keyof AppRouter)[];
+
+export type HiddenOpenApiRouter = (typeof HIDDEN_OPENAPI_ROUTERS)[number];
 
 export const AVAILABLE_API_SCOPES =
 	"read:data | track:events | read:links | write:links | read:monitors | write:monitors | read:status_pages | write:status_pages | manage:websites | manage:flags | manage:config";
