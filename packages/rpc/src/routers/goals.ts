@@ -14,6 +14,7 @@ import {
 	getTotalWebsiteUsers,
 	processGoalAnalytics,
 } from "../lib/analytics-utils";
+import { logger } from "../lib/logger";
 import { setTrackProperties } from "../middleware/track-mutation";
 import { publicProcedure, trackedProcedure } from "../orpc";
 import {
@@ -527,11 +528,19 @@ export const goalsRouter = {
 						);
 						return [goal.id, { ok: true, data: analytics }];
 					} catch (error) {
+						logger.error(
+							{
+								error,
+								goalId: goal.id,
+								websiteId: input.websiteId,
+							},
+							"Failed to process goal analytics"
+						);
 						return [
 							goal.id,
 							{
 								ok: false,
-								error: `Failed to process: ${error instanceof Error ? error.message : "Unknown error"}`,
+								error: "Failed to process goal analytics",
 							},
 						];
 					}
