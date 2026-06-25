@@ -100,7 +100,9 @@ export function applyVisitorIdPrivacy(
 		VALIDATION_LIMITS.SHORT_STRING_MAX_LENGTH
 	);
 	if (!sanitized) {
-		return sanitized;
+		// Required ClickHouse String columns use "" for missing IDs; do not
+		// hash an empty value into a fake day-stable visitor.
+		return "";
 	}
 
 	if (!anonymizeVisitorIds) {

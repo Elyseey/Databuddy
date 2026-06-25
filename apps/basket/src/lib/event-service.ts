@@ -271,17 +271,18 @@ export function insertErrorSpans(
 			return;
 		}
 
-		const salt = errors.some((error) =>
+		const shouldAnonymize = errors.map((error) =>
 			shouldAnonymizeVisitorIds(error.anonymizeVisitorIds, visitorCountry)
-		)
+		);
+		const salt = shouldAnonymize.includes(true)
 			? await getDailySalt()
 			: undefined;
 		const now = Date.now();
-		const spans: ErrorSpanRow[] = errors.map((error) => ({
+		const spans: ErrorSpanRow[] = errors.map((error, index) => ({
 			client_id: clientId,
 			anonymous_id: applyVisitorIdPrivacy(
 				error.anonymousId,
-				shouldAnonymizeVisitorIds(error.anonymizeVisitorIds, visitorCountry),
+				shouldAnonymize[index] === true,
 				salt
 			),
 			session_id: validateSessionId(error.sessionId),
@@ -319,17 +320,18 @@ export function insertIndividualVitals(
 			return;
 		}
 
-		const salt = vitals.some((vital) =>
+		const shouldAnonymize = vitals.map((vital) =>
 			shouldAnonymizeVisitorIds(vital.anonymizeVisitorIds, visitorCountry)
-		)
+		);
+		const salt = shouldAnonymize.includes(true)
 			? await getDailySalt()
 			: undefined;
 		const now = Date.now();
-		const spans: WebVitalsSpan[] = vitals.map((vital) => ({
+		const spans: WebVitalsSpan[] = vitals.map((vital, index) => ({
 			client_id: clientId,
 			anonymous_id: applyVisitorIdPrivacy(
 				vital.anonymousId,
-				shouldAnonymizeVisitorIds(vital.anonymizeVisitorIds, visitorCountry),
+				shouldAnonymize[index] === true,
 				salt
 			),
 			session_id: validateSessionId(vital.sessionId),
@@ -376,13 +378,14 @@ export function insertCustomEvents(
 			return;
 		}
 
-		const salt = events.some((event) =>
+		const shouldAnonymize = events.map((event) =>
 			shouldAnonymizeVisitorIds(event.anonymizeVisitorIds, visitorCountry)
-		)
+		);
+		const salt = shouldAnonymize.includes(true)
 			? await getDailySalt()
 			: undefined;
 
-		const spans = events.map((event) => ({
+		const spans = events.map((event, index) => ({
 			owner_id: event.owner_id,
 			website_id: event.website_id,
 			timestamp: event.timestamp,
@@ -403,10 +406,7 @@ export function insertCustomEvents(
 			anonymous_id: event.anonymous_id
 				? applyVisitorIdPrivacy(
 						event.anonymous_id,
-						shouldAnonymizeVisitorIds(
-							event.anonymizeVisitorIds,
-							visitorCountry
-						),
+						shouldAnonymize[index] === true,
 						salt
 					)
 				: undefined,

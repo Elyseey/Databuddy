@@ -106,6 +106,12 @@ describe("visitor ID anonymization helpers", () => {
 			saltAnonymousId("anon_123", "salt")
 		);
 	});
+
+	test("keeps missing visitor IDs empty instead of salting them", () => {
+		expect(applyVisitorIdPrivacy(undefined, true, "salt")).toBe("");
+		expect(applyVisitorIdPrivacy(null, true, "salt")).toBe("");
+		expect(applyVisitorIdPrivacy("", true, "salt")).toBe("");
+	});
 });
 
 // ── checkDuplicate (needs Redis mock) ──
