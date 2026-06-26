@@ -1,4 +1,4 @@
-import type { ResourceType } from "@databuddy/auth";
+import type { ResourceType } from "@databuddy/auth/permissions";
 import { db } from "@databuddy/db";
 import { rpcError } from "../errors";
 import type { Context } from "../orpc";

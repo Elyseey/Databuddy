@@ -41,7 +41,7 @@ import {
 	getWebsiteDomain,
 } from "@databuddy/ai/lib/website-utils";
 import { resolveDatePreset } from "@databuddy/ai/lib/date-presets";
-import { mergeWideEvent } from "@databuddy/ai/lib/tracing";
+import { captureError, mergeWideEvent } from "@databuddy/ai/lib/tracing";
 import {
 	CompileRequestSchema,
 	type CompileRequestType,
@@ -103,6 +103,8 @@ interface ValidationError {
 	message: string;
 	suggestion?: string;
 }
+
+const QUERY_EXECUTION_ERROR_MESSAGE = "Query execution failed";
 
 interface ResolvedDateRange {
 	endDate?: string;
@@ -593,7 +595,7 @@ async function verifyScheduleAccess(
 
 	if (ctx.apiKey) {
 		const orgMatch =
-			hasKeyScope(ctx.apiKey, "read:data") &&
+			hasKeyScope(ctx.apiKey, "read:monitors") &&
 			ctx.apiKey.organizationId === schedule.organizationId;
 		if (!orgMatch) {
 			mergeWideEvent({ access_result: "api_key_denied" });
@@ -992,11 +994,18 @@ async function executeDynamicQuery(
 			const param = validParameters[i];
 			const result = results[i];
 			if (param) {
+				if (result?.error) {
+					captureError(new Error(result.error), {
+						query_type: param.request.type,
+						route: "v1/query",
+						step: "execute_batch",
+					});
+				}
 				resultMap.set(param.id, {
 					parameter: param.id,
 					success: !result?.error,
 					data: result?.data || [],
-					error: result?.error,
+					error: result?.error ? QUERY_EXECUTION_ERROR_MESSAGE : undefined,
 				});
 			}
 		}
@@ -1046,7 +1055,12 @@ export const query = new Elysia({ prefix: "/v1/query" })
 		]);
 		const user = session?.user ?? null;
 
-		if (apiKey && !hasKeyScope(apiKey, "read:data")) {
+		if (
+			apiKey &&
+			!(
+				hasKeyScope(apiKey, "read:data") || hasKeyScope(apiKey, "read:monitors")
+			)
+		) {
 			return {
 				auth: {
 					apiKey: null,
@@ -1307,24 +1321,31 @@ export const query = new Elysia({ prefix: "/v1/query" })
 								timezone,
 								cache,
 								organizationScope
-							).catch((e) => ({
-								queryId: req.id,
-								data: [
-									{
-										parameter: req.parameters[0] as string,
-										success: false,
-										error: e instanceof Error ? e.message : "Query failed",
-										data: [],
+							).catch((error) => {
+								captureError(error, {
+									query_id: req.id,
+									route: "v1/query",
+									step: "execute_dynamic_query",
+								});
+								return {
+									queryId: req.id,
+									data: [
+										{
+											parameter: req.parameters[0] as string,
+											success: false,
+											error: QUERY_EXECUTION_ERROR_MESSAGE,
+											data: [],
+										},
+									],
+									meta: {
+										parameters: req.parameters,
+										total_parameters: req.parameters.length,
+										page: req.page || 1,
+										limit: req.limit || 100,
+										filters_applied: req.filters?.length || 0,
 									},
-								],
-								meta: {
-									parameters: req.parameters,
-									total_parameters: req.parameters.length,
-									page: req.page || 1,
-									limit: req.limit || 100,
-									filters_applied: req.filters?.length || 0,
-								},
-							}));
+								};
+							});
 						})
 					);
 					return { success: true, requestId, batch: true, results };

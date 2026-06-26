@@ -14,6 +14,7 @@ import {
 	getTotalWebsiteUsers,
 	processGoalAnalytics,
 } from "../lib/analytics-utils";
+import { logger } from "../lib/logger";
 import { setTrackProperties } from "../middleware/track-mutation";
 import { publicProcedure, trackedProcedure } from "../orpc";
 import {
@@ -36,7 +37,16 @@ async function invalidateGoalsCache(websiteId: string): Promise<void> {
 
 const filterSchema = z.object({
 	field: z.string(),
-	operator: z.enum(["equals", "contains", "not_equals", "in", "not_in"]),
+	operator: z.enum([
+		"equals",
+		"contains",
+		"not_contains",
+		"starts_with",
+		"ends_with",
+		"not_equals",
+		"in",
+		"not_in",
+	]),
 	value: z.union([z.string(), z.array(z.string())]),
 });
 
@@ -107,6 +117,13 @@ const goalAnalyticsOutputSchema = z.object({
 	}),
 });
 
+const goalAnalyticsResultSchema = z.discriminatedUnion("ok", [
+	z.object({ ok: z.literal(true), data: goalAnalyticsOutputSchema }),
+	z.object({ ok: z.literal(false), error: z.string() }),
+]);
+
+type GoalAnalyticsResult = z.infer<typeof goalAnalyticsResultSchema>;
+
 const getDefaultDateRange = () => {
 	const endDate = new Date().toISOString().split("T")[0];
 	const startDate = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000)
@@ -129,6 +146,9 @@ const getEffectiveStartDate = (
 		? requestedStartDate
 		: createdDate;
 };
+
+const getAnalyticsStepType = (type: "CUSTOM" | "EVENT" | "PAGE_VIEW") =>
+	type === "PAGE_VIEW" ? "PAGE_VIEW" : "EVENT";
 
 export const goalsRouter = {
 	list: publicProcedure
@@ -358,6 +378,7 @@ export const goalsRouter = {
 				websiteId: z.string(),
 				startDate: z.string().optional(),
 				endDate: z.string().optional(),
+				filters: z.array(filterSchema).optional(),
 			})
 		)
 		.output(goalAnalyticsOutputSchema)
@@ -390,7 +411,8 @@ export const goalsRouter = {
 				goal.ignoreHistoricData
 			);
 
-			const cacheKey = `analytics:${input.goalId}:${effectiveStartDate}:${endDate}`;
+			const requestFilters = input.filters ?? [];
+			const cacheKey = `analytics:${input.goalId}:${effectiveStartDate}:${endDate}:${JSON.stringify(requestFilters)}`;
 
 			return cache.withCache({
 				key: cacheKey,
@@ -400,21 +422,23 @@ export const goalsRouter = {
 					const steps: AnalyticsStep[] = [
 						{
 							step_number: 1,
-							type: goal.type as "PAGE_VIEW" | "EVENT",
+							type: getAnalyticsStepType(goal.type),
 							target: goal.target,
 							name: goal.name,
 						},
 					];
 
 					const filters = (goal.filters as Filter[]) || [];
+					const combinedFilters = [...requestFilters, ...filters];
 					const totalWebsiteUsers = await getTotalWebsiteUsers(
 						input.websiteId,
 						effectiveStartDate,
-						endDate
+						endDate,
+						combinedFilters
 					);
 					return await processGoalAnalytics(
 						steps,
-						filters,
+						combinedFilters,
 						{
 							websiteId: input.websiteId,
 							startDate: effectiveStartDate,
@@ -441,9 +465,10 @@ export const goalsRouter = {
 				goalIds: z.array(z.string()).min(1),
 				startDate: z.string().optional(),
 				endDate: z.string().optional(),
+				filters: z.array(filterSchema).optional(),
 			})
 		)
-		.output(z.record(z.string(), z.any()))
+		.output(z.record(z.string(), goalAnalyticsResultSchema))
 		.use(withWebsiteRead)
 		.handler(async ({ context, input }) => {
 			const { startDate, endDate } =
@@ -463,14 +488,9 @@ export const goalsRouter = {
 				)
 				.orderBy(desc(goals.createdAt));
 
-			const baseTotalUsers = await getTotalWebsiteUsers(
-				input.websiteId,
-				startDate,
-				endDate
-			);
-
+			const requestFilters = input.filters ?? [];
 			const results = await Promise.all(
-				goalsList.map(async (goal) => {
+				goalsList.map(async (goal): Promise<[string, GoalAnalyticsResult]> => {
 					const effectiveStartDate = getEffectiveStartDate(
 						startDate,
 						goal.createdAt,
@@ -480,25 +500,25 @@ export const goalsRouter = {
 					const steps: AnalyticsStep[] = [
 						{
 							step_number: 1,
-							type: goal.type as "PAGE_VIEW" | "EVENT",
+							type: getAnalyticsStepType(goal.type),
 							target: goal.target,
 							name: goal.name,
 						},
 					];
 
 					const filters = (goal.filters as Filter[]) || [];
-					const totalUsers = goal.ignoreHistoricData
-						? await getTotalWebsiteUsers(
-								input.websiteId,
-								effectiveStartDate,
-								endDate
-							)
-						: baseTotalUsers;
+					const combinedFilters = [...requestFilters, ...filters];
 
 					try {
+						const totalUsers = await getTotalWebsiteUsers(
+							input.websiteId,
+							effectiveStartDate,
+							endDate,
+							combinedFilters
+						);
 						const analytics = await processGoalAnalytics(
 							steps,
-							filters,
+							combinedFilters,
 							{
 								websiteId: input.websiteId,
 								startDate: effectiveStartDate,
@@ -506,18 +526,31 @@ export const goalsRouter = {
 							},
 							totalUsers
 						);
-						return { id: goal.id, result: analytics };
+						return [goal.id, { ok: true, data: analytics }];
 					} catch (error) {
-						return {
-							id: goal.id,
-							result: {
-								error: `Failed to process: ${error instanceof Error ? error.message : "Unknown error"}`,
+						logger.error(
+							{
+								error,
+								goalId: goal.id,
+								websiteId: input.websiteId,
 							},
-						};
+							"Failed to process goal analytics"
+						);
+						return [
+							goal.id,
+							{
+								ok: false,
+								error: "Failed to process goal analytics",
+							},
+						];
 					}
 				})
 			);
 
-			return Object.fromEntries(results.map(({ id, result }) => [id, result]));
+			const analyticsByGoal: Record<string, GoalAnalyticsResult> = {};
+			for (const [goalId, result] of results) {
+				analyticsByGoal[goalId] = result;
+			}
+			return analyticsByGoal;
 		}),
 };
