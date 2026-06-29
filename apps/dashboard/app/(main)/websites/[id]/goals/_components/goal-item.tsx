@@ -26,12 +26,12 @@ interface GoalItemProps {
 function GoalProgress({ rate }: { rate: number }) {
 	const clampedRate = Math.max(0, Math.min(100, rate));
 	return (
-		<span className="block h-5 w-32 overflow-hidden rounded bg-muted lg:w-44">
+		<div className="h-5 w-32 overflow-hidden rounded bg-muted lg:w-44">
 			<div
 				className="h-full rounded bg-chart-1 transition-[width]"
 				style={{ width: `${clampedRate}%` }}
 			/>
-		</span>
+		</div>
 	);
 }
 
